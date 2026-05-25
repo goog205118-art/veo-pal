@@ -49,6 +49,14 @@
 - Covered reference list add/remove/clear and frame image set/clear flows.
 - Covered submit cleanup and task-to-console hydration flows.
 - Kept read paths as-is (`globalStore.getState()`) to minimize behavior drift.
+- Repaired legacy string/annotation corruption points that caused runtime parse failures in `app.js`.
+- Stabilized `generateCardHTML` template block and duplicate-card flow syntax.
+
+## Runtime Validation
+- `node --check js/store.js`: pass
+- `node --check js/db.js`: pass
+- `node --check js/app.js`: pass
+- `node --check js/flow/flow-engine.js`: pass
 
 ## Compatibility Notes
 - `db` starts as `undefined` before `initDB` success, preserving old guard behavior in `flow-engine.js`.

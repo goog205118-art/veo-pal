@@ -138,7 +138,7 @@ function startLoginTransition() {
 async function handleLoginSubmit(e) {
     e.preventDefault(); 
     const pwdInput = document.getElementById('studio-pwd-input').value.trim(), btn = document.getElementById('login-submit-btn');
-    if (!pwdInput) return showToast("璇疯緭鍏ュ瘑閽?, "error");
+    if (!pwdInput) return showToast("请输入密钥", "error");
     btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:20px;height:20px;stroke:currentColor;margin:0 auto;"><circle cx="25" cy="25" r="20"></circle></svg>`; btn.style.pointerEvents = 'none';
 
     const inputHash = await hashPassword(pwdInput);
@@ -250,9 +250,9 @@ async function deduplicateMaterials(event) {
 
         if (removedCount > 0) {
             await renderMaterialLibrary();
-            showToast(`鉁?娓呯悊瀹屾瘯锛氬凡鎴愬姛鍓旈櫎 ${removedCount} 寮犲畬鍏ㄩ噸澶嶇殑绱犳潗锛乣, "success");
+            showToast(`去重完成，已删除 ${removedCount} 个重复素材`, "success");
         } else {
-            showToast("馃専 鎮ㄧ殑绱犳潗搴撳緢骞插噣锛屾病鏈夊彂鐜伴噸澶嶅浘鐗囥€?, "info");
+            showToast("素材库很干净，未发现重复图片", "info");
         }
     } catch (err) {
         console.error('鍘婚噸寮曟搸鏁呴殰:', err);
@@ -269,18 +269,18 @@ async function clearAllMaterials() {
         const materials = tasks.filter(t => t.type === 'local_image');
         await Promise.all(materials.map(m => deleteTaskDB(m.id)));
         await renderMaterialLibrary();
-        showToast("馃棏锔?绱犳潗搴撳凡鍏ㄩ儴娓呯┖锛岀┖闂村凡閲婃斁銆?, "success");
+        showToast("素材库已清空，空间已释放", "success");
     }
 }
 
 async function deleteMaterial(e, id) {
     e.stopPropagation();
-    if(confirm('馃棏锔?纭畾瑕佷粠绱犳潗搴撳交搴曢攢姣佽繖寮犲浘鐗囧悧锛?)) { await deleteTaskDB(id); renderMaterialLibrary(); showToast("宸查攢姣佺礌鏉?, "success"); }
+    if(confirm('确定要从素材库永久删除这张图片吗？')) { await deleteTaskDB(id); renderMaterialLibrary(); showToast("素材已删除", "success"); }
 }
 
-async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `锟?{stats.totalCost}`; }
+async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `$${stats.totalCost}`; }
 async function openBillingModal() {
-    const stats = await getBillingStats(); document.getElementById('bill-total').innerText = '锟? + stats.totalCost; document.getElementById('bill-video-count').innerText = stats.videoCount; document.getElementById('bill-image-count').innerText = stats.imageCount;
+    const stats = await getBillingStats(); document.getElementById('bill-total').innerText = '$' + stats.totalCost; document.getElementById('bill-video-count').innerText = stats.videoCount; document.getElementById('bill-image-count').innerText = stats.imageCount;
     const modal = document.getElementById('billing-modal'); modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show');
 }
 function closeBillingModal() { const modal = document.getElementById('billing-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
@@ -305,7 +305,7 @@ function updateBatchCount(select) { document.getElementById('batch-text').innerT
 
 async function alignSelectedCards() {
     const tasks = await getAllTasksDB();
-    if (tasks.length === 0) return showToast("鐢诲竷涓婄洰鍓嶆病鏈変换浣曞崱鐗?, "info");
+    if (tasks.length === 0) return showToast("画布上暂无卡片", "info");
     let targetIds = selectedTasks.size > 0 ? Array.from(selectedTasks) : tasks.map(t => t.id);
     let cardsToAlign = tasks.filter(t => targetIds.includes(t.id) && t.type !== 'local_image' && t.type !== 'frame' && !t.parentId);
     
@@ -356,7 +356,7 @@ async function createFrame() {
 
     await saveTaskDB(newFrame);
     for (let t of selected) { t.parentId = frameId; await saveTaskDB(t); }
-    clearSelection(); await renderBoard(); showToast(`鉁?宸插皢 ${selected.length} 涓崱鐗囨敹绾充负椤圭洰缁刞, "success");
+    clearSelection(); await renderBoard(); showToast(`已将 ${selected.length} 个卡片收纳为项目组`, "success");
 }
 
 async function updateTaskField(id, key, val) { const task = await getTaskDB(id); if (task) { task[key] = val; await saveTaskDB(task); } }
@@ -538,7 +538,8 @@ function startFrameResize(e, id) {
     };
 }
 
-// 鉁?鏇挎崲涓烘敮鎸?Alt 鍏嬮殕鐨勬嫋鎷界粦瀹氬紩鎿?function bindCardDrag(cardEl, task) {
+// 支持 Alt 克隆的卡片拖拽绑定
+function bindCardDrag(cardEl, task) {
     cardEl.__veoTask = task; 
     cardEl.onmousedown = (e) => { 
         if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) { 
@@ -548,23 +549,24 @@ function startFrameResize(e, id) {
     
     const header = cardEl.querySelector('.card-header') || cardEl.querySelector('.frame-header');
     if(header) {
-        // 馃専 鏀逛负 async 鍑芥暟锛屽洜涓哄厠闅嗛渶瑕佹煡搴?        header.onmousedown = async (e) => {
+        header.onmousedown = async (e) => {
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
 
-            // 馃専馃専馃専 鏂板锛氫睛娴嬪埌鎸変綇 Alt 閿紝鐩存帴鎵ц鍏嬮殕骞堕樆鏂師鍗＄墖鐨勬嫋鎷?            if (e.altKey) {
+            if (e.altKey) {
                 e.stopPropagation();
                 await duplicateTask(task, e);
                 return;
             }
 
-            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform'; 
+            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             } else {
                 if (!selectedTasks.has(task.id)) { clearSelection(); selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             }
-            draggingCardInfo = { el: cardEl, task: cardEl.__veoTask, startMouseX: e.clientX, startMouseY: e.clientY, initialX: cardEl.__veoTask.x || 0, initialY: cardEl.__veoTask.y || 0 }; 
-            
+
+            draggingCardInfo = { el: cardEl, task: cardEl.__veoTask, startMouseX: e.clientX, startMouseY: e.clientY, initialX: cardEl.__veoTask.x || 0, initialY: cardEl.__veoTask.y || 0 };
+
             if (task.type === 'frame') {
                 draggingCardInfo.children = [];
                 document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
@@ -574,7 +576,8 @@ function startFrameResize(e, id) {
                     }
                 });
             }
-            e.stopPropagation(); 
+
+            e.stopPropagation();
         };
     }
     
@@ -590,11 +593,11 @@ function startFrameResize(e, id) {
 window.addEventListener('keydown', async (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); showToast(`宸插叏閫夊彲瑙嗚妭鐐筦, "info");
+        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); showToast(`已全选可见节点`, "info");
     }
     if (e.key === 'Backspace' || e.key === 'Delete') {
         if (selectedTasks.size > 0) {
-            if (confirm(`馃棏锔?纭畾瑕佸交搴曞垹闄ら€変腑鐨?${selectedTasks.size} 涓璞″悧锛?鑻ュ寘鍚」鐩粍锛屽唴閮ㄥ崱鐗囦篃浼氳繛閿呯锛?`)) {
+            if (confirm(`确定要删除选中的 ${selectedTasks.size} 个对象吗？`)) {
                 const deletePromises = Array.from(selectedTasks).map(async (id) => { 
                     await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
                     const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
@@ -684,7 +687,7 @@ window.addEventListener('paste', async (e) => {
             await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true;
         }
     }
-    if (added) { await renderMaterialLibrary(); showToast(`鉁?宸插皢鍓创鏉垮浘鐗囨敹鍏ュ叏灞€绱犳潗搴揱, 'success'); document.getElementById('material-drawer').classList.add('open'); }
+    if (added) { await renderMaterialLibrary(); showToast("已将剪贴板图片收录到全局素材库", "success"); document.getElementById('material-drawer').classList.add('open'); }
 });
 
 const consoleEl = document.getElementById('floating-console');
@@ -705,7 +708,7 @@ async function updateNoteText(id, text) { clearTimeout(noteTimeout); noteTimeout
 function saveNoteSize(id, w, h) { setTimeout(async () => { const note = await getTaskDB(id); if (note && (note.width !== w || note.height !== h)) { note.width = w; note.height = h; await saveTaskDB(note); renderMinimap(); } }, 100); }
 
 async function exportWorkspace() {
-    const btn = document.getElementById('export-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 鎵撳寘涓?..`;
+    const btn = document.getElementById('export-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 打包中...`;
     try {
         const tasks = await getAllTasksDB(); const exportData = [];
         for (let t of tasks) {
@@ -724,7 +727,7 @@ async function importWorkspace(input) {
     reader.onload = async (e) => {
         try {
             const data = JSON.parse(e.target.result);
-            if (confirm(`馃摝 瑙ｆ瀽鎴愬姛锛佸寘鍚?${data.length} 涓妭鐐广€俓n杩欎細涓庢偍褰撳墠鐨勭敾甯冨悎骞讹紝鏄惁缁х画锛焋)) {
+            if (confirm(`解析成功，包含 ${data.length} 个节点。\n将与当前画布合并，是否继续？`)) {
                 for (let t of data) {
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
                     if (t.state) { if(t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); if(t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob()); if(t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob()); }
@@ -753,7 +756,7 @@ viewport.addEventListener('drop', async (e) => {
     if (files && files.length > 0) {
         let added = false;
         for (let file of files) { if (file.type.startsWith('image/')) { const blob = await compressImageToBlob(file, 1024); await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true; } }
-        if(added) { await renderMaterialLibrary(); showToast(`鉁?宸插皢鎷栧叆鐨勫浘鐗囨敹鍏ュ叏灞€绱犳潗搴揱, 'success'); document.getElementById('material-drawer').classList.add('open'); }
+        if(added) { await renderMaterialLibrary(); showToast("已将拖入图片收录到全局素材库", "success"); document.getElementById('material-drawer').classList.add('open'); }
     }
 });
 
@@ -830,7 +833,7 @@ async function handleCropperDrop(e, taskId) {
             task.timestamp = Date.now();
             await saveTaskDB(task); 
             renderCard(taskId); 
-            showToast("鉁?鎴愬姛瀵煎叆寰呰鍒囩礌鏉?, "success"); 
+            showToast("成功导入待裁切素材", "success"); 
         }
     }
 }
@@ -872,7 +875,8 @@ async function reEditCropper(taskId) {
     }
 }
 
-// 鉁?鏇挎崲涓猴細甯︹€滄椂闂存埑鍑荤┛缂撳瓨鈥濆姛鑳界殑瑁佸垏鐢熸垚鍣?async function generateCrop(taskId) {
+// 带时间戳刷新能力的裁切生成器
+async function generateCrop(taskId) {
     const task = await getTaskDB(taskId); 
     if (!task || !task.state.sourceBlob) return;
     
@@ -902,7 +906,8 @@ async function reEditCropper(taskId) {
             // 馃専 鏍稿績淇锛氬己鍒舵洿鏂版椂闂存埑锛岃娴忚鍣ㄦ槑鐧借繖鏄竴寮犲叏鏂扮殑鍥?            task.timestamp = Date.now(); 
             
             await saveTaskDB(task);
-            renderCard(taskId); // 灞€閮ㄩ噸缁?            showToast("鉁傦笍 瑁佸垏鎻愬彇瀹屾垚锛佸彲鎸変綇鏂板浘鐗囨嫋鎷藉鐢?, "success");
+            renderCard(taskId); // 灞€閮ㄩ噸缁?
+            showToast("裁切提取完成，可拖拽复用", "success");
         }, 'image/jpeg', 0.9);
     };
 }
@@ -931,17 +936,22 @@ function bindMainConsoleDrop(slotId, stateKey) {
 
 function toggleRefPopover(e) { e.stopPropagation(); if (globalStore.getState().references.length === 0) document.getElementById('ref-file').click(); else { const p = document.getElementById('ref-popover'); p.style.display = p.style.display === 'flex' ? 'none' : 'flex'; } }
 
-const genData = { formats: ["涓绘挱甯﹁揣", "琛楀ご閲囪", "鏁欑▼婕旂ず", "鍓嶅悗鍙嶅樊", "寮€绠辨祴璇?, "瀵规瘮瀹為獙", "鍓ф儏鐭墽", "鍐茬獊澶稿紶", "鐢ㄦ埛璇佽█", "璇勮鍖哄洖澶?, "鐢熸椿鏂瑰紡妞嶅叆"], openings: ["浜у搧鐥涚偣寮€鍦?, "澶稿紶鍚哥潧寮€鍦?, "缁撴灉鍏堢粰寮€鍦?, "闂鎻愰棶寮€鍦?, "鍦烘櫙浠ｅ叆寮€鍦?, "娴嬭瘎瀵规瘮寮€鍦?, "璇勮缇ゅ洖澶嶅紑鍦?, "鏁板瓧娓呭崟寮€鍦?], attributes: ["寮哄寲涓绘挱浜鸿", "鎯呯华寮犲姏鏇村己", "鎻愬墠甯﹀嚭绂忓埄", "鍔犲叆鐪熷疄缁忓巻", "绉嶈崏骞茶揣鏀跺熬", "鍗曚竴鍗栫偣鏇磋仛鐒?], generals: ["鑺傚鏇村揩", "鎯呯华鏇村己", "鏇村儚鐪熷疄鍗氫富", "鏇村己缁撴灉鎰?, "鏇村急骞垮憡鎰?, "寮哄寲鏀跺熬涓嬪崟", "鏇村己璋冧骇鍝佺粏鑺?, "UGC鎰?, "鏇村儚璇勮鍖哄畨鍒?] };
+const genData = {
+    formats: ["主播带货", "街头采访", "教程演示", "前后反差", "开箱测评", "对比实验", "剧情短剧", "冲突夸张", "用户证言", "评论区回复", "生活方式植入"],
+    openings: ["产品痛点开场", "夸张吸睛开场", "结果先给开场", "问题提问开场", "场景代入开场", "测评对比开场", "评论区回复开场", "数字清单开场"],
+    attributes: ["强化主播人设", "情绪张力更强", "提前带出福利", "加入真实经历", "种草干货收尾", "单一卖点更聚焦"],
+    generals: ["节奏更快", "情绪更强", "更像真实博主", "结果感更强", "广告感更弱", "强化收尾下单", "加强产品细节", "UGC感", "更像评论区安利"]
+};
 function getRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 async function shuffleGenerator(id) { const task = await getTaskDB(id); if(!task) return; task.state.format = getRandom(genData.formats); task.state.opening = getRandom(genData.openings); task.state.attribute = getRandom(genData.attributes); task.state.general = getRandom(genData.generals); await saveTaskDB(task); renderCard(id); }
 async function updateGeneratorState(id, key, value) { const task = await getTaskDB(id); if(task) { task.state[key] = value; await saveTaskDB(task); } }
 async function applyGeneratorToPrompt(id, btnElement) {
     const task = await getTaskDB(id); if(!task) return;
     const { format, opening, attribute, general } = task.state;
-    if (!format || !opening || !attribute || !general) return alert("璇峰厛鐐瑰嚮銆愰殢鏈烘娊鍙栥€戠敓鎴愬畬鏁寸殑缁勫悎");
-    document.getElementById('prompt-input').value = `銆愬甫璐у舰寮忋€?{format} | 銆愬紑澶淬€?{opening} | 銆愬睘鎬с€?{attribute} | 銆愰€氱敤銆?{general} \n\n鍥寸粫浠ヤ笂瑕佹眰锛屽府鎴戠敓鎴?..`;
+    if (!format || !opening || !attribute || !general) return alert("请先点击【随机抽取】生成完整组合");
+    document.getElementById('prompt-input').value = `【带货形式】${format} | 【开头】${opening} | 【属性】${attribute} | 【通用】${general}\n\n围绕以上要求，帮我生成脚本。`;
     document.getElementById('floating-console').classList.remove('minimized');
-    const originalText = btnElement.innerHTML; btnElement.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">check_circle</span> 宸插簲鐢╜; btnElement.style.color = 'var(--success)'; setTimeout(() => { btnElement.innerHTML = originalText; btnElement.style.color = ''; }, 1500);
+    const originalText = btnElement.innerHTML; btnElement.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">check_circle</span> 已应用`; btnElement.style.color = 'var(--success)'; setTimeout(() => { btnElement.innerHTML = originalText; btnElement.style.color = ''; }, 1500);
 }
 function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>璇烽€夋嫨...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
 
@@ -973,7 +983,7 @@ sysBus.on('SYSTEM:MODEL_CHANGED', (modelValue) => {
 });
 
 async function handleMultiRefs(input) {
-    if (!input.files || input.files.length === 0) return; if (globalStore.getState().references.length + input.files.length > 3) { input.value = ''; return alert(`鏈€澶氫粎鏀寔 3 寮犲浘銆俙); }
+    if (!input.files || input.files.length === 0) return; if (globalStore.getState().references.length + input.files.length > 3) { input.value = ''; return alert(`最多仅支持 3 张图。`); }
     for (let file of Array.from(input.files)) {
         const refBlob = await compressImageToBlob(file);
         if (refBlob) globalStore.dispatch('ADD_REFERENCE', refBlob);
@@ -1067,7 +1077,7 @@ async function executeSubmission(params, promptText, offsetIndex = 0) {
         }
     } catch (error) { 
         console.error('浠诲姟鎻愪氦澶辫触:', error); 
-        showToast('瑙嗛鐢熸垚鎻愪氦澶辫触锛岃妫€鏌ョ綉缁滄垨浣欓銆?, 'error');
+        showToast('视频生成提交失败，请检查网络或余额', 'error');
     }
 }
 
@@ -1160,108 +1170,98 @@ function generateCardHTML(task) {
         return `
         <div class="frame-header" onmousedown="event.stopPropagation()">
             <span class="material-symbols-outlined" style="font-size:18px;">view_cofy</span>
-            <input type="text" class="frame-title-input" value="${task.title || ''}" placeholder="鏈懡鍚嶉」鐩粍" onchange="updateTaskField('${task.id}', 'title', this.value)">
-            <div style="display:flex; gap: 4px; margin-left: auto;">
-                <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')" data-tip="鎶樺彔/灞曞紑姝ら」鐩敹绾?><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
-                <button class="frame-btn" onclick="removeFrame('${task.id}')" data-tip="瑙ｆ暎璇ラ」鐩粍"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+            <input type="text" class="frame-title-input" value="${task.title || ''}" placeholder="未命名项目组" onchange="updateTaskField('${task.id}', 'title', this.value)">
+            <div style="display:flex; gap:4px; margin-left:auto;">
+                <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')"><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
+                <button class="frame-btn" onclick="removeFrame('${task.id}')"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
             </div>
         </div>
-        ${!task.isCollapsed ? `<div class="frame-resize-handle" data-tip="鎸変綇鎷栨嫿璋冭妭妗嗘灦澶у皬"></div>` : ''}
+        ${!task.isCollapsed ? `<div class="frame-resize-handle"></div>` : ''}
         `;
     }
-    if (task.type === 'note') return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 鍗虫椂渚跨</span><button onclick="removeTask('${task.id}')" data-tip="鍒犻櫎姝や究绛? style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="鍦ㄦ杈撳叆鐏垫劅銆佹彁绀鸿瘝鎴栧垎缁勫娉?..">${task.text || ''}</textarea>`;
-    if (task.type === 'tool_generator') return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 绀惧獟鐏垫劅鐢熸垚鍣?/span><button onclick="removeTask('${task.id}')" data-tip="鍒犻櫎璇ョ粍浠? style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 甯﹁揣褰㈠紡</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 寮€澶磋妭濂?/label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 鍐呭灞炴€?/label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 閫氱敤璋冩€?/label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')" data-tip="鎽囬瀛愶細闅忔満鎶藉彇涓€濂楃垎娆惧墽鏈粍鍚?><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 闅忔満鎶藉彇</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)" data-tip="涓€閿皢缁撴瀯鍖栧墽鏈弽濉嚦搴曢儴 Prompt 妗?><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 搴旂敤鑷虫帶鍒跺彴</button></div>`;
+
+    if (task.type === 'note') {
+        return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 即时便签</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="在此输入灵感、提示词或分组备注...">${task.text || ''}</textarea>`;
+    }
+
+    if (task.type === 'tool_generator') {
+        return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用到控制台</button></div>`;
+    }
 
     if (task.type === 'tool_image_gen') {
-        const isProcessing = task.status === 'processing', isFailed = task.status === 'failed', resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="鍙屽嚮鍏ㄥ睆楂樻竻棰勮锛屾寜浣忓彲鎷栧姩澶嶇敤"></div>` : '';
-        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">脳</div></div>`).join('');
-        if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="鐐瑰嚮涓婁紶鎴栦粠鐢诲竷鎷栧叆鍨浘 (鏈€澶?寮?" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
-        
-        const isChannel2 = task.state.channel === 'channel_2', currentCost = isChannel2 ? '0.06' : '0.084';
-        // 馃専 1. 姝ｅ父/鎴愬姛鐘舵€佷笅鐨勬寜閽?(鏄剧ず鍘嗗彶鑰楁椂)
-        let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">鈴憋笍 ${task.state.costTime}s</span>` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 鐢熸垚鍥惧儚 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">锟?{currentCost}</span> ${costTxt}`;
-        
-        const retryTxt = task.retryCount ? ` (閲嶈瘯 ${task.retryCount})` : '';
-        
-        // 馃専 2. 鐢熸垚涓細灞曠ず璺冲姩鐨勭琛ㄤ笌杩涘害鏉?        if (isProcessing) {
-            btnContent = `
-                <div style="display:flex; flex-direction:column; width:100%; gap:6px; align-items:center;">
-                    <div style="display:flex; justify-content:space-between; width:100%; font-size:13px;">
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg> 
-                            鐢熸垚涓?..${retryTxt}
-                        </div>
-                        <div class="veo-dynamic-timer" data-start-time="${task.state.startTime || Date.now()}" style="font-family:monospace; color:var(--accent); font-weight:bold; letter-spacing:1px;">00:00</div>
-                    </div>
-                    <div style="width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
-                        <div style="height: 100%; background: var(--accent); width: 0%; animation: fakeImgProgress 60s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;"></div>
-                    </div>
-                </div>
-            `;
+        const state = task.state || {};
+        const isProcessing = task.status === 'processing';
+        const isFailed = task.status === 'failed';
+        const resultHtml = task.status === 'success' && state.resultBlob
+            ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id + '_res_' + (task.timestamp || ''), state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)"></div>`
+            : '';
+
+        const images = Array.isArray(state.images) ? state.images : [];
+        let slotsHtml = images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id + '_img_' + i + '_' + (task.timestamp || ''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">脳</div></div>`).join('');
+        if (images.length < 5) {
+            slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
         }
-        
-        // 馃専 3. 澶辫触鐘舵€?        if (isFailed) {
-            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 澶辫触锛岀偣鍑婚噸璇?${task.state.costTime ? `(鍦?${task.state.costTime}s 澶勬柇寮€)` : ''}`;
+
+        const currentCost = state.channel === 'channel_2' ? '0.06' : '0.084';
+        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 生成图像 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">$${currentCost}</span>`;
+
+        if (isProcessing) {
+            btnContent = `<div style="display:flex; width:100%; justify-content:space-between; align-items:center;"><span>生成中...${retryTxt}</span><span class="veo-dynamic-timer" data-start-time="${state.startTime || Date.now()}" style="font-family:monospace;">00:00</span></div>`;
+        } else if (isFailed) {
+            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试`;
         }
-        
-        // 馃専 鏍稿績淇敼 1锛氬鐞嗚嚜瀹氫箟姣斾緥 UI
+
         let customRatioHtml = '';
-        if (task.state.size === '') {
-            const w = task.state.customW || 9; 
-            const h = task.state.customH || 21;
-            customRatioHtml = `
-            <div style="display:flex; align-items:center; gap:6px; padding: 0 12px; margin-top:-4px; margin-bottom:8px;">
-                <span class="material-symbols-outlined" style="font-size:14px; color:var(--accent);">aspect_ratio</span>
-                <span style="font-size:11px; color:var(--text-sub);">鐢诲箙:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
-                <span style="color:var(--text-sub);">:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
-                <span style="font-size:10px; color:rgba(255,255,255,0.3); margin-left:auto;">鎻愪氦鏃跺皢鑷姩闅愬紡鎷兼帴</span>
-            </div>`;
+        if (state.size === '') {
+            const w = state.customW || 9;
+            const h = state.customH || 21;
+            customRatioHtml = `<div style="display:flex; align-items:center; gap:6px; padding:0 12px; margin-top:-4px; margin-bottom:8px;"><span style="font-size:11px; color:var(--text-sub);">画幅:</span><input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)"><span style="color:var(--text-sub);">:</span><input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)"></div>`;
         }
-        
-        // 馃専 鏍稿績淇敼 2锛氭墦鏁ｅ師鏈秴闀跨殑 return锛屽姞鍏ヨ嚜瀹氫箟閫夐」鍜屽姩鎬佹
-        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 澶氭ā鐢熷浘</span><button onclick="removeTask('${task.id}')" data-tip="鍒犻櫎璇ョ粍浠? style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
-        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
-        <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="閫夋嫨鍥惧儚鐢熸垚姣斾緥">
-                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1:1</option>
-                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>3:2</option>
-                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>2:3</option>
-                <option value="" ${task.state.size===''?'selected':''}>鑷畾涔?/option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5;" data-tip="鑻ョ敓鎴愬け璐ワ紝鍙皾璇曞垏鎹㈠鐢?API 鑺傜偣"><option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>鑺傜偣 1 (涓?</option><option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>鑺傜偣 2 (澶?</option></select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="閬囩綉缁滃紓甯告槸鍚﹁嚜鍔ㄩ噸璇?(鏈€澶?娆?"><option value="false" ${!task.state.autoRetry?'selected':''}>鍗曟</option><option value="true" ${task.state.autoRetry?'selected':''}>鑷姩閲嶈瘯</option></select>
-        </div>
-        ${customRatioHtml}
-        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="杈撳叆鐢婚潰鎻愮ず璇嶏紝鍙灚鍏?1-5 寮犲浘閰嶅悎鎻忚堪...">${task.state.prompt||''}</textarea>
-        <button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
+
+        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div><div class="img-gen-controls"><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)"><option value="1024x1024" ${state.size === '1024x1024' ? 'selected' : ''}>1:1</option><option value="1536x1024" ${state.size === '1536x1024' ? 'selected' : ''}>3:2</option><option value="1024x1536" ${state.size === '1024x1536' ? 'selected' : ''}>2:3</option><option value="" ${state.size === '' ? 'selected' : ''}>自定义</option></select><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex:1.5;"><option value="channel_1" ${(state.channel === 'channel_1' || !state.channel) ? 'selected' : ''}>通道 1</option><option value="channel_2" ${state.channel === 'channel_2' ? 'selected' : ''}>通道 2</option></select><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')"><option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option><option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option></select></div>${customRatioHtml}<textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，支持 1-5 张垫图...">${state.prompt || ''}</textarea><button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing ? 'disabled' : ''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
     }
 
     if (task.type === 'tool_cropper') {
-        const hasSource = !!task.state.sourceBlob, hasResult = !!task.state.resultBlob; let contentHtml = '';
-        if (!hasSource) contentHtml = `<div class="img-slot" id="crop-zone-${task.id}" style="width:100%; height:200px; border-radius:8px;" data-tip="鐐瑰嚮涓婁紶鎴栦粠鐢诲竷鎷栧叆绱犳潗鍥剧墖" onclick="document.getElementById('crop-file-${task.id}').click()"><span class="material-symbols-outlined" style="font-size:32px; color:var(--text-sub);">add_photo_alternate</span><span style="margin-top:8px;">瀵煎叆绱犳潗鍥剧墖</span><input type="file" id="crop-file-${task.id}" style="display:none;" accept="image/*" onchange="handleCropperUpload(this, '${task.id}')"></div>`;
-        else if (!hasResult) {
-            const p = task.state.cropParams;
-            contentHtml = `<div class="cropper-workspace" id="crop-workspace-${task.id}"><img id="crop-img-${task.id}" src="${getBlobUrl(task.id+'_src_'+(task.timestamp || ''), task.state.sourceBlob)}"><div class="crop-box" id="crop-box-${task.id}" data-task-id="${task.id}" style="left:${p.left}%; top:${p.top}%; width:${p.width}%; height:${p.height}%;"><div class="crop-grid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><div class="crop-handle ch-nw" data-dir="nw"></div><div class="crop-handle ch-ne" data-dir="ne"></div><div class="crop-handle ch-sw" data-dir="sw"></div><div class="crop-handle ch-se" data-dir="se"></div></div></div><div style="display:flex; gap:8px;"><button class="img-gen-btn" style="flex:1; background:var(--surface-hover); color:var(--text-main); margin:0;" onclick="resetCropper('${task.id}')">閲嶇疆鍥剧墖</button><button class="img-gen-btn" style="flex:2; background:var(--success); margin:0;" onclick="generateCrop('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">crop</span> 纭瑁佸垏鎻愬彇</button></div>`;
-        } else { contentHtml = `<div class="img-gen-result" style="border:none; border-radius:8px; background:transparent; min-height: unset;"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'crop_result'}))" data-tip="鎸変綇鎷栨嫿锛岄€佽嚦鍏朵粬鍗＄墖缁勪欢澶嶇敤" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);"></div><button class="img-gen-btn" style="width:100%; margin: 0; background:var(--surface-hover); color:var(--text-main);" onclick="reEditCropper('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">history</span> 杩斿洖閲嶆柊璋冩暣妗嗛€夊尯</button>`; }
-        return `<div class="card-header"><span style="color:var(--success); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">crop</span> 灞€閮ㄨ鍒囧櫒</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div style="padding: 0 12px 12px 12px; display:flex; flex-direction:column; gap:12px;" ondragover="event.preventDefault();" ondrop="handleCropperDrop(event, '${task.id}')">${contentHtml}</div>`;
+        const state = task.state || {};
+        const hasSource = !!state.sourceBlob;
+        const hasResult = !!state.resultBlob;
+        let contentHtml = '';
+
+        if (!hasSource) {
+            contentHtml = `<div class="img-slot" id="crop-zone-${task.id}" style="width:100%; height:200px; border-radius:8px;" onclick="document.getElementById('crop-file-${task.id}').click()"><span class="material-symbols-outlined" style="font-size:32px; color:var(--text-sub);">add_photo_alternate</span><span style="margin-top:8px;">导入素材图片</span><input type="file" id="crop-file-${task.id}" style="display:none;" accept="image/*" onchange="handleCropperUpload(this, '${task.id}')"></div>`;
+        } else if (!hasResult) {
+            const p = state.cropParams || { left: 15, top: 15, width: 70, height: 70 };
+            contentHtml = `<div class="cropper-workspace" id="crop-workspace-${task.id}"><img id="crop-img-${task.id}" src="${getBlobUrl(task.id + '_src_' + (task.timestamp || ''), state.sourceBlob)}"><div class="crop-box" id="crop-box-${task.id}" data-task-id="${task.id}" style="left:${p.left}%; top:${p.top}%; width:${p.width}%; height:${p.height}%;"><div class="crop-grid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><div class="crop-handle ch-nw" data-dir="nw"></div><div class="crop-handle ch-ne" data-dir="ne"></div><div class="crop-handle ch-sw" data-dir="sw"></div><div class="crop-handle ch-se" data-dir="se"></div></div></div><div style="display:flex; gap:8px;"><button class="img-gen-btn" style="flex:1; background:var(--surface-hover); color:var(--text-main); margin:0;" onclick="resetCropper('${task.id}')">重置图片</button><button class="img-gen-btn" style="flex:2; background:var(--success); margin:0;" onclick="generateCrop('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">crop</span> 确认裁切提取</button></div>`;
+        } else {
+            contentHtml = `<div class="img-gen-result" style="border:none; border-radius:8px; background:transparent; min-height:unset;"><img src="${getBlobUrl(task.id + '_res_' + (task.timestamp || ''), state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'crop_result'}))" style="border-radius:8px; border:1px solid rgba(255,255,255,0.2);"></div><button class="img-gen-btn" style="width:100%; margin:0; background:var(--surface-hover); color:var(--text-main);" onclick="reEditCropper('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">history</span> 返回重新调整框选区</button>`;
+        }
+
+        return `<div class="card-header"><span style="color:var(--success); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">crop</span> 局部裁切器</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div style="padding:0 12px 12px 12px; display:flex; flex-direction:column; gap:12px;" ondragover="event.preventDefault();" ondrop="handleCropperDrop(event, '${task.id}')">${contentHtml}</div>`;
     }
 
-    let statusBadge = '', mediaHtml = ''; const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0])); const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
-    if (task.status === 'processing') { 
-        const retryTxt = task.retryCount ? ` (閲嶈瘯 ${task.retryCount})` : ''; statusBadge = `<span class="status-badge processing">鐢熸垚涓?..${retryTxt}</span>`; 
-        let progressHtml = `
-            <div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div>
-            <div style="font-size: 11px; color: var(--accent); margin-top: 8px; font-weight: 600; font-family: monospace; letter-spacing: 1px;">MODELS ENGAGED...</div>
-        `;
-        mediaHtml = `<div class="card-media" style="aspect-ratio: ${task.ratio.replace(':','/')}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">瑙嗛鐢熸垚涓?..</div>${progressHtml}</div></div>`; 
-    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">澶辫触</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${task.ratio.replace(':','/')}; font-size:12px;">鐢熸垚瓒呮椂鎴栧け璐?/div>`; 
-    } else { statusBadge = `<span class="status-badge success">宸插畬鎴?/span>`; mediaHtml = `<div class="card-media" data-tip="鍙屽嚮鍏ㄥ睆鎾斁瑙嗛"><video src="${task.videoUrl}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`; }
-    
-    const thumbHtml = thumbImg ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)" data-tip="鍙屽嚮鍏ㄥ睆楂樻竻棰勮锛屾寜浣忓彲鎷栧姩澶嶇敤">` : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
-    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size: 14px;">schedule</span> ${task.time} 路 ${task.modelStr}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt}">${task.prompt}</p></div><div class="card-tags"><span class="card-tag">${task.ratio}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border: 1px solid var(--success);">宸插紑鎸傛満閲嶈瘯</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl}')" data-tip="涓嬭浇姝よ棰戝埌鏈湴"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)" data-tip="鍘熷湴閲嶆柊鍙戣捣姝や换鍔?><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')" data-tip="鎻愬彇璇ヤ换鍔＄殑鎵€鏈夊浘鏂囧弬鏁帮紝鍙嶅～鑷冲簳閮ㄦ帶鍒跺彴"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')" data-tip="鍒犻櫎姝ょ敓鎴愯褰?><span class="material-symbols-outlined">delete</span></button></div>`;
+    let statusBadge = '';
+    let mediaHtml = '';
+    const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0]));
+    const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
+
+    if (task.status === 'processing') {
+        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
+        statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`;
+        mediaHtml = `<div class="card-media" style="aspect-ratio: ${(task.ratio || '16:9').replace(':', '/')}; padding:20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color:var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top:12px;">视频生成中...</div><div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div></div></div>`;
+    } else if (task.status === 'failed') {
+        statusBadge = `<span class="status-badge failed">失败</span>`;
+        mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${(task.ratio || '16:9').replace(':', '/')}; font-size:12px;">生成超时或失败</div>`;
+    } else {
+        statusBadge = `<span class="status-badge success">已完成</span>`;
+        mediaHtml = `<div class="card-media"><video src="${task.videoUrl || ''}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`;
+    }
+
+    const thumbHtml = thumbImg
+        ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)">`
+        : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
+
+    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size:14px;">schedule</span> ${task.time || ''} · ${task.modelStr || ''}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt || ''}">${task.prompt || ''}</p></div><div class="card-tags"><span class="card-tag">${task.ratio || ''}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border:1px solid var(--success);">自动重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl || ''}')"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')"><span class="material-symbols-outlined">delete</span></button></div>`;
 }
 
 // 馃専 鍒濇鎸傝浇涓庢帓鐗堜笓鐢ㄧ殑鍏ㄥ眬鍒锋柊鍑芥暟
@@ -1337,7 +1337,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 馃専 鏅鸿兘鍏嬮殕寮曟搸 (Alt + Drag 涓撶敤)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    // 1. 鐢熸垚鏂?ID 涓庡熀纭€娴呭厠闅?    const newId = originalTask.type + '_copy_' + Date.now();
+    // 1. 生成新 ID 与基础克隆
+    const newId = originalTask.type + '_copy_' + Date.now();
     let clone = { ...originalTask, id: newId, timestamp: Date.now() };
 
     // 瑙ｉ櫎浠庡睘鍏崇郴锛岃鍏嬮殕鍑虹殑鍗＄墖鑷敱鏁ｈ惤
@@ -1346,7 +1347,8 @@ async function duplicateTask(originalTask, mouseEvent) {
     // 2. 娣卞害鍏嬮殕鍐呴儴鐘舵€?(淇濇姢鎻愮ず璇嶃€佸昂瀵哥瓑锛岄槻姝㈠紩鐢ㄦ薄鏌?
     if (originalTask.state) {
         clone.state = { ...originalTask.state };
-        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images]; // 缁ф壙澶氭ā鎬佸灚鍥?        if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
+        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images];
+        if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
 
         // 鈿狅笍 鐢熷浘缁勪欢鐗瑰垽锛氱户鎵垮弬鏁帮紝浣嗗繀椤绘竻绌轰箣鍓嶇殑鐢熸垚缁撴灉鍜岀姸鎬侊紒
         if (clone.type === 'tool_image_gen') {
@@ -1356,7 +1358,8 @@ async function duplicateTask(originalTask, mouseEvent) {
             clone.retryCount = 0;
         }
         
-        // 鈿狅笍 瑁佸垏鍣ㄧ壒鍒わ細缁ф壙鍘熷浘鍜岄€夊尯锛屾竻绌鸿鍒囩粨鏋?        if (clone.type === 'tool_cropper') {
+        // 裁切器特别处理：继承原图和选区，清空裁切结果
+        if (clone.type === 'tool_cropper') {
             clone.state.resultBlob = null;
         }
     }
@@ -1373,7 +1376,8 @@ async function duplicateTask(originalTask, mouseEvent) {
     clone.x += 20;
     clone.y += 20;
 
-    // 5. 鍏ュ簱骞惰Е鍙戝眬閮ㄩ噸缁樻寕杞?    await saveTaskDB(clone);
+    // 5. 入库并触发局部重绘
+    await saveTaskDB(clone);
     await renderBoard(); 
 
     // 6. 馃専 鏍稿績锛氱灛闂村姭鎸侀紶鏍囩劍鐐癸紝璁╁厠闅嗗嚭鏉ョ殑鍗＄墖鐩存帴璺熺潃榧犳爣璧帮紒
@@ -1387,15 +1391,15 @@ async function duplicateTask(originalTask, mouseEvent) {
         selectedTasks.add(newId);
         newCardEl.classList.add('selected');
 
-        // 灏嗙郴缁熺殑鎷栨嫿鎺у埗鏉冪Щ浜ょ粰鏂板崱鐗?            draggingCardInfo = {
-                el: newCardEl,
-                // 馃専 鏍稿績淇锛氭姏寮冨眬閮ㄥ彉閲?clone锛岀洿鎺ユ寚鍚?DOM 韬笂缁戝畾鐨勭湡瀹炲唴瀛樺湴鍧€
-                task: newCardEl.__veoTask, 
-                startMouseX: mouseEvent.clientX,
-                startMouseY: mouseEvent.clientY,
-                initialX: newCardEl.__veoTask.x,
-                initialY: newCardEl.__veoTask.y
-            };
+        // 将系统拖拽控制权交给新卡片
+        draggingCardInfo = {
+            el: newCardEl,
+            task: newCardEl.__veoTask,
+            startMouseX: mouseEvent.clientX,
+            startMouseY: mouseEvent.clientY,
+            initialX: newCardEl.__veoTask.x,
+            initialY: newCardEl.__veoTask.y
+        };
         
         showToast("馃獎 宸插厠闅嗙粍浠跺強鍙傛暟", "success");
     }
@@ -1531,7 +1535,7 @@ async function submitImgGen(taskId) {
                 startTaskPolling(taskId); 
                 return; 
             } else {
-                throw new Error("鏃犺繑鍥炴湁鏁堝浘鐗囩粨鏋?);
+                throw new Error("无返回有效图片结果");
             }
         } catch (err) { 
             // 澶辫触閲嶈瘯閫昏緫
@@ -1549,7 +1553,7 @@ async function submitImgGen(taskId) {
     // 5. 寰幆缁撴潫锛岀粺涓€娓叉煋鏈€缁堢姸鎬?    await saveTaskDB(task); 
     renderCard(taskId); 
     if (!success && task.status === 'failed') {
-        showToast("鐢熷浘璇锋眰澶辫触锛岃妫€鏌ラ€氶亾浣欓鎴栫綉缁?, "error"); 
+        showToast("生图请求失败，请检查通道余额或网络", "error"); 
     }
 }
 
