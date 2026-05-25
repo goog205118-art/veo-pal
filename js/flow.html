@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Veo Studio - Node Flow (Pro)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+    <style>
+        /* 独立工作区专属暗黑极客主题 */
+        :root { --bg-dark: #0f0f11; --grid-color: rgba(255,255,255,0.03); --accent: #c084fc; }
+        body { margin: 0; overflow: hidden; background-color: var(--bg-dark); color: #fff; font-family: 'Google Sans', sans-serif; user-select: none; }
+        
+        /* 无限点阵网格背景 */
+        .flow-viewport {
+            position: absolute; width: 100vw; height: 100vh; overflow: hidden; cursor: grab;
+            background-image: radial-gradient(var(--grid-color) 1px, transparent 1px);
+            background-size: 20px 20px; background-position: 0 0;
+        }
+        
+        /* 顶部导航 */
+        .flow-header {
+            position: absolute; top: 0; left: 0; width: 100%; height: 50px; background: rgba(15,15,17,0.8); backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255,255,255,0.05); z-index: 100; display: flex; align-items: center; padding: 0 20px; box-sizing: border-box;
+        }
+
+        /* 核心画布容器 */
+        #flow-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+        #svg-layer { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; z-index: 1; }
+        #node-board { position: absolute; top: 0; left: 0; z-index: 2; }
+        
+        /* ========================================== */
+        /* 🌟 节点核心 UI (专业连线优化版) */
+        /* ========================================== */
+        .veo-node {
+            position: absolute; width: 280px; background: rgba(22, 22, 26, 0.95); backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            display: flex; flex-direction: column; cursor: grab; user-select: none; transition: border-color 0.2s;
+        }
+        .veo-node:hover { border-color: rgba(255,255,255,0.2); }
+        .veo-node:active { cursor: grabbing; box-shadow: 0 10px 40px rgba(192,132,252,0.15); border-color: rgba(192,132,252,0.4); }
+        
+        /* 头部栏 */
+        .node-header { 
+            padding: 12px 16px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.05); 
+            display: flex; align-items: center; gap: 8px; font-size: 14px; border-radius: 12px 12px 0 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .node-body { padding: 12px 0; font-size: 13px; color: #bbb; display: flex; flex-direction: column; }
+        
+        /* 🔌 引脚端口排版优化 (左侧输入，右侧输出) */
+        .port-group { padding: 4px 0; }
+        .port-row { display: flex; position: relative; align-items: center; padding: 4px 16px; transition: background 0.2s; }
+        .port-row:hover { background: rgba(255,255,255,0.03); color: #fff; }
+        
+        /* 引脚原点设计 */
+        .port { 
+            width: 14px; height: 14px; border-radius: 50%; background: #1a1a20; 
+            border: 2px solid #666; position: absolute; top: 50%; transform: translateY(-50%); 
+            cursor: crosshair; transition: all 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28); z-index: 10; 
+        }
+        .port:hover { transform: translateY(-50%) scale(1.4); box-shadow: 0 0 10px currentColor; }
+        .port-in { left: -8px; }
+        .port-out { right: -8px; }
+        
+        /* 引脚强类型颜色 */
+        .port-image { border-color: #c084fc; color: #c084fc; } /* 图片类型：紫色 */
+        .port-video { border-color: #38bdf8; color: #38bdf8; } /* 视频类型：蓝色 */
+        
+        /* 📝 表单控件区 */
+        .node-inputs-container { margin-top: 8px; padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); }
+        .node-input-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+        .node-input-group:last-child { margin-bottom: 0; }
+        .node-input-label { font-size: 11px; color: #888; font-weight: 500; letter-spacing: 0.5px; }
+        .node-input {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);
+            color: #eee; padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none;
+            font-family: inherit; transition: 0.2s; resize: vertical; line-height: 1.4;
+        }
+        .node-input:focus { border-color: var(--accent); background: rgba(0,0,0,0.6); box-shadow: 0 0 0 2px rgba(192,132,252,0.15); }
+        .node-input option { background: #1e1e23; color: #fff; padding: 4px; }
+       /* 👇 新增：全局素材库侧边栏样式 */
+        .material-drawer {
+            position: fixed; right: -340px; top: 0; width: 320px; height: 100vh;
+            background: rgba(22, 22, 26, 0.95); backdrop-filter: blur(20px);
+            border-left: 1px solid rgba(255,255,255,0.05); z-index: 900;
+            transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 70px 20px 20px 20px; display: flex; flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.8);
+        }
+        .material-drawer.open { right: 0; }
+        .material-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+            overflow-y: auto; padding-bottom: 20px; align-content: start;
+        }
+        .material-grid::-webkit-scrollbar { width: 4px; }
+        .material-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+        .material-item {
+            position: relative; border-radius: 8px; overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1; cursor: grab; background: #0b0b0c;
+        }
+        .material-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
+        .material-item:hover img { transform: scale(1.05); }
+        .material-item:active { cursor: grabbing; }
+    </style>
+</head>
+<body>
+
+    <div class="flow-header">
+        <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="color: var(--accent);">account_tree</span>
+            Veo Flow <span style="font-size: 12px; color: #666; font-weight: normal;">| 节点架构师模式</span>
+        </div>
+        <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+            <button onclick="toggleMaterialDrawer()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                <span class="material-symbols-outlined" style="font-size: 16px;">perm_media</span> 素材库
+            </button>
+            <button onclick="runFlow()" style="background: var(--accent); border: none; padding: 6px 16px; border-radius: 6px; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s;" onmouseover="this.style.filter='brightness(1.2)'" onmouseout="this.style.filter='brightness(1)'">▶ 运行工作流</button>
+        </div>
+    </div>
+
+    <div class="material-drawer" id="material-drawer" onmousedown="event.stopPropagation()">
+        <div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="font-size:18px; color: #c084fc;">all_inclusive</span> Infinity 共享素材区
+        </div>
+        <p style="font-size: 11px; color: #666; margin-bottom: 16px; line-height: 1.5;">此处与主画布 IndexedDB 底层直连。按住图片，拖入左侧节点的虚线框内即可极速挂载内存图。</p>
+        <div class="material-grid" id="material-grid"></div>
+    </div>
+
+    <div class="flow-viewport" id="flow-viewport">
+        <div id="flow-canvas">
+            <svg id="svg-layer"></svg>
+            <div id="node-board"></div>
+        </div>
+    </div>
+
+    <script src="js/db.js"></script>
+    <script src="./js/flow/flow-engine.js"></script> 
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await initDB();
+                console.log("🟢 Flow 节点数据库加载完毕");
+                
+                if (typeof initFlowEngine === 'function') {
+                    initFlowEngine();
+                    console.log("🚀 节点引擎启动成功");
+                } else {
+                    console.error("❌ 找不到 initFlowEngine 函数");
+                }
+            } catch (err) {
+                console.error("❌ 初始化失败:", err);
+            }
+        });
+    </script>
+</body>
+</html>
