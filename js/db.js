@@ -54,7 +54,7 @@ async function getBillingStats() {
             const records = request.result || [];
             let totalCost = 0, imageCount = 0, videoCount = 0;
             records.forEach(r => {
-                totalCost += (r.cost || 0);
+                totalCost += (r && r.cost != null ? r.cost : (r && r.amount ? r.amount : 0));
                 if (r.type === 'image') imageCount++;
                 if (r.type === 'video') videoCount++;
             });

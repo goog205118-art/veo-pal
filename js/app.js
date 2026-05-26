@@ -1086,6 +1086,9 @@ async function retryTask(taskId, btnElement) {
 // 🌟 轮询引擎 (高容错状态解析版)
 function startTaskPolling(taskId) {
     let attempts = 0;
+    let errorCount = 0;
+    const maxAttempts = 240;
+    const maxConsecutiveErrors = 20;
     const poll = async () => {
         attempts++;
         try {
@@ -1097,6 +1100,7 @@ function startTaskPolling(taskId) {
             if (response.status === 401 || response.status === 403) { removeActiveTask(taskId); handleAuthError(); return; }
             if (!response.ok) throw new Error("API 异常");
             const data = await response.json();
+            errorCount = 0;
             
             // 🌟 强力兼容各种 n8n 的字段名与状态名
             const currentStatus = (data.status || data.state || 'processing').toLowerCase();
@@ -1127,8 +1131,19 @@ function startTaskPolling(taskId) {
                 task.progress = data.progress; await saveTaskDB(task); renderCard(taskId); 
             }
             
-            if (attempts < 240) setTimeout(poll, 15000); else { removeActiveTask(taskId); if (task.autoRetry) retryTask(task.id, null); else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } }
-        } catch (error) { setTimeout(poll, 15000); }
+            if (attempts < maxAttempts) setTimeout(poll, 15000); else { removeActiveTask(taskId); if (task.autoRetry) retryTask(task.id, null); else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } }
+        } catch (error) {
+            errorCount++;
+            const task = await getTaskDB(taskId);
+            if (!task) { removeActiveTask(taskId); return; }
+            if (errorCount >= maxConsecutiveErrors || attempts >= maxAttempts) {
+                removeActiveTask(taskId);
+                if (task.autoRetry) retryTask(task.id, null);
+                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
+                return;
+            }
+            setTimeout(poll, 15000);
+        }
     };
     poll();
 }
@@ -1319,12 +1334,17 @@ async function removeTask(id) { if(confirm('确定删除这张卡片吗？')) { 
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    await initDB(); 
-    board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`; 
-    document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`; 
-    await renderBoard(); await renderMaterialLibrary();
-    bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
-    await updateBillingUI(); updateEstimatedCost();
+    try {
+        await initDB();
+        board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+        document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
+        await renderBoard(); await renderMaterialLibrary();
+        bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
+        await updateBillingUI(); updateEstimatedCost();
+    } catch (err) {
+        console.error('主工作台初始化失败:', err);
+        showToast('初始化失败，请刷新重试', 'error');
+    }
 });
 
 // ==========================================

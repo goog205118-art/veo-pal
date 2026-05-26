@@ -26,7 +26,7 @@ class VeoStore {
     constructor() {
         // 唯一的全局真实数据源 (Single Source of Truth)
         this.state = {
-            model: 'veo_3_1_fast',
+            model: 'veo3.1',
             aspectRatio: '9:16',
             enhancePrompt: true,
             enableUpsample: false,

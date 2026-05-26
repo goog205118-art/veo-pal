@@ -986,16 +986,20 @@ function initFlowToolbar() {
     viewport.appendChild(toolbar);
 }
 
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        // 👈 注入右下角导航小地图
-    window.AutocompleteController.init(); // 🚀 核心修复：在这里注入灵魂，它才是真正生效的那个！
-    await loadFlowFromDB(); 
+async function bootstrapFlowEngine() {
+    initNodePalette();
+    initFlowToolbar();
+    initMinimapUI();
+    if (window.AutocompleteController && typeof window.AutocompleteController.init === 'function') {
+        window.AutocompleteController.init();
+    }
+    await loadFlowFromDB();
     renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
+    setTimeout(() => { renderLinks(); renderMinimap(); }, 50);
     updateCanvasTransform();
-};
+}
+
+window.initFlowEngine = bootstrapFlowEngine;
 
 // ==========================================
 // ⌨️ 全局键盘快捷键中心 (支持批量一键销毁)
@@ -1150,16 +1154,6 @@ window.updateCanvasTransform = function() {
     renderMinimap(); // 缩放平移画布时无损重绘视野框
 };
 
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        // 👈 注入右下角导航小地图
-    await loadFlowFromDB(); 
-    renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
-    updateCanvasTransform();
-};
-
 viewport.addEventListener('dragover', (e) => {
     if (e.dataTransfer.types.includes('veo-node-type')) {
         e.preventDefault(); 
@@ -1222,10 +1216,12 @@ window.runFlow = async function() {
 };
 
 const BASE_N8N_URL = 'https://api.wallyai.top/webhook'; 
-const API_HEADERS = { 
-    'Content-Type': 'application/json',
-    'wally123': sessionStorage.getItem('veo_admin_pwd') || '2026veo' 
-};
+function getApiHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'wally123': sessionStorage.getItem('veo_admin_pwd') || ''
+    };
+}
 
 async function prepareImagePayload(src) {
     if (!src) return undefined;
@@ -1317,7 +1313,7 @@ PluginManager.register('tool_image_gen',
         const refImgSource = resolvePayloadData(upstreamInputs.in_ref) || resolvePayloadData(nodeData.local_ref);
         const payload = { prompt: finalPrompt.trim(), size: finalSize, channel: (nodeData.channel && nodeData.channel.includes('2')) ? 'channel_2' : 'channel_1', images: refImgSource ? [refImgSource] : [] };
         
-        const res = await fetch(`${BASE_N8N_URL}/proxy-image-gen`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify(payload) });
+        const res = await fetch(`${BASE_N8N_URL}/proxy-image-gen`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
         const rawText = await res.text();
         if (!res.ok) throw new Error(`HTTP ${res.status} 异常: ${rawText}`);
         
@@ -1387,7 +1383,7 @@ PluginManager.register('tool_video_gen',
             firstFrame: firstFrame || undefined, lastFrame: lastFrame || undefined, references: refImages.length > 0 ? refImages : undefined
         };
         
-        const submitRes = await fetch(`${BASE_N8N_URL}/proxy-submit`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify(payload) });
+        const submitRes = await fetch(`${BASE_N8N_URL}/proxy-submit`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
         const submitRawText = await submitRes.text();
         if (!submitRes.ok) throw new Error(`HTTP ${submitRes.status} 异常: ${submitRawText}`);
         
@@ -1399,7 +1395,7 @@ PluginManager.register('tool_video_gen',
             if (node._cancelToken) throw new Error("⛔ 手动中止");
             for (let i = 0; i < 15; i++) { if (node._cancelToken) throw new Error("⛔ 手动中止"); await new Promise(r => setTimeout(r, 1000)); }
             
-            const pollRes = await fetch(`${BASE_N8N_URL}/proxy-poll`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify({ taskId: submitData.taskId }) });
+            const pollRes = await fetch(`${BASE_N8N_URL}/proxy-poll`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ taskId: submitData.taskId }) });
             const pollRawText = await pollRes.text();
             if (!pollRes.ok) throw new Error(`轮询异常: ${pollRawText}`);
             let pollData; try { pollData = JSON.parse(pollRawText); } catch (e) { throw new Error("轮询返回非 JSON"); }
@@ -1785,7 +1781,15 @@ async function recordNodeBilling(node) {
     }
 
     if (cost > 0) {
-        const record = { id: 'bill_flow_' + Date.now() + '_' + Math.random().toString(36).substr(2,5), timestamp: Date.now(), amount: cost, detail: detailStr, nodeId: node.id };
+        const record = {
+            id: 'bill_flow_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
+            taskId: node.id,
+            nodeId: node.id,
+            type: node.type === 'tool_video_gen' ? 'video' : 'image',
+            cost: cost,
+            detail: detailStr,
+            timestamp: Date.now()
+        };
         return new Promise((resolve) => {
             try {
                 const tx = db.transaction('billing', 'readwrite');
@@ -1843,16 +1847,4 @@ document.addEventListener('mousedown', (e) => {
         if (!isClickInside && !isClickToggleButton) drawer.classList.remove('open');
     }
 });
-// ==========================================
-// 🚀 终极系统启动器强制覆写 (解决重复声明问题)
-// ==========================================
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        
-    window.AutocompleteController.init(); // 🌟 灵魂注入：强制初始化补全 UI 容器！
-    await loadFlowFromDB(); 
-    renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
-    updateCanvasTransform();
-};
+// initFlowEngine 已在上方统一挂载为 bootstrapFlowEngine。
