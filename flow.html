@@ -142,16 +142,10 @@
         :root[data-theme='light'] .flow-header,
         :root[data-theme='light'] .veo-node,
         :root[data-theme='light'] .material-drawer,
-        :root[data-theme='light'] .flow-top-toolbar,
         :root[data-theme='light'] .node-palette,
         :root[data-theme='light'] .flow-minimap-container,
         :root[data-theme='light'] .flow-autocomplete-dropdown {
             box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
-        }
-
-        :root[data-theme='light'] .flow-top-toolbar {
-            background: var(--flow-surface) !important;
-            border: 1px solid var(--flow-border) !important;
         }
 
         :root[data-theme='light'] .node-palette {
@@ -215,6 +209,7 @@
             Veo Flow <span style="font-size: 12px; color: var(--flow-text-sub); font-weight: normal;">| 节点架构师模式</span>
         </div>
         <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+            <div id="flow-header-tools" style="display:flex; align-items:center; gap:8px;"></div>
             <button id="flow-theme-toggle-btn" onclick="toggleFlowThemeMode()" style="background: var(--flow-btn-bg); border: 1px solid var(--flow-border); padding: 6px 10px; border-radius: 6px; color: var(--flow-btn-text); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='var(--flow-btn-bg-hover)'" onmouseout="this.style.background='var(--flow-btn-bg)'">
                 <span class="material-symbols-outlined" id="flow-theme-toggle-icon" style="font-size:16px;">dark_mode</span> <span id="flow-theme-toggle-label">夜间</span>
             </button>

@@ -34,18 +34,32 @@ flowStyleInj.innerHTML = `
     .flow-viewport { left: 220px !important; width: calc(100vw - 220px) !important; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); } 
     .port-text { border-color: #fbbf24 !important; color: #fbbf24 !important; } 
 
-    /* 👇 新增：全局画布序列化控制台 (居中防遮挡) */
+    /* 👇 工作流工具组（挂载到头部按钮区） */
     .flow-top-toolbar {
-        position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
-        display: flex; gap: 8px; background: rgba(25, 25, 30, 0.85); backdrop-filter: blur(10px);
-        padding: 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        display: flex; gap: 8px; align-items: center;
     }
     .flow-tool-btn {
-        background: transparent; border: 1px solid transparent; color: #aaa; padding: 6px 12px; border-radius: 6px; cursor: pointer;
-        display: flex; align-items: center; gap: 6px; font-size: 12px; transition: 0.2s;
+        background: var(--flow-btn-bg, rgba(255,255,255,0.05));
+        border: 1px solid var(--flow-border, rgba(255,255,255,0.1));
+        color: var(--flow-btn-text, #fff);
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        transition: 0.2s;
     }
-    .flow-tool-btn:hover { background: rgba(255,255,255,0.05); color: #fff; border-color: rgba(255,255,255,0.1); transform: translateY(-1px); }
-    .flow-tool-btn.danger:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+    .flow-tool-btn:hover { background: var(--flow-btn-bg-hover, rgba(255,255,255,0.15)); transform: translateY(-1px); }
+    .flow-tool-divider {
+        width: 1px;
+        height: 16px;
+        background: var(--flow-border, rgba(255,255,255,0.1));
+        margin: 0 2px;
+    }
+    .flow-tool-btn.danger { border-color: rgba(239, 68, 68, 0.25); color: #f87171; }
+    .flow-tool-btn.danger:hover { background: rgba(239, 68, 68, 0.14); color: #ef4444; border-color: rgba(239, 68, 68, 0.35); }
 
     /* 🌟 核心：收缩状态类联动机制 */
     .palette-collapsed .node-palette { transform: translateX(-220px); }
@@ -110,7 +124,79 @@ flowStyleInj.innerHTML = `
     }
     .tag-local { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
     .tag-cross { background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); }
-`;
+
+    .node-image-upload {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 4px;
+        padding: 2px;
+        border: 1px dashed transparent;
+        border-radius: 6px;
+        transition: 0.2s;
+    }
+    .node-image-upload-large {
+        display: block;
+        position: relative;
+        padding: 0;
+        border-style: dashed;
+        border-color: rgba(56, 189, 248, 0.35);
+        background: rgba(56, 189, 248, 0.06);
+        min-height: 112px;
+        overflow: hidden;
+    }
+    .node-image-upload-large.has-image {
+        border-style: solid;
+        border-color: rgba(56, 189, 248, 0.45);
+    }
+    .node-image-upload-large.node-image-drag-over {
+        border-color: var(--accent);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+    .node-image-upload-empty {
+        min-height: 112px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #7dd3fc;
+        font-size: 12px;
+        gap: 4px;
+        pointer-events: none;
+    }
+    .node-image-upload-empty .material-symbols-outlined { font-size: 22px; }
+    .img-preview-large {
+        width: 100%;
+        height: 112px;
+        display: block;
+        object-fit: contain;
+        background: rgba(0,0,0,0.28);
+    }
+    .node-image-upload-overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 10px;
+        font-size: 11px;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 100%);
+        color: #e0f2fe;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+    .node-image-upload-overlay:hover { filter: brightness(1.06); }
+    .node-image-upload-overlay .material-symbols-outlined { font-size: 14px; }
+
+    :root[data-theme='light'] .flow-tool-btn.danger { color: #dc2626; border-color: rgba(220, 38, 38, 0.25); }
+    :root[data-theme='light'] .node-image-upload-large { background: rgba(14, 116, 144, 0.07); border-color: rgba(14, 116, 144, 0.28); }
+    :root[data-theme='light'] .node-image-upload-empty { color: #0369a1; }
+    :root[data-theme='light'] .img-preview-large { background: rgba(15, 23, 42, 0.05); }
+    :root[data-theme='light'] .node-image-upload-overlay { color: #f8fafc; }
+`; 
 document.head.appendChild(flowStyleInj);
 
 const viewport = document.getElementById('flow-viewport');
@@ -227,6 +313,42 @@ function renderPreview(node) {
     return '';
 }
 
+function renderImageUploadInput(node, inp, val) {
+    const hasImage = typeof val === 'string' && val.length > 100;
+    const uploadId = `node-file-${node.id}-${inp.id}`;
+    const uploadUiId = `img-upload-ui-${node.id}-${inp.id}`;
+    const isPrimaryImageNode = node.type === 'base_image' && inp.id === 'image';
+
+    if (isPrimaryImageNode) {
+        return `
+        <div id="${uploadUiId}" class="node-image-upload node-image-upload-large ${hasImage ? 'has-image' : ''}"
+             ondragover="event.preventDefault(); this.classList.add('node-image-drag-over');" 
+             ondragleave="event.preventDefault(); this.classList.remove('node-image-drag-over');" 
+             ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.classList.remove('node-image-drag-over');">
+            <input id="${uploadId}" type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
+            ${hasImage
+                ? `<img src="${val}" class="img-preview-large" onmousedown="event.stopPropagation()" data-tip="已挂载图片，支持再次拖入覆盖">`
+                : `<div class="node-image-upload-empty"><span class="material-symbols-outlined">image</span><span>拖入图片或点击上传</span></div>`}
+            <label for="${uploadId}" class="node-image-upload-overlay" onmousedown="event.stopPropagation()">
+                <span class="material-symbols-outlined">upload</span>
+                <span class="img-upload-text">${hasImage ? '更换图片' : '上传 / 拖入图片'}</span>
+            </label>
+        </div>`;
+    }
+
+    return `
+    <div id="${uploadUiId}" class="node-image-upload"
+         ondragover="event.preventDefault(); this.style.borderColor='var(--accent)';" 
+         ondragleave="event.preventDefault(); this.style.borderColor='transparent';" 
+         ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.style.borderColor='transparent';">
+        <label class="node-input" style="flex:1; text-align:center; cursor:pointer; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); color: #38bdf8; padding: 6px; transition: 0.2s; margin:0;" onmouseover="this.style.background='rgba(56,189,248,0.2)'" onmouseout="this.style.background='rgba(56,189,248,0.1)'">
+            <input type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
+            <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">upload</span> <span class="img-upload-text">${hasImage ? '更换图片' : '点击 / 拖入图片'}</span>
+        </label>
+        ${hasImage ? `<img src="${val}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
+    </div>`;
+}
+
 function renderNodes() {
     if(!nodeBoard) return;
 
@@ -271,18 +393,7 @@ function renderNodes() {
                     } else if (inp.type === 'number') {
                         inputsHtml += `<input type="number" class="node-input" onmousedown="event.stopPropagation()" value="${val}" oninput="updateNodeData('${node.id}', '${inp.id}', this.value)" style="font-family: monospace; color: var(--accent);" />`;
                     } else if (inp.type === 'image_upload') {
-                        const hasImage = val && val.length > 100; 
-                        inputsHtml += `
-                        <div id="img-upload-ui-${node.id}-${inp.id}" style="display:flex; gap:8px; align-items:center; margin-top: 4px; padding: 2px; border: 1px dashed transparent; border-radius: 6px; transition: 0.2s;"
-                             ondragover="event.preventDefault(); this.style.borderColor='var(--accent)';" 
-                             ondragleave="this.style.borderColor='transparent';" 
-                             ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.style.borderColor='transparent';">
-                            <label class="node-input" style="flex:1; text-align:center; cursor:pointer; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); color: #38bdf8; padding: 6px; transition: 0.2s; margin:0;" onmouseover="this.style.background='rgba(56,189,248,0.2)'" onmouseout="this.style.background='rgba(56,189,248,0.1)'">
-                                <input type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
-                                <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">upload</span> <span class="img-upload-text">${hasImage ? '更换图片' : '点击 / 拖入图片'}</span>
-                            </label>
-                            ${hasImage ? `<img src="${val}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
-                        </div>`;
+                        inputsHtml += renderImageUploadInput(node, inp, val);
                     }
                     inputsHtml += `</div>`;
                 });
@@ -975,13 +1086,65 @@ window.updateNodeData = function(nodeId, key, value) {
     }
 };
 
+function updateNodeImageUploadUI(nodeId, inputId, srcToUse) {
+    const uploadUI = document.getElementById(`img-upload-ui-${nodeId}-${inputId}`);
+    if (!uploadUI) return;
+
+    const textSpan = uploadUI.querySelector('.img-upload-text');
+    if (textSpan) textSpan.innerText = srcToUse ? '更换图片' : '上传 / 拖入图片';
+
+    const isLargePreview = uploadUI.classList.contains('node-image-upload-large');
+    if (isLargePreview) {
+        uploadUI.classList.toggle('has-image', !!srcToUse);
+        let largeImg = uploadUI.querySelector('.img-preview-large');
+        let emptyEl = uploadUI.querySelector('.node-image-upload-empty');
+        const overlayEl = uploadUI.querySelector('.node-image-upload-overlay');
+
+        if (srcToUse) {
+            if (!largeImg) {
+                largeImg = document.createElement('img');
+                largeImg.className = 'img-preview-large';
+                largeImg.onmousedown = (e) => e.stopPropagation();
+                uploadUI.insertBefore(largeImg, overlayEl || null);
+            }
+            largeImg.src = srcToUse;
+            if (emptyEl) emptyEl.remove();
+        } else {
+            if (largeImg) largeImg.remove();
+            if (!emptyEl) {
+                emptyEl = document.createElement('div');
+                emptyEl.className = 'node-image-upload-empty';
+                emptyEl.innerHTML = '<span class="material-symbols-outlined">image</span><span>拖入图片或点击上传</span>';
+                uploadUI.insertBefore(emptyEl, overlayEl || null);
+            }
+        }
+        return;
+    }
+
+    if (srcToUse) {
+        let thumbImg = uploadUI.querySelector('.img-preview-thumb');
+        if (!thumbImg) {
+            thumbImg = document.createElement('img');
+            thumbImg.className = 'img-preview-thumb';
+            thumbImg.style.cssText = 'width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);';
+            thumbImg.onmousedown = (e) => e.stopPropagation();
+            uploadUI.appendChild(thumbImg);
+        }
+        thumbImg.src = srcToUse;
+    } else {
+        const thumbImg = uploadUI.querySelector('.img-preview-thumb');
+        if (thumbImg) thumbImg.remove();
+    }
+}
+
 window.handleNodeImageUpload = function(e, nodeId, inputId) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
         updateNodeData(nodeId, inputId, reader.result);
-        renderNodes(); 
+        updateNodeImageUploadUI(nodeId, inputId, reader.result);
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -1016,20 +1179,8 @@ window.handleNodeImageDrop = async function(e, nodeId, inputId) {
 
     if (srcToUse) {
         updateNodeData(nodeId, inputId, srcToUse);
-        const uploadUI = document.getElementById(`img-upload-ui-${nodeId}-${inputId}`);
-        if (uploadUI) {
-            const textSpan = uploadUI.querySelector('.img-upload-text');
-            if (textSpan) textSpan.innerText = '更换图片';
-            let thumbImg = uploadUI.querySelector('.img-preview-thumb');
-            if (!thumbImg) {
-                thumbImg = document.createElement('img');
-                thumbImg.className = 'img-preview-thumb';
-                thumbImg.style.cssText = 'width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);';
-                thumbImg.onmousedown = (e) => e.stopPropagation();
-                uploadUI.appendChild(thumbImg);
-            }
-            thumbImg.src = srcToUse;
-        }
+        updateNodeImageUploadUI(nodeId, inputId, srcToUse);
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
     }
 };
 
@@ -1145,17 +1296,20 @@ window.initNodePalette = function() {
 // 初始化顶部控制台
 function initFlowToolbar() {
     if (document.getElementById('flow-top-toolbar')) return;
-    
-    // 隐藏的上传器
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '.json';
-    fileInput.id = 'flow-import-input';
-    fileInput.style.display = 'none';
-    fileInput.onchange = window.importFlowFromJSON;
-    document.body.appendChild(fileInput);
 
-    // 玻璃态面板
+    // 隐藏上传器（只初始化一次）
+    let fileInput = document.getElementById('flow-import-input');
+    if (!fileInput) {
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json';
+        fileInput.id = 'flow-import-input';
+        fileInput.style.display = 'none';
+        fileInput.onchange = window.importFlowFromJSON;
+        document.body.appendChild(fileInput);
+    }
+
+    // 挂载到头部同级按钮区
     const toolbar = document.createElement('div');
     toolbar.id = 'flow-top-toolbar';
     toolbar.className = 'flow-top-toolbar';
@@ -1166,13 +1320,14 @@ function initFlowToolbar() {
         <button class="flow-tool-btn" onclick="exportFlowToJSON()">
             <span class="material-symbols-outlined" style="font-size: 16px;">download</span> 导出
         </button>
-        <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+        <div class="flow-tool-divider"></div>
         <button class="flow-tool-btn danger" onclick="clearFlowCanvas()">
             <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> 清空
         </button>
     `;
-    // 挂载到画布层上方
-    viewport.appendChild(toolbar);
+    const headerSlot = document.getElementById('flow-header-tools');
+    if (headerSlot) headerSlot.appendChild(toolbar);
+    else viewport.appendChild(toolbar);
 }
 
 async function bootstrapFlowEngine() {
