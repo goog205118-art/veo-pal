@@ -92,10 +92,7 @@ body {
 :root[data-theme='light'] .ref-popover,
 :root[data-theme='light'] .help-content,
 :root[data-theme='light'] .sys-modal-content,
-:root[data-theme='light'] .minimap-container,
-:root[data-theme='light'] .form-box,
-:root[data-theme='light'] .login-gate,
-:root[data-theme='light'] .gate-step {
+:root[data-theme='light'] .minimap-container {
     box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
 }
 :root[data-theme='light'] .video-card,
@@ -108,8 +105,7 @@ body {
 :root[data-theme='light'] .ref-popover,
 :root[data-theme='light'] .help-content,
 :root[data-theme='light'] .sys-modal-content,
-:root[data-theme='light'] .minimap-container,
-:root[data-theme='light'] .form-box {
+:root[data-theme='light'] .minimap-container {
     background: var(--chrome-bg-strong) !important;
     border-color: var(--border) !important;
 }
@@ -136,14 +132,10 @@ body {
 :root[data-theme='light'] .prompt-input,
 :root[data-theme='light'] .card-prompt p,
 :root[data-theme='light'] .help-section li,
-:root[data-theme='light'] .form-box h2,
-:root[data-theme='light'] .inputbox label,
-:root[data-theme='light'] .forget,
 :root[data-theme='light'] .frame-title-input,
 :root[data-theme='light'] .frame-btn,
 :root[data-theme='light'] .top-bar,
 :root[data-theme='light'] .logo,
-:root[data-theme='light'] .launch-btn,
 :root[data-theme='light'] .global-tooltip,
 :root[data-theme='light'] .veo-toast {
     color: var(--text-main) !important;
@@ -161,10 +153,6 @@ body {
 :root[data-theme='light'] .logo { text-shadow: none; }
 :root[data-theme='light'] .global-tooltip::after { border-color: rgba(15, 23, 42, 0.14) transparent transparent transparent; }
 :root[data-theme='light'] .global-tooltip.tooltip-bottom::after { border-color: transparent transparent rgba(15, 23, 42, 0.14) transparent; }
-:root[data-theme='light'] .form-box button { background: var(--accent); color: #fff !important; }
-:root[data-theme='light'] .inputbox input { color: var(--text-main); }
-:root[data-theme='light'] .inputbox { border-color: rgba(15, 23, 42, 0.18); }
-:root[data-theme='light'] .inputbox input::placeholder { color: var(--text-sub); }
 :root[data-theme='light'] .card-tag,
 :root[data-theme='light'] .status-badge {
     background: rgba(15, 23, 42, 0.08) !important;
@@ -189,7 +177,6 @@ body {
 :root[data-theme='light'] .palette-item:hover {
     background: rgba(15, 23, 42, 0.1) !important;
 }
-:root[data-theme='light'] .login-gate::before { background: radial-gradient(circle at center, rgba(255,255,255,0.08) 0%, rgba(246,248,252,0.72) 100%); }
 :root[data-theme='light'] .top-bar { background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(255,255,255,0) 100%); }
 :root[data-theme='light'] .video-card,
 :root[data-theme='light'] .card-prompt img,
@@ -221,6 +208,20 @@ body {
 :root[data-theme='light'] #error-modal-content h2,
 :root[data-theme='light'] #error-modal-content p {
     color: var(--text-main) !important;
+}
+
+/* 首页 / 登录层保持默认深色，不跟随日间主题泛白 */
+:root[data-theme='light'] .login-gate {
+    background-color: #0f0f11 !important;
+}
+:root[data-theme='light'] .login-gate::before {
+    background: radial-gradient(circle at center, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 100%) !important;
+}
+:root[data-theme='light'] .gate-step,
+:root[data-theme='light'] .form-box {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
 }
 
 .top-bar { position: fixed; top: 0; left: 0; width: 100%; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, var(--topbar-gradient-start) 0%, var(--topbar-gradient-end) 100%); z-index: 1000; pointer-events: none; }
