@@ -217,12 +217,6 @@ body {
 :root[data-theme='light'] .login-gate::before {
     background: radial-gradient(circle at center, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 100%) !important;
 }
-:root[data-theme='light'] .gate-step,
-:root[data-theme='light'] .form-box {
-    background: rgba(255, 255, 255, 0.06) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    color: #fff !important;
-}
 
 .top-bar { position: fixed; top: 0; left: 0; width: 100%; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, var(--topbar-gradient-start) 0%, var(--topbar-gradient-end) 100%); z-index: 1000; pointer-events: none; }
 .logo { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; text-shadow: 0 2px 10px rgba(0,0,0,0.5); pointer-events: auto; }
@@ -553,9 +547,8 @@ body {
 /* 启动按钮样式 */
 .launch-btn {
     display: flex; flex-direction: column; align-items: center;
-    color: var(--text-sub); cursor: pointer; padding: 0;
-    border-radius: 0; background: transparent; box-shadow: none;
-    transition: all 0.3s ease; gap: 16px;
+    color: var(--text-sub); cursor: pointer; padding: 40px;
+    border-radius: 50%; transition: all 0.3s ease;
 }
 .launch-btn:hover { color: var(--text-main); transform: scale(1.1); text-shadow: 0 0 20px var(--accent); }
 .launch-btn span { animation: pulse 2s infinite; }
