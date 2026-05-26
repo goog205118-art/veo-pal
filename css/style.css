@@ -553,8 +553,9 @@ body {
 /* 启动按钮样式 */
 .launch-btn {
     display: flex; flex-direction: column; align-items: center;
-    color: var(--text-sub); cursor: pointer; padding: 40px;
-    border-radius: 50%; transition: all 0.3s ease;
+    color: var(--text-sub); cursor: pointer; padding: 0;
+    border-radius: 0; background: transparent; box-shadow: none;
+    transition: all 0.3s ease; gap: 16px;
 }
 .launch-btn:hover { color: var(--text-main); transform: scale(1.1); text-shadow: 0 0 20px var(--accent); }
 .launch-btn span { animation: pulse 2s infinite; }
