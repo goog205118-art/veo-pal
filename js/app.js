@@ -1,9 +1,9 @@
 ﻿// ==========================================
-// 馃煝 鏍稿績搴旂敤閫昏緫涓庡畨鍏ㄦ嫤鎴?(Veo Studio Infinity Flow)
+// 🟢 核心应用逻辑与安全拦截 (Veo Studio Infinity Flow)
 // ==========================================
 let loginAnimationId = null;
 
-// 馃専 鑷姩娉ㄥ叆鏍稿績缂哄け鏍峰紡 (鍖呭惈寮圭獥銆佸皬鍦板浘銆佹壂鎻忕嚎銆佹媺浼告妸鎵?
+// 🌟 自动注入核心缺失样式 (包含弹窗、小地图、扫描线、拉伸把手)
 const styleInj = document.createElement('style');
 styleInj.innerHTML = `
     .minimap-container { bottom: 160px !important; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden !important; }
@@ -115,8 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const minimapEl = document.getElementById('minimap-container');
     if (minimapEl) {
         minimapEl.innerHTML += `
-            <div class="minimap-toggle" onclick="toggleMinimap(event)" data-tip="鏀惰捣灏忓湴鍥?><span class="material-symbols-outlined" style="font-size:14px;">close</span></div>
-            <span class="material-symbols-outlined minimap-icon" onclick="toggleMinimap(event)" data-tip="灞曞紑灏忓湴鍥?>map</span>
+            <div class="minimap-toggle" onclick="toggleMinimap(event)" data-tip="收起小地图"><span class="material-symbols-outlined" style="font-size:14px;">close</span></div>
+            <span class="material-symbols-outlined minimap-icon" onclick="toggleMinimap(event)" data-tip="展开小地图">map</span>
         `;
     }
 });
@@ -146,20 +146,20 @@ async function handleLoginSubmit(e) {
 
     setTimeout(() => {
         if (inputHash !== TARGET_HASH) {
-            showErrorModal(); btn.innerHTML = `楠岃瘉韬唤 / LOGIN`; btn.style.pointerEvents = 'auto';
+            showErrorModal(); btn.innerHTML = `验证身份 / LOGIN`; btn.style.pointerEvents = 'auto';
             document.getElementById('studio-pwd-input').value = ''; localStorage.removeItem('veo_admin_pwd_saved'); return; 
         }
         sessionStorage.setItem('veo_admin_pwd', pwdInput);
         const rememberCheckbox = document.getElementById('remember-pwd');
         if (rememberCheckbox && rememberCheckbox.checked) localStorage.setItem('veo_admin_pwd_saved', pwdInput); else localStorage.removeItem('veo_admin_pwd_saved'); 
-        btn.innerHTML = `<span class="material-symbols-outlined">check_circle</span> 楠岃瘉閫氳繃`; btn.style.background = 'var(--success)';
+        btn.innerHTML = `<span class="material-symbols-outlined">check_circle</span> 验证通过`; btn.style.background = 'var(--success)';
         
         setTimeout(() => {
             document.getElementById('gate-step-2').classList.remove('step-active'); document.getElementById('gate-step-2').classList.add('step-passed');
             const gate = document.getElementById('login-gate'); gate.classList.add('unlocked');
             setTimeout(() => {
                 if (typeof loginAnimationId !== 'undefined' && loginAnimationId) cancelAnimationFrame(loginAnimationId);
-                gate.remove(); showToast("娆㈣繋鍥炴潵", "success");
+                gate.remove(); showToast("欢迎回来", "success");
                 setTimeout(showAnnouncement, 500); 
             }, 800);
         }, 400);
@@ -178,12 +178,13 @@ function toggleMaterialDrawer() { document.getElementById('material-drawer').cla
 function handleAuthError() { 
     if (!sessionStorage.getItem('veo_admin_pwd')) return; 
     sessionStorage.removeItem('veo_admin_pwd'); 
-    showToast("瀵嗛挜楠岃瘉澶辫触鎴栧凡杩囨湡锛屽嵆灏嗛€€鍥炵櫥褰曡埍", "error"); 
+    showToast("密钥验证失败或已过期，即将退回登录舱", "error"); 
     setTimeout(() => location.reload(), 1500); 
 }
 
 // ==========================================
-// 馃梻锔?鏅鸿兘绱犳潗搴撶鐞嗗紩鎿?// ==========================================
+// 🗂️ 智能素材库管理引擎
+// ==========================================
 async function renderMaterialLibrary() {
     const tasks = await getAllTasksDB(); 
     const materials = tasks.filter(t => t.type === 'local_image');
@@ -191,19 +192,19 @@ async function renderMaterialLibrary() {
     if (!grid) return;
     
     if (materials.length === 0) { 
-        grid.innerHTML = `<div style="grid-column: span 2; text-align: center; padding: 40px 0; color: var(--text-sub); font-size: 12px;">浠撳簱绌虹┖濡備篃</div>`; 
+        grid.innerHTML = `<div style="grid-column: span 2; text-align: center; padding: 40px 0; color: var(--text-sub); font-size: 12px;">仓库空空如也</div>`; 
         return; 
     }
 
     const now = Date.now(), ONE_DAY = 86400000;
-    const groups = { "浠婂ぉ": [], "鏄ㄥぉ": [], "鏈懆": [], "鏇存棭": [] };
+    const groups = { "今天": [], "昨天": [], "本周": [], "更早": [] };
 
     materials.forEach(m => {
         const diff = now - m.timestamp;
-        if (diff < ONE_DAY) groups["浠婂ぉ"].push(m);
-        else if (diff < ONE_DAY * 2) groups["鏄ㄥぉ"].push(m);
-        else if (diff < ONE_DAY * 7) groups["鏈懆"].push(m);
-        else groups["鏇存棭"].push(m);
+        if (diff < ONE_DAY) groups["今天"].push(m);
+        else if (diff < ONE_DAY * 2) groups["昨天"].push(m);
+        else if (diff < ONE_DAY * 7) groups["本周"].push(m);
+        else groups["更早"].push(m);
     });
 
     let html = '';
@@ -211,9 +212,9 @@ async function renderMaterialLibrary() {
         if (items.length > 0) {
             html += `<div style="grid-column: span 2; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-top: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${groupName} (${items.length})</div>`;
             html += items.map(m => `
-                <div class="material-item" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${m.id}', type: 'local'}))" ondblclick="openLightbox(this.querySelector('img').src)" data-tip="鎸変綇鎷栨嫿澶嶇敤 | 鍙屽嚮鏀惧ぇ">
+                <div class="material-item" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${m.id}', type: 'local'}))" ondblclick="openLightbox(this.querySelector('img').src)" data-tip="按住拖拽复用 | 双击放大">
                     <img src="${getBlobUrl(m.id, m.src)}" loading="lazy">
-                    <button class="delete-btn material-symbols-outlined" onclick="deleteMaterial(event, '${m.id}')" data-tip="褰诲簳鍒犻櫎绱犳潗">close</button>
+                    <button class="delete-btn material-symbols-outlined" onclick="deleteMaterial(event, '${m.id}')" data-tip="彻底删除素材">close</button>
                 </div>
             `).join('');
         }
@@ -224,7 +225,7 @@ async function renderMaterialLibrary() {
 async function deduplicateMaterials(event) {
     const btn = event.currentTarget;
     const originalHTML = btn.innerHTML;
-    btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 鎵弿涓?..`;
+    btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 扫描中...`;
     btn.style.pointerEvents = 'none';
 
     try {
@@ -250,13 +251,13 @@ async function deduplicateMaterials(event) {
 
         if (removedCount > 0) {
             await renderMaterialLibrary();
-            showToast(`去重完成，已删除 ${removedCount} 个重复素材`, "success");
+            showToast(`✨ 清理完毕：已成功剔除 ${removedCount} 张完全重复的素材！`, "success");
         } else {
-            showToast("素材库很干净，未发现重复图片", "info");
+            showToast("🌟 您的素材库很干净，没有发现重复图片。", "info");
         }
     } catch (err) {
-        console.error('鍘婚噸寮曟搸鏁呴殰:', err);
-        showToast("鍘婚噸鎵弿澶辫触", "error");
+        console.error('去重引擎故障:', err);
+        showToast("去重扫描失败", "error");
     } finally {
         btn.innerHTML = originalHTML;
         btn.style.pointerEvents = 'auto';
@@ -264,23 +265,23 @@ async function deduplicateMaterials(event) {
 }
 
 async function clearAllMaterials() {
-    if(confirm('馃毃 鍗遍櫓鎿嶄綔锛乗n纭畾瑕佹竻绌烘暣涓礌鏉愬簱鍚楋紵\n(杩欑粷瀵瑰畨鍏細瀹冨彧娓呯┖渚ц竟鏍忓浘搴擄紝涓嶄細褰卞搷鎮ㄧ敾甯冧笂宸茬粡鍨繘鍘汇€佹鍦ㄤ娇鐢ㄧ殑鍗＄墖鍥剧墖锛?')) {
+    if(confirm('🚨 危险操作！\n确定要清空整个素材库吗？\n(这绝对安全：它只清空侧边栏图库，不会影响您画布上已经垫进去、正在使用的卡片图片！)')) {
         const tasks = await getAllTasksDB();
         const materials = tasks.filter(t => t.type === 'local_image');
         await Promise.all(materials.map(m => deleteTaskDB(m.id)));
         await renderMaterialLibrary();
-        showToast("素材库已清空，空间已释放", "success");
+        showToast("🗑️ 素材库已全部清空，空间已释放。", "success");
     }
 }
 
 async function deleteMaterial(e, id) {
     e.stopPropagation();
-    if(confirm('确定要从素材库永久删除这张图片吗？')) { await deleteTaskDB(id); renderMaterialLibrary(); showToast("素材已删除", "success"); }
+    if(confirm('🗑️ 确定要从素材库彻底销毁这张图片吗？')) { await deleteTaskDB(id); renderMaterialLibrary(); showToast("已销毁素材", "success"); }
 }
 
-async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `$${stats.totalCost}`; }
+async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `￥${stats.totalCost}`; }
 async function openBillingModal() {
-    const stats = await getBillingStats(); document.getElementById('bill-total').innerText = '$' + stats.totalCost; document.getElementById('bill-video-count').innerText = stats.videoCount; document.getElementById('bill-image-count').innerText = stats.imageCount;
+    const stats = await getBillingStats(); document.getElementById('bill-total').innerText = '￥' + stats.totalCost; document.getElementById('bill-video-count').innerText = stats.videoCount; document.getElementById('bill-image-count').innerText = stats.imageCount;
     const modal = document.getElementById('billing-modal'); modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show');
 }
 function closeBillingModal() { const modal = document.getElementById('billing-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
@@ -290,7 +291,7 @@ function updateEstimatedCost() {
     let cost = 0.35; 
     if (state.model.includes('4k')) {
         cost = 0.50; 
-    } else if (state.model.includes('lite')) { // 馃専 鍏煎鐗规儬妯″瀷 fast-lite-1.0
+    } else if (state.model.includes('lite')) { // 🌟 兼容特惠模型 fast-lite-1.0
         cost = 0.20; 
     }
     
@@ -299,23 +300,23 @@ function updateEstimatedCost() {
     const total = (cost * batch).toFixed(2);
     
     const btn = document.getElementById('generate-btn'); 
-    if (btn) btn.setAttribute('data-tip', `鍙戦€佽嚦鏈嶅姟鍣ㄧ敓鎴?| 棰勪及娑堣€? 锟?{total}`);
+    if (btn) btn.setAttribute('data-tip', `发送至服务器生成 | 预估消耗: ￥${total}`);
 }
 function updateBatchCount(select) { document.getElementById('batch-text').innerText = select.options[select.selectedIndex].text; updateEstimatedCost(); }
 
 async function alignSelectedCards() {
     const tasks = await getAllTasksDB();
-    if (tasks.length === 0) return showToast("画布上暂无卡片", "info");
+    if (tasks.length === 0) return showToast("画布上目前没有任何卡片", "info");
     let targetIds = selectedTasks.size > 0 ? Array.from(selectedTasks) : tasks.map(t => t.id);
     let cardsToAlign = tasks.filter(t => targetIds.includes(t.id) && t.type !== 'local_image' && t.type !== 'frame' && !t.parentId);
     
-    if(cardsToAlign.length === 0) return showToast("娌℃湁鍙帓鐗堢殑鏁ｈ惤鍗＄墖", "info");
+    if(cardsToAlign.length === 0) return showToast("没有可排版的散落卡片", "info");
     
     cardsToAlign.sort((a, b) => (Math.abs(a.y) + Math.abs(a.x)) - (Math.abs(b.y) + Math.abs(b.x)));
     let minX = Math.min(...cardsToAlign.map(c => c.x)), minY = Math.min(...cardsToAlign.map(c => c.y)), currentX = minX, currentY = minY, xGap = 340, yGap = 420, col = 0;
     const maxCols = Math.max(3, Math.floor((window.innerWidth / transform.scale) / xGap));
     const promises = cardsToAlign.map(async (task) => { task.x = minX + (col * xGap); task.y = currentY; col++; if (col >= maxCols) { col = 0; currentY += yGap; } await saveTaskDB(task); });
-    await Promise.all(promises); renderBoard(); showToast(`馃獎 绌洪棿娓呯悊瀹屾垚锛氬凡鑷姩瀵归綈鏁ｈ惤鑺傜偣`, "success");
+    await Promise.all(promises); renderBoard(); showToast(`🪄 空间清理完成：已自动对齐散落节点`, "success");
 }
 
 function showToast(message, type = 'info') {
@@ -345,27 +346,27 @@ function openHelpModal() { const modal = document.getElementById('help-modal'); 
 function closeHelpModal() { const modal = document.getElementById('help-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
 
 async function createFrame() {
-    if (selectedTasks.size === 0) return showToast("璇峰厛鎸変綇 Shift 妗嗛€夐渶瑕佹墦缁勭殑鍗＄墖", "error");
+    if (selectedTasks.size === 0) return showToast("请先按住 Shift 框选需要打组的卡片", "error");
     const tasks = await getAllTasksDB();
     const selected = tasks.filter(t => selectedTasks.has(t.id) && t.type !== 'frame' && t.type !== 'local_image' && !t.parentId);
-    if (selected.length === 0) return showToast("閫変腑鐨勫崱鐗囧凡琚墦缁勬垨鏃犳晥", "error");
+    if (selected.length === 0) return showToast("选中的卡片已被打组或无效", "error");
 
     let minX = Math.min(...selected.map(t => t.x)), minY = Math.min(...selected.map(t => t.y)), maxX = Math.max(...selected.map(t => t.x + (t.width || 340))), maxY = Math.max(...selected.map(t => t.y + (t.height || 400)));
     const frameId = 'frame_' + Date.now(), padding = 60;
-    const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '鏈懡鍚嶉」鐩粍', isCollapsed: false, timestamp: Date.now() };
+    const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '未命名项目组', isCollapsed: false, timestamp: Date.now() };
 
     await saveTaskDB(newFrame);
     for (let t of selected) { t.parentId = frameId; await saveTaskDB(t); }
-    clearSelection(); await renderBoard(); showToast(`已将 ${selected.length} 个卡片收纳为项目组`, "success");
+    clearSelection(); await renderBoard(); showToast(`✅ 已将 ${selected.length} 个卡片收纳为项目组`, "success");
 }
 
 async function updateTaskField(id, key, val) { const task = await getTaskDB(id); if (task) { task[key] = val; await saveTaskDB(task); } }
 async function toggleFrameCollapse(id) { const frame = await getTaskDB(id); if (frame) { frame.isCollapsed = !frame.isCollapsed; await saveTaskDB(frame); await renderBoard(); } }
 async function removeFrame(id) {
-    if(confirm('馃摝 纭畾瑕佽В鏁ｈ繖涓」鐩粍鍚楋紵\n(鍐呴儴鍗＄墖灏嗗畨鍏ㄤ繚鐣欏湪鐢诲竷涓?')) {
+    if(confirm('📦 确定要解散这个项目组吗？\n(内部卡片将安全保留在画布上)')) {
         await deleteTaskDB(id); const tasks = await getAllTasksDB();
         for (let t of tasks) { if (t.parentId === id) { delete t.parentId; await saveTaskDB(t); } }
-        await renderBoard(); showToast("椤圭洰缁勫凡瑙ｆ暎", "success");
+        await renderBoard(); showToast("项目组已解散", "success");
     }
 }
 
@@ -398,12 +399,12 @@ async function checkGroupDrop(draggedInfo) {
     if (droppedIntoFrame) {
         if (task.parentId !== droppedIntoFrame) {
             task.parentId = droppedIntoFrame; await saveTaskDB(task);
-            showToast("馃摝 鍗＄墖宸茬Щ鍏ラ」鐩粍", "success");
+            showToast("📦 卡片已移入项目组", "success");
         }
     } else {
         if (task.parentId) {
             task.parentId = null; await saveTaskDB(task);
-            showToast("馃摛 鍗＄墖宸茶嚜鐢辫劚绂婚」鐩粍", "info");
+            showToast("📤 卡片已自由脱离项目组", "info");
         }
     }
 }
@@ -538,7 +539,7 @@ function startFrameResize(e, id) {
     };
 }
 
-// 支持 Alt 克隆的卡片拖拽绑定
+// ✅ 替换为支持 Alt 克隆的拖拽绑定引擎
 function bindCardDrag(cardEl, task) {
     cardEl.__veoTask = task; 
     cardEl.onmousedown = (e) => { 
@@ -549,24 +550,25 @@ function bindCardDrag(cardEl, task) {
     
     const header = cardEl.querySelector('.card-header') || cardEl.querySelector('.frame-header');
     if(header) {
+        // 🌟 改为 async 函数，因为克隆需要查库
         header.onmousedown = async (e) => {
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
 
+            // 🌟🌟🌟 新增：侦测到按住 Alt 键，直接执行克隆并阻断原卡片的拖拽
             if (e.altKey) {
                 e.stopPropagation();
                 await duplicateTask(task, e);
                 return;
             }
 
-            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
+            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform'; 
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             } else {
                 if (!selectedTasks.has(task.id)) { clearSelection(); selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             }
-
-            draggingCardInfo = { el: cardEl, task: cardEl.__veoTask, startMouseX: e.clientX, startMouseY: e.clientY, initialX: cardEl.__veoTask.x || 0, initialY: cardEl.__veoTask.y || 0 };
-
+            draggingCardInfo = { el: cardEl, task: cardEl.__veoTask, startMouseX: e.clientX, startMouseY: e.clientY, initialX: cardEl.__veoTask.x || 0, initialY: cardEl.__veoTask.y || 0 }; 
+            
             if (task.type === 'frame') {
                 draggingCardInfo.children = [];
                 document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
@@ -576,8 +578,7 @@ function bindCardDrag(cardEl, task) {
                     }
                 });
             }
-
-            e.stopPropagation();
+            e.stopPropagation(); 
         };
     }
     
@@ -593,16 +594,16 @@ function bindCardDrag(cardEl, task) {
 window.addEventListener('keydown', async (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); showToast(`已全选可见节点`, "info");
+        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); showToast(`已全选可视节点`, "info");
     }
     if (e.key === 'Backspace' || e.key === 'Delete') {
         if (selectedTasks.size > 0) {
-            if (confirm(`确定要删除选中的 ${selectedTasks.size} 个对象吗？`)) {
+            if (confirm(`🗑️ 确定要彻底删除选中的 ${selectedTasks.size} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) {
                 const deletePromises = Array.from(selectedTasks).map(async (id) => { 
                     await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
                     const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
                 });
-                await Promise.all(deletePromises); showToast(`娓呯悊瀹屾垚`, "success"); selectedTasks.clear(); renderMinimap();
+                await Promise.all(deletePromises); showToast(`清理完成`, "success"); selectedTasks.clear(); renderMinimap();
             }
         }
     }
@@ -687,7 +688,7 @@ window.addEventListener('paste', async (e) => {
             await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true;
         }
     }
-    if (added) { await renderMaterialLibrary(); showToast("已将剪贴板图片收录到全局素材库", "success"); document.getElementById('material-drawer').classList.add('open'); }
+    if (added) { await renderMaterialLibrary(); showToast(`✅ 已将剪贴板图片收入全局素材库`, 'success'); document.getElementById('material-drawer').classList.add('open'); }
 });
 
 const consoleEl = document.getElementById('floating-console');
@@ -719,7 +720,7 @@ async function exportWorkspace() {
         }
         const blob = new Blob([JSON.stringify(exportData)], {type: 'application/json'}); const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `VeoStudio_Flow_${Date.now()}.veo`; a.click(); URL.revokeObjectURL(url);
-    } catch (e) { alert('瀵煎嚭澶辫触: ' + e.message); } finally { btn.innerHTML = originalHTML; }
+    } catch (e) { alert('导出失败: ' + e.message); } finally { btn.innerHTML = originalHTML; }
 }
 
 async function importWorkspace(input) {
@@ -727,7 +728,7 @@ async function importWorkspace(input) {
     reader.onload = async (e) => {
         try {
             const data = JSON.parse(e.target.result);
-            if (confirm(`解析成功，包含 ${data.length} 个节点。\n将与当前画布合并，是否继续？`)) {
+            if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
                 for (let t of data) {
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
                     if (t.state) { if(t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); if(t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob()); if(t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob()); }
@@ -736,7 +737,7 @@ async function importWorkspace(input) {
                 }
                 renderBoard(); await renderMaterialLibrary(); await updateBillingUI(); renderMinimap();
             }
-        } catch(err) { alert('鉂?鏂囦欢瑙ｆ瀽澶辫触锛岃纭繚瀵煎叆鐨勬槸鏈夋晥鐨?.veo 鏍煎紡鏂囦欢'); } input.value = '';
+        } catch(err) { alert('❌ 文件解析失败，请确保导入的是有效的 .veo 格式文件'); } input.value = '';
     };
     reader.readAsText(input.files[0]);
 }
@@ -756,11 +757,11 @@ viewport.addEventListener('drop', async (e) => {
     if (files && files.length > 0) {
         let added = false;
         for (let file of files) { if (file.type.startsWith('image/')) { const blob = await compressImageToBlob(file, 1024); await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true; } }
-        if(added) { await renderMaterialLibrary(); showToast("已将拖入图片收录到全局素材库", "success"); document.getElementById('material-drawer').classList.add('open'); }
+        if(added) { await renderMaterialLibrary(); showToast(`✅ 已将拖入的图片收入全局素材库`, 'success'); document.getElementById('material-drawer').classList.add('open'); }
     }
 });
 
-// 馃専 寮哄姏鎷栨斁瑙ｆ瀽寮曟搸 (閫氭潃鎵€鏈夋暟鎹牸寮?
+// 🌟 强力拖放解析引擎 (通杀所有数据格式)
 async function parseDroppedImage(e) {
     let srcToUse = null;
     try {
@@ -776,7 +777,7 @@ async function parseDroppedImage(e) {
         }
     } catch(err) {}
 
-    // 鍏滃簳 1锛氳В鏋?Base64 鏂囨湰鏁版嵁 (浠庡叾浠栫綉椤垫嫋鎷?
+    // 兜底 1：解析 Base64 文本数据 (从其他网页拖拽)
     if (!srcToUse) {
         let textData = e.dataTransfer.getData('text/plain');
         if (textData && textData.startsWith('data:image')) {
@@ -784,7 +785,7 @@ async function parseDroppedImage(e) {
         }
     }
 
-    // 鍏滃簳 2锛氳В鏋愮函鏈湴鏂囦欢 (浠庣數鑴戞闈㈡垨鏂囦欢澶规嫋鎷?
+    // 兜底 2：解析纯本地文件 (从电脑桌面或文件夹拖拽)
     if (!srcToUse && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
         if (file) srcToUse = await compressImageToBlob(file, 1024);
@@ -794,16 +795,18 @@ async function parseDroppedImage(e) {
 }
 
 // ==========================================
-// 馃殌 鏍稿績锛氬崟鑺傜偣灞€閮ㄦ覆鏌撳紩鎿?(褰诲簳鍛婂埆鍏ㄥ眬闂儊)
+// 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
 // ==========================================
 async function renderCard(taskId) {
     const task = await getTaskDB(taskId); if (!task) return;
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
-    // 浠呴噸缁樺綋鍓嶇殑杩欎竴寮犲崱鐗?    cardEl.innerHTML = generateCardHTML(task);
+    // 仅重绘当前的这一张卡片
+    cardEl.innerHTML = generateCardHTML(task);
     bindCardDrag(cardEl, task);
 
-    // 鍚屾杩借釜灞炴€э紝闃叉鍚庣画琚鍒?    const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
+    // 同步追踪属性，防止后续被误刷
+    const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
     const currentProgress = task.progress || '';
     const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
     const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
@@ -821,7 +824,7 @@ async function renderCard(taskId) {
 }
 
 // ==========================================
-// 鉁傦笍 灞€閮ㄨ鍒囧櫒 (Cropper) 鏍稿績浜や簰閫昏緫 (灞€閮ㄦ覆鏌撶増)
+// ✂️ 局部裁切器 (Cropper) 核心交互逻辑 (局部渲染版)
 // ==========================================
 async function handleCropperDrop(e, taskId) {
     e.preventDefault(); e.stopPropagation();
@@ -833,7 +836,7 @@ async function handleCropperDrop(e, taskId) {
             task.timestamp = Date.now();
             await saveTaskDB(task); 
             renderCard(taskId); 
-            showToast("成功导入待裁切素材", "success"); 
+            showToast("✅ 成功导入待裁切素材", "success"); 
         }
     }
 }
@@ -861,13 +864,13 @@ async function resetCropper(taskId) {
     }
 }
 
-// 鉁?鏇挎崲涓猴細甯︾姸鎬侀噸缃殑杩斿洖閲嶉€夊櫒
+// ✅ 替换为：带状态重置的返回重选器
 async function reEditCropper(taskId) {
     const task = await getTaskDB(taskId);
     if (task) { 
         task.state.resultBlob = null; 
         
-        // 馃専 琛ヤ笂杩欎竴琛岋紝娓呯悊鎺変笂娆¤鍒囩殑娈嬬暀鎸囩汗
+        // 🌟 补上这一行，清理掉上次裁切的残留指纹
         task.timestamp = Date.now(); 
         
         await saveTaskDB(task); 
@@ -875,7 +878,7 @@ async function reEditCropper(taskId) {
     }
 }
 
-// 带时间戳刷新能力的裁切生成器
+// ✅ 替换为：带“时间戳击穿缓存”功能的裁切生成器
 async function generateCrop(taskId) {
     const task = await getTaskDB(taskId); 
     if (!task || !task.state.sourceBlob) return;
@@ -903,11 +906,12 @@ async function generateCrop(taskId) {
         canvas.toBlob(async (blob) => {
             task.state.resultBlob = blob;
             
-            // 馃専 鏍稿績淇锛氬己鍒舵洿鏂版椂闂存埑锛岃娴忚鍣ㄦ槑鐧借繖鏄竴寮犲叏鏂扮殑鍥?            task.timestamp = Date.now(); 
+            // 🌟 核心修复：强制更新时间戳，让浏览器明白这是一张全新的图
+            task.timestamp = Date.now(); 
             
             await saveTaskDB(task);
-            renderCard(taskId); // 灞€閮ㄩ噸缁?
-            showToast("裁切提取完成，可拖拽复用", "success");
+            renderCard(taskId); // 局部重绘
+            showToast("✂️ 裁切提取完成！可按住新图片拖拽复用", "success");
         }, 'image/jpeg', 0.9);
     };
 }
@@ -918,15 +922,14 @@ function bindMainConsoleDrop(slotId, stateKey) {
         e.preventDefault(); slot.classList.remove('drag-over'); const srcToUse = await parseDroppedImage(e);
         if (srcToUse) {
             if (stateKey === 'references') { 
-                if (globalStore.getState().references.length < 3) globalStore.dispatch('ADD_REFERENCE', srcToUse); 
+                if (globalStore.getState().references.length < 3) globalStore.getState().references.push(srcToUse); 
                 renderReferences(); 
                 document.getElementById('ref-popover').style.display = 'flex'; 
             } 
             else { 
-                if (stateKey === 'firstFrame') globalStore.dispatch('SET_FIRST_FRAME', srcToUse); 
-                if (stateKey === 'lastFrame') globalStore.dispatch('SET_LAST_FRAME', srcToUse); 
+                globalStore.getState()[stateKey] = srcToUse; 
                 const t = stateKey === 'firstFrame' ? 'first' : 'last'; 
-                // 馃専 鏍稿績锛氬姞涓?Date.now() 鎵撶牬缂撳瓨
+                // 🌟 核心：加上 Date.now() 打破缓存
                 document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}_${Date.now()}`, srcToUse); 
                 document.getElementById(`slot-${t}-box`).classList.add('has-img'); 
             }
@@ -936,31 +939,26 @@ function bindMainConsoleDrop(slotId, stateKey) {
 
 function toggleRefPopover(e) { e.stopPropagation(); if (globalStore.getState().references.length === 0) document.getElementById('ref-file').click(); else { const p = document.getElementById('ref-popover'); p.style.display = p.style.display === 'flex' ? 'none' : 'flex'; } }
 
-const genData = {
-    formats: ["主播带货", "街头采访", "教程演示", "前后反差", "开箱测评", "对比实验", "剧情短剧", "冲突夸张", "用户证言", "评论区回复", "生活方式植入"],
-    openings: ["产品痛点开场", "夸张吸睛开场", "结果先给开场", "问题提问开场", "场景代入开场", "测评对比开场", "评论区回复开场", "数字清单开场"],
-    attributes: ["强化主播人设", "情绪张力更强", "提前带出福利", "加入真实经历", "种草干货收尾", "单一卖点更聚焦"],
-    generals: ["节奏更快", "情绪更强", "更像真实博主", "结果感更强", "广告感更弱", "强化收尾下单", "加强产品细节", "UGC感", "更像评论区安利"]
-};
+const genData = { formats: ["主播带货", "街头采访", "教程演示", "前后反差", "开箱测评", "对比实验", "剧情短剧", "冲突夸张", "用户证言", "评论区回复", "生活方式植入"], openings: ["产品痛点开场", "夸张吸睛开场", "结果先给开场", "问题提问开场", "场景代入开场", "测评对比开场", "评论群回复开场", "数字清单开场"], attributes: ["强化主播人设", "情绪张力更强", "提前带出福利", "加入真实经历", "种草干货收尾", "单一卖点更聚焦"], generals: ["节奏更快", "情绪更强", "更像真实博主", "更强结果感", "更弱广告感", "强化收尾下单", "更强调产品细节", "UGC感", "更像评论区安利"] };
 function getRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 async function shuffleGenerator(id) { const task = await getTaskDB(id); if(!task) return; task.state.format = getRandom(genData.formats); task.state.opening = getRandom(genData.openings); task.state.attribute = getRandom(genData.attributes); task.state.general = getRandom(genData.generals); await saveTaskDB(task); renderCard(id); }
 async function updateGeneratorState(id, key, value) { const task = await getTaskDB(id); if(task) { task.state[key] = value; await saveTaskDB(task); } }
 async function applyGeneratorToPrompt(id, btnElement) {
     const task = await getTaskDB(id); if(!task) return;
     const { format, opening, attribute, general } = task.state;
-    if (!format || !opening || !attribute || !general) return alert("请先点击【随机抽取】生成完整组合");
-    document.getElementById('prompt-input').value = `【带货形式】${format} | 【开头】${opening} | 【属性】${attribute} | 【通用】${general}\n\n围绕以上要求，帮我生成脚本。`;
+    if (!format || !opening || !attribute || !general) return alert("请先点击【随机抽取】生成完整的组合");
+    document.getElementById('prompt-input').value = `【带货形式】${format} | 【开头】${opening} | 【属性】${attribute} | 【通用】${general} \n\n围绕以上要求，帮我生成...`;
     document.getElementById('floating-console').classList.remove('minimized');
     const originalText = btnElement.innerHTML; btnElement.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">check_circle</span> 已应用`; btnElement.style.color = 'var(--success)'; setTimeout(() => { btnElement.innerHTML = originalText; btnElement.style.color = ''; }, 1500);
 }
-function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>璇烽€夋嫨...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
+function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>请选择...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
 
 function switchMode(mode) { globalStore.dispatch('SET_MODE', mode); }
 function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateRatio(select) { globalStore.dispatch('SET_RATIO', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateEnhance(select) { globalStore.dispatch('SET_ENHANCE', { value: select.value, text: select.options[select.selectedIndex].text }); }
-function updateUpsample(select) { globalStore.dispatch('SET_UPSAMPLE', select.value === 'true'); document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
-function updateAutoRetry(select) { globalStore.dispatch('SET_AUTO_RETRY', select.value === 'true'); document.getElementById('retry-text').innerText = select.options[select.selectedIndex].text; }
+function updateUpsample(select) { globalStore.getState().enableUpsample = select.value === 'true'; document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
+function updateAutoRetry(select) { globalStore.getState().autoRetry = select.value === 'true'; document.getElementById('retry-text').innerText = select.options[select.selectedIndex].text; }
 
 sysBus.on('UI:SWITCH_MODE', (mode) => { document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active')); document.querySelectorAll('.slot-group').forEach(s => s.classList.remove('active')); document.getElementById(`tab-${mode}`).classList.add('active'); document.getElementById(`slots-${mode}`).classList.add('active'); updateEstimatedCost(); });
 sysBus.on('UI:UPDATE_MODEL_TEXT', (text) => document.getElementById('model-text').innerText = text);
@@ -972,26 +970,23 @@ sysBus.on('SYSTEM:MODEL_CHANGED', (modelValue) => {
         if (globalStore.getState().currentMode !== 'ref') switchMode('ref');
         frameTab.style.opacity = '0.3'; frameTab.style.pointerEvents = 'none';
         refTab.style.opacity = '1'; refTab.style.pointerEvents = 'auto';
-        showToast("宸茶嚜鍔ㄥ垏鎹㈣嚦銆愬弬鑰冨浘 Cmp銆戜笓灞炲妯℃€侀€氶亾", "info");
+        showToast("已自动切换至【参考图 Cmp】专属多模态通道", "info");
     } else {
         if (globalStore.getState().currentMode !== 'frame') switchMode('frame');
         refTab.style.opacity = '0.3'; refTab.style.pointerEvents = 'none';
         frameTab.style.opacity = '1'; frameTab.style.pointerEvents = 'auto';
-        showToast("宸茶嚜鍔ㄥ垏鎹㈣嚦銆愰灏惧抚銆戣棰戦€氶亾", "info");
+        showToast("已自动切换至【首尾帧】视频通道", "info");
     }
     updateEstimatedCost();
 });
 
 async function handleMultiRefs(input) {
     if (!input.files || input.files.length === 0) return; if (globalStore.getState().references.length + input.files.length > 3) { input.value = ''; return alert(`最多仅支持 3 张图。`); }
-    for (let file of Array.from(input.files)) {
-        const refBlob = await compressImageToBlob(file);
-        if (refBlob) globalStore.dispatch('ADD_REFERENCE', refBlob);
-    }
+    for (let file of Array.from(input.files)) globalStore.getState().references.push(await compressImageToBlob(file));
     input.value = ''; renderReferences(); if(globalStore.getState().references.length > 0) document.getElementById('ref-popover').style.display = 'flex';
 }
-function removeReference(event, index) { event.stopPropagation(); globalStore.dispatch('REMOVE_REFERENCE_AT', index); renderReferences(); if(globalStore.getState().references.length === 0) document.getElementById('ref-popover').style.display = 'none'; }
-function clearReferences(e) { e.stopPropagation(); globalStore.dispatch('SET_REFERENCES', []); renderReferences(); document.getElementById('ref-popover').style.display = 'none'; }
+function removeReference(event, index) { event.stopPropagation(); globalStore.getState().references.splice(index, 1); renderReferences(); if(globalStore.getState().references.length === 0) document.getElementById('ref-popover').style.display = 'none'; }
+function clearReferences(e) { e.stopPropagation(); globalStore.getState().references = []; renderReferences(); document.getElementById('ref-popover').style.display = 'none'; }
 function renderReferences() {
     const box = document.getElementById('slot-ref-box'), imgEl = document.getElementById('ref-img'), countBadge = document.getElementById('ref-count-badge'), state = globalStore.getState();
     if (state.references.length === 0) { 
@@ -999,36 +994,21 @@ function renderReferences() {
     } 
     else { 
         box.classList.add('has-img'); 
-        // 馃専 鏍稿績锛氬姞涓?Date.now()
+        // 🌟 核心：加上 Date.now()
         imgEl.src = getBlobUrl(`temp_ref_main_${Date.now()}`, state.references[0]); 
         countBadge.style.display = state.references.length > 1 ? 'flex' : 'none'; 
         countBadge.innerText = state.references.length; 
     }
-    // 馃専 鍒楄〃娓叉煋鍚屾牱鍔犱笂鏃堕棿鎴?    document.getElementById('ref-list-container').innerHTML = state.references.map((b, index) => `<div class="popover-img-item"><img src="${getBlobUrl(`temp_ref_${index}_${Date.now()}`, b)}"><div class="popover-rm-btn" onclick="removeReference(event, ${index})">脳</div></div>`).join('');
+    // 🌟 列表渲染同样加上时间戳
+    document.getElementById('ref-list-container').innerHTML = state.references.map((b, index) => `<div class="popover-img-item"><img src="${getBlobUrl(`temp_ref_${index}_${Date.now()}`, b)}"><div class="popover-rm-btn" onclick="removeReference(event, ${index})">×</div></div>`).join('');
     document.getElementById('ref-popover-add').style.display = state.references.length >= 3 ? 'none' : 'flex';
 }
 
-async function handleSingleFrame(input, type) {
-    if (!input.files[0]) return;
-    const frameBlob = await compressImageToBlob(input.files[0]);
-    if (type === 'firstFrame') globalStore.dispatch('SET_FIRST_FRAME', frameBlob);
-    if (type === 'lastFrame') globalStore.dispatch('SET_LAST_FRAME', frameBlob);
-    const t = type === 'firstFrame' ? 'first' : 'last';
-    document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}`, globalStore.getState()[type]);
-    document.getElementById(`slot-${t}-box`).classList.add('has-img');
-    input.value = '';
-}
-function clearFrame(event, type) {
-    if(event) { event.preventDefault(); event.stopPropagation(); }
-    if (type === 'firstFrame') globalStore.dispatch('SET_FIRST_FRAME', null);
-    if (type === 'lastFrame') globalStore.dispatch('SET_LAST_FRAME', null);
-    const t = type === 'firstFrame' ? 'first' : 'last';
-    document.getElementById(`slot-${t}-box`).classList.remove('has-img');
-    document.getElementById(`${t}-img`).src = '';
-}
+async function handleSingleFrame(input, type) { if (!input.files[0]) return; globalStore.getState()[type] = await compressImageToBlob(input.files[0]); const t = type === 'firstFrame' ? 'first' : 'last'; document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}`, globalStore.getState()[type]); document.getElementById(`slot-${t}-box`).classList.add('has-img'); input.value = ''; }
+function clearFrame(event, type) { if(event) { event.preventDefault(); event.stopPropagation(); } globalStore.getState()[type] = null; const t = type === 'firstFrame' ? 'first' : 'last'; document.getElementById(`slot-${t}-box`).classList.remove('has-img'); document.getElementById(`${t}-img`).src = ''; }
 
 async function submitBatchTask() {
-    const prompt = document.getElementById('prompt-input').value.trim(); if (!prompt) return alert('璇峰～鍐欐彁绀鸿瘝');
+    const prompt = document.getElementById('prompt-input').value.trim(); if (!prompt) return alert('请填写提示词');
     const batchCount = parseInt(document.getElementById('batch-select').value), btn = document.getElementById('generate-btn');
     btn.disabled = true; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>`;
     
@@ -1041,8 +1021,10 @@ async function submitBatchTask() {
     btn.disabled = false; btn.innerHTML = `<span class="material-symbols-outlined">arrow_upward</span>`; updateEstimatedCost(); 
     document.getElementById('prompt-input').value = ''; 
 
-    // 馃専 鏂板鏍稿績锛氬彂灏勫悗褰诲簳娓呯┖鎺у埗鍙板唴瀛樹笌缂╃暐鍥?
-    globalStore.dispatch('RESET_MEDIA');
+    // 🌟 新增核心：发射后彻底清空控制台内存与缩略图
+    globalStore.getState().firstFrame = null;
+    globalStore.getState().lastFrame = null;
+    globalStore.getState().references = [];
     document.getElementById('first-img').src = '';
     document.getElementById('last-img').src = '';
     document.getElementById('slot-first-box').classList.remove('has-img');
@@ -1052,32 +1034,32 @@ async function submitBatchTask() {
     renderReferences(); 
 }
 
-// 馃専 鎻愪氦寮曟搸 (楂樺閿?ID 瑙ｆ瀽鐗?
+// 🌟 提交引擎 (高容错 ID 解析版)
 async function executeSubmission(params, promptText, offsetIndex = 0) {
     try {
         const apiPayload = { model: params.model, prompt: promptText, aspectRatio: params.aspectRatio, enhancePrompt: params.enhancePrompt, enableUpsample: params.enableUpsample, firstFrame: await blobToBase64(params.firstFrame), lastFrame: await blobToBase64(params.lastFrame), references: await Promise.all(params.references.map(b => blobToBase64(b))) };
         const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
         
-        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("瀵嗙爜閿欒"); }
+        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) {
             const errText = await response.text();
-            throw new Error(`API 杩斿洖寮傚父: ${response.status} - ${errText}`);
+            throw new Error(`API 返回异常: ${response.status} - ${errText}`);
         }
         
         const data = await response.json();
-        const returnedId = data.taskId || data.id || data.task_id; // 馃専 鍏煎鍚勭 n8n 杩斿洖缁撴瀯
+        const returnedId = data.taskId || data.id || data.task_id; // 🌟 兼容各种 n8n 返回结构
         
         if (returnedId) {
             const spawnX = (-transform.x + window.innerWidth/2 - 170) / transform.scale + (offsetIndex * 360), spawnY = (-transform.y + window.innerHeight/2 - 150) / transform.scale + (offsetIndex * 40);
             let displayModelName = params.model.replace('veo3.1', 'Veo 3.1').replace('-components', ' Cmp').replace('-4k', ' 4K').toUpperCase();
-            if (params.model.includes('lite')) displayModelName = '鏋侀€熺壒鎯犵増'; 
+            if (params.model.includes('lite')) displayModelName = '极速特惠版'; 
             
             const newTask = { id: returnedId, prompt: promptText, modelStr: displayModelName, modelVal: params.model, ratio: params.aspectRatio, autoRetry: params.autoRetry, retryCount: 0, rawImages: { firstFrame: params.firstFrame, lastFrame: params.lastFrame, references: params.references || [] }, mode: params.references && params.references.length > 0 ? 'ref' : 'frame', status: 'processing', progress: null, timestamp: Date.now(), time: new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}), videoUrl: null, x: spawnX, y: spawnY, isBilled: false };
             await saveTaskDB(newTask); await renderBoard(); 
         }
     } catch (error) { 
-        console.error('浠诲姟鎻愪氦澶辫触:', error); 
-        showToast('视频生成提交失败，请检查网络或余额', 'error');
+        console.error('任务提交失败:', error); 
+        showToast('视频生成提交失败，请检查网络或余额。', 'error');
     }
 }
 
@@ -1088,8 +1070,8 @@ async function retryTask(taskId, btnElement) {
     try {
         const apiPayload = { model: task.modelVal, prompt: task.prompt, aspectRatio: task.ratio, enhancePrompt: true, enableUpsample: false, firstFrame: await blobToBase64(task.rawImages.firstFrame), lastFrame: await blobToBase64(task.rawImages.lastFrame), references: await Promise.all((task.rawImages.references || []).map(b => blobToBase64(b))) };
         const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
-        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("瀵嗙爜閿欒"); }
-        if (!response.ok) throw new Error("API 寮傚父");
+        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
+        if (!response.ok) throw new Error("API 异常");
         const data = await response.json();
         
         const returnedId = data.taskId || data.id || data.task_id;
@@ -1097,11 +1079,11 @@ async function retryTask(taskId, btnElement) {
             await deleteTaskDB(taskId); removeActiveTask(taskId); 
             task.id = returnedId; task.status = 'processing'; task.progress = null; task.retryCount = (task.retryCount || 0) + 1; task.timestamp = Date.now(); task.time = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}); task.isBilled = false; 
             await saveTaskDB(task); activeRetries.delete(taskId); await renderBoard(); 
-        } else throw new Error("鏃犺繑鍥?ID");
+        } else throw new Error("无返回 ID");
     } catch (error) { task.status = 'failed'; task.autoRetry = false; await saveTaskDB(task); activeRetries.delete(taskId); renderCard(taskId); }
 }
 
-// 馃専 杞寮曟搸 (楂樺閿欑姸鎬佽В鏋愮増)
+// 🌟 轮询引擎 (高容错状态解析版)
 function startTaskPolling(taskId) {
     let attempts = 0;
     const poll = async () => {
@@ -1113,21 +1095,21 @@ function startTaskPolling(taskId) {
 
             const response = await fetch(API_POLL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': currentPwd }, body: JSON.stringify({ taskId: taskId, model: task.modelVal }) });
             if (response.status === 401 || response.status === 403) { removeActiveTask(taskId); handleAuthError(); return; }
-            if (!response.ok) throw new Error("API 寮傚父");
+            if (!response.ok) throw new Error("API 异常");
             const data = await response.json();
             
-            // 馃専 寮哄姏鍏煎鍚勭 n8n 鐨勫瓧娈靛悕涓庣姸鎬佸悕
+            // 🌟 强力兼容各种 n8n 的字段名与状态名
             const currentStatus = (data.status || data.state || 'processing').toLowerCase();
             const currentVideoUrl = data.videoUrl || data.video_url || data.url;
 
             if (data && (currentStatus === 'success' || currentStatus === 'completed' || currentStatus === 'succeeded') && currentVideoUrl) { 
                 removeActiveTask(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl; 
                 if (!task.isBilled) {
-                    let cost = 0.35, detailDesc = "Veo 3.1 (棣栧熬甯?";
-                    if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (鍙傝€冨浘)"; } 
-                    else if (task.modelVal === 'veo3.1-4k') { cost = 0.50; detailDesc = "Veo 3.1 4K (棣栧熬甯?"; } 
-                    else if (task.modelVal === 'veo3.1-components-4k') { cost = 0.50; detailDesc = "Veo 3.1 Cmp 4K (鍙傝€冨浘)"; } 
-                    else if (task.modelVal.includes('lite')) { cost = 0.20; detailDesc = "鏋侀€熺壒鎯犵増妯″瀷"; }
+                    let cost = 0.35, detailDesc = "Veo 3.1 (首尾帧)";
+                    if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (参考图)"; } 
+                    else if (task.modelVal === 'veo3.1-4k') { cost = 0.50; detailDesc = "Veo 3.1 4K (首尾帧)"; } 
+                    else if (task.modelVal === 'veo3.1-components-4k') { cost = 0.50; detailDesc = "Veo 3.1 Cmp 4K (参考图)"; } 
+                    else if (task.modelVal.includes('lite')) { cost = 0.20; detailDesc = "极速特惠版模型"; }
                     
                     await addBillingRecord({ id: 'bill_' + task.id, taskId: task.id, type: 'video', cost: cost, detail: detailDesc }); 
                     task.isBilled = true; 
@@ -1157,7 +1139,7 @@ async function reuseTask(taskId) {
     if (task.modelVal) { const modelSelect = document.getElementById('model-select'); if(modelSelect.querySelector(`option[value="${task.modelVal}"]`)) { modelSelect.value = task.modelVal; updateModel(modelSelect); } }
     if (task.ratio) { document.getElementById('ratio-select').value = task.ratio; updateRatio(document.getElementById('ratio-select')); }
     if (task.rawImages) {
-        globalStore.dispatch('HYDRATE_MEDIA_STATE', { firstFrame: task.rawImages.firstFrame || null, lastFrame: task.rawImages.lastFrame || null, references: [...(task.rawImages.references || [])] }); switchMode(task.mode || 'ref');
+        globalStore.getState().firstFrame = task.rawImages.firstFrame || null; globalStore.getState().lastFrame = task.rawImages.lastFrame || null; globalStore.getState().references = [...(task.rawImages.references || [])]; switchMode(task.mode || 'ref');
         if (globalStore.getState().firstFrame) { document.getElementById('first-img').src = getBlobUrl('temp_first', globalStore.getState().firstFrame); document.getElementById('slot-first-box').classList.add('has-img'); } else clearFrame(null, 'firstFrame');
         if (globalStore.getState().lastFrame) { document.getElementById('last-img').src = getBlobUrl('temp_last', globalStore.getState().lastFrame); document.getElementById('slot-last-box').classList.add('has-img'); } else clearFrame(null, 'lastFrame');
         renderReferences();
@@ -1171,100 +1153,112 @@ function generateCardHTML(task) {
         <div class="frame-header" onmousedown="event.stopPropagation()">
             <span class="material-symbols-outlined" style="font-size:18px;">view_cofy</span>
             <input type="text" class="frame-title-input" value="${task.title || ''}" placeholder="未命名项目组" onchange="updateTaskField('${task.id}', 'title', this.value)">
-            <div style="display:flex; gap:4px; margin-left:auto;">
-                <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')"><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
-                <button class="frame-btn" onclick="removeFrame('${task.id}')"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+            <div style="display:flex; gap: 4px; margin-left: auto;">
+                <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')" data-tip="折叠/展开此项目收纳"><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
+                <button class="frame-btn" onclick="removeFrame('${task.id}')" data-tip="解散该项目组"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
             </div>
         </div>
-        ${!task.isCollapsed ? `<div class="frame-resize-handle"></div>` : ''}
+        ${!task.isCollapsed ? `<div class="frame-resize-handle" data-tip="按住拖拽调节框架大小"></div>` : ''}
         `;
     }
-
-    if (task.type === 'note') {
-        return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 即时便签</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="在此输入灵感、提示词或分组备注...">${task.text || ''}</textarea>`;
-    }
-
-    if (task.type === 'tool_generator') {
-        return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用到控制台</button></div>`;
-    }
+    if (task.type === 'note') return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 即时便签</span><button onclick="removeTask('${task.id}')" data-tip="删除此便签" style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="在此输入灵感、提示词或分组备注...">${task.text || ''}</textarea>`;
+    if (task.type === 'tool_generator') return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')" data-tip="摇骰子：随机抽取一套爆款剧本组合"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)" data-tip="一键将结构化剧本反填至底部 Prompt 框"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用至控制台</button></div>`;
 
     if (task.type === 'tool_image_gen') {
-        const state = task.state || {};
-        const isProcessing = task.status === 'processing';
-        const isFailed = task.status === 'failed';
-        const resultHtml = task.status === 'success' && state.resultBlob
-            ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id + '_res_' + (task.timestamp || ''), state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)"></div>`
-            : '';
-
-        const images = Array.isArray(state.images) ? state.images : [];
-        let slotsHtml = images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id + '_img_' + i + '_' + (task.timestamp || ''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">脳</div></div>`).join('');
-        if (images.length < 5) {
-            slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
-        }
-
-        const currentCost = state.channel === 'channel_2' ? '0.06' : '0.084';
+        const isProcessing = task.status === 'processing', isFailed = task.status === 'failed', resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>` : '';
+        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
+        if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
+        
+        const isChannel2 = task.state.channel === 'channel_2', currentCost = isChannel2 ? '0.06' : '0.084';
+        // 🌟 1. 正常/成功状态下的按钮 (显示历史耗时)
+        let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">⏱️ ${task.state.costTime}s</span>` : '';
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 生成图像 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">￥${currentCost}</span> ${costTxt}`;
+        
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 生成图像 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">$${currentCost}</span>`;
-
+        
+        // 🌟 2. 生成中：展示跳动的秒表与进度条
         if (isProcessing) {
-            btnContent = `<div style="display:flex; width:100%; justify-content:space-between; align-items:center;"><span>生成中...${retryTxt}</span><span class="veo-dynamic-timer" data-start-time="${state.startTime || Date.now()}" style="font-family:monospace;">00:00</span></div>`;
-        } else if (isFailed) {
-            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试`;
+            btnContent = `
+                <div style="display:flex; flex-direction:column; width:100%; gap:6px; align-items:center;">
+                    <div style="display:flex; justify-content:space-between; width:100%; font-size:13px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg> 
+                            生成中...${retryTxt}
+                        </div>
+                        <div class="veo-dynamic-timer" data-start-time="${task.state.startTime || Date.now()}" style="font-family:monospace; color:var(--accent); font-weight:bold; letter-spacing:1px;">00:00</div>
+                    </div>
+                    <div style="width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                        <div style="height: 100%; background: var(--accent); width: 0%; animation: fakeImgProgress 60s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;"></div>
+                    </div>
+                </div>
+            `;
         }
-
+        
+        // 🌟 3. 失败状态
+        if (isFailed) {
+            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
+        }
+        
+        // 🌟 核心修改 1：处理自定义比例 UI
         let customRatioHtml = '';
-        if (state.size === '') {
-            const w = state.customW || 9;
-            const h = state.customH || 21;
-            customRatioHtml = `<div style="display:flex; align-items:center; gap:6px; padding:0 12px; margin-top:-4px; margin-bottom:8px;"><span style="font-size:11px; color:var(--text-sub);">画幅:</span><input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)"><span style="color:var(--text-sub);">:</span><input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)"></div>`;
+        if (task.state.size === '') {
+            const w = task.state.customW || 9; 
+            const h = task.state.customH || 21;
+            customRatioHtml = `
+            <div style="display:flex; align-items:center; gap:6px; padding: 0 12px; margin-top:-4px; margin-bottom:8px;">
+                <span class="material-symbols-outlined" style="font-size:14px; color:var(--accent);">aspect_ratio</span>
+                <span style="font-size:11px; color:var(--text-sub);">画幅:</span>
+                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
+                <span style="color:var(--text-sub);">:</span>
+                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
+                <span style="font-size:10px; color:rgba(255,255,255,0.3); margin-left:auto;">提交时将自动隐式拼接</span>
+            </div>`;
         }
-
-        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div><div class="img-gen-controls"><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)"><option value="1024x1024" ${state.size === '1024x1024' ? 'selected' : ''}>1:1</option><option value="1536x1024" ${state.size === '1536x1024' ? 'selected' : ''}>3:2</option><option value="1024x1536" ${state.size === '1024x1536' ? 'selected' : ''}>2:3</option><option value="" ${state.size === '' ? 'selected' : ''}>自定义</option></select><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex:1.5;"><option value="channel_1" ${(state.channel === 'channel_1' || !state.channel) ? 'selected' : ''}>通道 1</option><option value="channel_2" ${state.channel === 'channel_2' ? 'selected' : ''}>通道 2</option></select><select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')"><option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option><option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option></select></div>${customRatioHtml}<textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，支持 1-5 张垫图...">${state.prompt || ''}</textarea><button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing ? 'disabled' : ''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
+        
+        // 🌟 核心修改 2：打散原本超长的 return，加入自定义选项和动态框
+        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
+        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+        <div class="img-gen-controls">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="选择图像生成比例">
+                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1:1</option>
+                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>3:2</option>
+                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>2:3</option>
+                <option value="" ${task.state.size===''?'selected':''}>自定义</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5;" data-tip="若生成失败，可尝试切换备用 API 节点"><option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>节点 1 (主)</option><option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>节点 2 (备)</option></select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)"><option value="false" ${!task.state.autoRetry?'selected':''}>单次</option><option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option></select>
+        </div>
+        ${customRatioHtml}
+        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
+        <button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
     }
 
     if (task.type === 'tool_cropper') {
-        const state = task.state || {};
-        const hasSource = !!state.sourceBlob;
-        const hasResult = !!state.resultBlob;
-        let contentHtml = '';
-
-        if (!hasSource) {
-            contentHtml = `<div class="img-slot" id="crop-zone-${task.id}" style="width:100%; height:200px; border-radius:8px;" onclick="document.getElementById('crop-file-${task.id}').click()"><span class="material-symbols-outlined" style="font-size:32px; color:var(--text-sub);">add_photo_alternate</span><span style="margin-top:8px;">导入素材图片</span><input type="file" id="crop-file-${task.id}" style="display:none;" accept="image/*" onchange="handleCropperUpload(this, '${task.id}')"></div>`;
-        } else if (!hasResult) {
-            const p = state.cropParams || { left: 15, top: 15, width: 70, height: 70 };
-            contentHtml = `<div class="cropper-workspace" id="crop-workspace-${task.id}"><img id="crop-img-${task.id}" src="${getBlobUrl(task.id + '_src_' + (task.timestamp || ''), state.sourceBlob)}"><div class="crop-box" id="crop-box-${task.id}" data-task-id="${task.id}" style="left:${p.left}%; top:${p.top}%; width:${p.width}%; height:${p.height}%;"><div class="crop-grid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><div class="crop-handle ch-nw" data-dir="nw"></div><div class="crop-handle ch-ne" data-dir="ne"></div><div class="crop-handle ch-sw" data-dir="sw"></div><div class="crop-handle ch-se" data-dir="se"></div></div></div><div style="display:flex; gap:8px;"><button class="img-gen-btn" style="flex:1; background:var(--surface-hover); color:var(--text-main); margin:0;" onclick="resetCropper('${task.id}')">重置图片</button><button class="img-gen-btn" style="flex:2; background:var(--success); margin:0;" onclick="generateCrop('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">crop</span> 确认裁切提取</button></div>`;
-        } else {
-            contentHtml = `<div class="img-gen-result" style="border:none; border-radius:8px; background:transparent; min-height:unset;"><img src="${getBlobUrl(task.id + '_res_' + (task.timestamp || ''), state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'crop_result'}))" style="border-radius:8px; border:1px solid rgba(255,255,255,0.2);"></div><button class="img-gen-btn" style="width:100%; margin:0; background:var(--surface-hover); color:var(--text-main);" onclick="reEditCropper('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">history</span> 返回重新调整框选区</button>`;
-        }
-
-        return `<div class="card-header"><span style="color:var(--success); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">crop</span> 局部裁切器</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div style="padding:0 12px 12px 12px; display:flex; flex-direction:column; gap:12px;" ondragover="event.preventDefault();" ondrop="handleCropperDrop(event, '${task.id}')">${contentHtml}</div>`;
+        const hasSource = !!task.state.sourceBlob, hasResult = !!task.state.resultBlob; let contentHtml = '';
+        if (!hasSource) contentHtml = `<div class="img-slot" id="crop-zone-${task.id}" style="width:100%; height:200px; border-radius:8px;" data-tip="点击上传或从画布拖入素材图片" onclick="document.getElementById('crop-file-${task.id}').click()"><span class="material-symbols-outlined" style="font-size:32px; color:var(--text-sub);">add_photo_alternate</span><span style="margin-top:8px;">导入素材图片</span><input type="file" id="crop-file-${task.id}" style="display:none;" accept="image/*" onchange="handleCropperUpload(this, '${task.id}')"></div>`;
+        else if (!hasResult) {
+            const p = task.state.cropParams;
+            contentHtml = `<div class="cropper-workspace" id="crop-workspace-${task.id}"><img id="crop-img-${task.id}" src="${getBlobUrl(task.id+'_src_'+(task.timestamp || ''), task.state.sourceBlob)}"><div class="crop-box" id="crop-box-${task.id}" data-task-id="${task.id}" style="left:${p.left}%; top:${p.top}%; width:${p.width}%; height:${p.height}%;"><div class="crop-grid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><div class="crop-handle ch-nw" data-dir="nw"></div><div class="crop-handle ch-ne" data-dir="ne"></div><div class="crop-handle ch-sw" data-dir="sw"></div><div class="crop-handle ch-se" data-dir="se"></div></div></div><div style="display:flex; gap:8px;"><button class="img-gen-btn" style="flex:1; background:var(--surface-hover); color:var(--text-main); margin:0;" onclick="resetCropper('${task.id}')">重置图片</button><button class="img-gen-btn" style="flex:2; background:var(--success); margin:0;" onclick="generateCrop('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">crop</span> 确认裁切提取</button></div>`;
+        } else { contentHtml = `<div class="img-gen-result" style="border:none; border-radius:8px; background:transparent; min-height: unset;"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'crop_result'}))" data-tip="按住拖拽，送至其他卡片组件复用" style="border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);"></div><button class="img-gen-btn" style="width:100%; margin: 0; background:var(--surface-hover); color:var(--text-main);" onclick="reEditCropper('${task.id}')"><span class="material-symbols-outlined" style="font-size:16px;">history</span> 返回重新调整框选区</button>`; }
+        return `<div class="card-header"><span style="color:var(--success); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">crop</span> 局部裁切器</span><button onclick="removeTask('${task.id}')" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div style="padding: 0 12px 12px 12px; display:flex; flex-direction:column; gap:12px;" ondragover="event.preventDefault();" ondrop="handleCropperDrop(event, '${task.id}')">${contentHtml}</div>`;
     }
 
-    let statusBadge = '';
-    let mediaHtml = '';
-    const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0]));
-    const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
-
-    if (task.status === 'processing') {
-        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
-        statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`;
-        mediaHtml = `<div class="card-media" style="aspect-ratio: ${(task.ratio || '16:9').replace(':', '/')}; padding:20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color:var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top:12px;">视频生成中...</div><div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div></div></div>`;
-    } else if (task.status === 'failed') {
-        statusBadge = `<span class="status-badge failed">失败</span>`;
-        mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${(task.ratio || '16:9').replace(':', '/')}; font-size:12px;">生成超时或失败</div>`;
-    } else {
-        statusBadge = `<span class="status-badge success">已完成</span>`;
-        mediaHtml = `<div class="card-media"><video src="${task.videoUrl || ''}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`;
-    }
-
-    const thumbHtml = thumbImg
-        ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)">`
-        : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
-
-    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size:14px;">schedule</span> ${task.time || ''} · ${task.modelStr || ''}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt || ''}">${task.prompt || ''}</p></div><div class="card-tags"><span class="card-tag">${task.ratio || ''}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border:1px solid var(--success);">自动重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl || ''}')"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')"><span class="material-symbols-outlined">delete</span></button></div>`;
+    let statusBadge = '', mediaHtml = ''; const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0])); const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
+    if (task.status === 'processing') { 
+        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : ''; statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`; 
+        let progressHtml = `
+            <div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div>
+            <div style="font-size: 11px; color: var(--accent); margin-top: 8px; font-weight: 600; font-family: monospace; letter-spacing: 1px;">MODELS ENGAGED...</div>
+        `;
+        mediaHtml = `<div class="card-media" style="aspect-ratio: ${task.ratio.replace(':','/')}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">视频生成中...</div>${progressHtml}</div></div>`; 
+    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">失败</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${task.ratio.replace(':','/')}; font-size:12px;">生成超时或失败</div>`; 
+    } else { statusBadge = `<span class="status-badge success">已完成</span>`; mediaHtml = `<div class="card-media" data-tip="双击全屏播放视频"><video src="${task.videoUrl}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`; }
+    
+    const thumbHtml = thumbImg ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">` : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
+    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size: 14px;">schedule</span> ${task.time} · ${task.modelStr}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt}">${task.prompt}</p></div><div class="card-tags"><span class="card-tag">${task.ratio}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border: 1px solid var(--success);">已开挂机重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl}')" data-tip="下载此视频到本地"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)" data-tip="原地重新发起此任务"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')" data-tip="提取该任务的所有图文参数，反填至底部控制台"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')" data-tip="删除此生成记录"><span class="material-symbols-outlined">delete</span></button></div>`;
 }
 
-// 馃専 鍒濇鎸傝浇涓庢帓鐗堜笓鐢ㄧ殑鍏ㄥ眬鍒锋柊鍑芥暟
+// 🌟 初次挂载与排版专用的全局刷新函数
 async function renderBoard() {
     const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image'), boardTaskIds = new Set(boardTasks.map(t => 'card-' + t.id));
     const existingCards = Array.from(board.children); existingCards.forEach(card => { if (!boardTaskIds.has(card.id)) card.remove(); });
@@ -1321,7 +1315,7 @@ async function renderBoard() {
     renderMinimap();
 }
 
-async function removeTask(id) { if(confirm('纭畾鍒犻櫎杩欏紶鍗＄墖鍚楋紵')) { await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); renderMinimap(); } }
+async function removeTask(id) { if(confirm('确定删除这张卡片吗？')) { await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); renderMinimap(); } }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1334,23 +1328,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==========================================
-// 馃専 鏅鸿兘鍏嬮殕寮曟搸 (Alt + Drag 涓撶敤)
+// 🌟 智能克隆引擎 (Alt + Drag 专用)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    // 1. 生成新 ID 与基础克隆
+    // 1. 生成新 ID 与基础浅克隆
     const newId = originalTask.type + '_copy_' + Date.now();
     let clone = { ...originalTask, id: newId, timestamp: Date.now() };
 
-    // 瑙ｉ櫎浠庡睘鍏崇郴锛岃鍏嬮殕鍑虹殑鍗＄墖鑷敱鏁ｈ惤
+    // 解除从属关系，让克隆出的卡片自由散落
     delete clone.parentId; 
 
-    // 2. 娣卞害鍏嬮殕鍐呴儴鐘舵€?(淇濇姢鎻愮ず璇嶃€佸昂瀵哥瓑锛岄槻姝㈠紩鐢ㄦ薄鏌?
+    // 2. 深度克隆内部状态 (保护提示词、尺寸等，防止引用污染)
     if (originalTask.state) {
         clone.state = { ...originalTask.state };
-        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images];
+        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images]; // 继承多模态垫图
         if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
 
-        // 鈿狅笍 鐢熷浘缁勪欢鐗瑰垽锛氱户鎵垮弬鏁帮紝浣嗗繀椤绘竻绌轰箣鍓嶇殑鐢熸垚缁撴灉鍜岀姸鎬侊紒
+        // ⚠️ 生图组件特判：继承参数，但必须清空之前的生成结果和状态！
         if (clone.type === 'tool_image_gen') {
             clone.status = 'idle';
             clone.state.resultBlob = null;
@@ -1358,13 +1352,13 @@ async function duplicateTask(originalTask, mouseEvent) {
             clone.retryCount = 0;
         }
         
-        // 裁切器特别处理：继承原图和选区，清空裁切结果
+        // ⚠️ 裁切器特判：继承原图和选区，清空裁切结果
         if (clone.type === 'tool_cropper') {
             clone.state.resultBlob = null;
         }
     }
 
-    // 3. 閽堝瑙嗛璁板綍鍗＄墖锛屾繁鎷疯礉鍙傝€冨浘
+    // 3. 针对视频记录卡片，深拷贝参考图
     if (originalTask.rawImages) {
         clone.rawImages = { ...originalTask.rawImages };
         if (Array.isArray(originalTask.rawImages.references)) {
@@ -1372,15 +1366,15 @@ async function duplicateTask(originalTask, mouseEvent) {
         }
     }
 
-    // 4. 灏嗘柊鍗＄墖浣嶇疆閿欏紑涓€鐐圭偣
+    // 4. 将新卡片位置错开一点点
     clone.x += 20;
     clone.y += 20;
 
-    // 5. 入库并触发局部重绘
+    // 5. 入库并触发局部重绘挂载
     await saveTaskDB(clone);
     await renderBoard(); 
 
-    // 6. 馃専 鏍稿績锛氱灛闂村姭鎸侀紶鏍囩劍鐐癸紝璁╁厠闅嗗嚭鏉ョ殑鍗＄墖鐩存帴璺熺潃榧犳爣璧帮紒
+    // 6. 🌟 核心：瞬间劫持鼠标焦点，让克隆出来的卡片直接跟着鼠标走！
     const newCardEl = document.getElementById('card-' + newId);
     if (newCardEl) {
         highestZIndex++;
@@ -1391,22 +1385,23 @@ async function duplicateTask(originalTask, mouseEvent) {
         selectedTasks.add(newId);
         newCardEl.classList.add('selected');
 
-        // 将系统拖拽控制权交给新卡片
-        draggingCardInfo = {
-            el: newCardEl,
-            task: newCardEl.__veoTask,
-            startMouseX: mouseEvent.clientX,
-            startMouseY: mouseEvent.clientY,
-            initialX: newCardEl.__veoTask.x,
-            initialY: newCardEl.__veoTask.y
-        };
+        // 将系统的拖拽控制权移交给新卡片
+            draggingCardInfo = {
+                el: newCardEl,
+                // 🌟 核心修复：抛弃局部变量 clone，直接指向 DOM 身上绑定的真实内存地址
+                task: newCardEl.__veoTask, 
+                startMouseX: mouseEvent.clientX,
+                startMouseY: mouseEvent.clientY,
+                initialX: newCardEl.__veoTask.x,
+                initialY: newCardEl.__veoTask.y
+            };
         
-        showToast("馃獎 宸插厠闅嗙粍浠跺強鍙傛暟", "success");
+        showToast("🪄 已克隆组件及参数", "success");
     }
 }
 
 // ==========================================
-// 馃帹 AI 澶氭ā鐢熷浘鏍稿績鎺у埗妯″潡 (灞€閮ㄦ覆鏌撳畬鍏ㄤ綋)
+// 🎨 AI 多模生图核心控制模块 (局部渲染完全体)
 // ==========================================
 async function updateImgGenState(taskId, key, val) { const task = await getTaskDB(taskId); if (task) { task.state[key] = val; await saveTaskDB(task); renderCard(taskId); } }
 
@@ -1422,32 +1417,34 @@ async function handleGenImageUpload(input, taskId) {
 }
 
 // ==========================================
-// 鉁?淇鐗堬細鐢熷浘鍗＄墖鎷栨嫿澶勭悊鍑芥暟 (鍏嶇柅 dataTransfer 閿€姣?
+// ✅ 修复版：生图卡片拖拽处理函数 (免疫 dataTransfer 销毁)
 // ==========================================
 async function handleGenImageDrop(e, taskId) {
     e.preventDefault(); e.stopPropagation();
     const zone = document.getElementById(`img-gen-zone-${taskId}`);
     if (zone) zone.classList.remove('drag-over');
     
-    // 馃専 鏍稿績鐮村眬鐐癸細蹇呴』鍦ㄤ换浣?await (濡傛煡搴? 鍙戠敓涔嬪墠锛屼紭鍏堜笖鈥滃悓姝モ€濆湴鎻愬彇鎷栨斁鏁版嵁锛?    const srcToUse = await parseDroppedImage(e);
+    // 🌟 核心破局点：必须在任何 await (如查库) 发生之前，优先且“同步”地提取拖放数据！
+    const srcToUse = await parseDroppedImage(e);
     
-    // 濡傛灉娌℃湁鎷垮埌鏈夋晥鍥剧墖锛岀洿鎺ユ嫤鎴紝鑺傜害鎬ц兘
+    // 如果没有拿到有效图片，直接拦截，节约性能
     if (!srcToUse) return; 
 
-    // 鏁版嵁钀借涓哄畨鍚庯紝鍐嶄粠瀹瑰湴鍘绘煡搴撳拰鏍￠獙
+    // 数据落袋为安后，再从容地去查库和校验
     const task = await getTaskDB(taskId); 
     if (!task) return;
     
     if (task.state.images.length >= 5) {
-        return showToast("鏈€澶氬彧鑳藉灚鍏?5 寮犲浘", "error");
+        return showToast("最多只能垫入 5 张图", "error");
     }
     
-    // 璧嬪€煎苟鍑荤┛缂撳瓨
+    // 赋值并击穿缓存
     task.state.images.push(srcToUse);
     task.timestamp = Date.now();
     await saveTaskDB(task); 
     
-    // 灞€閮ㄩ噸缁?    renderCard(taskId);
+    // 局部重绘
+    renderCard(taskId);
 }
 
 async function removeGenImage(e, taskId, index) {
@@ -1458,39 +1455,42 @@ async function removeGenImage(e, taskId, index) {
 }
 
 // ==========================================
-// 馃帹 AI 澶氭ā鐢熷浘鏍稿績鎺у埗妯″潡 (瀹屽叏铻嶅悎鐗?
+// 🎨 AI 多模生图核心控制模块 (完全融合版)
 // ==========================================
 async function submitImgGen(taskId) {
     const task = await getTaskDB(taskId); 
     if (!task) return;
-    if (!task.state.prompt) return showToast("璇疯緭鍏ョ敓鍥炬彁绀鸿瘝", "error");
+    if (!task.state.prompt) return showToast("请输入生图提示词", "error");
 
-    // 1. 鍒濆鍖栫敓鍥剧姸鎬?    task.status = 'processing'; 
+    // 1. 初始化生图状态
+    task.status = 'processing'; 
     task.retryCount = 0; 
     task.isBilled = false; 
     task.state.startTime = Date.now();
     await saveTaskDB(task); 
-    renderCard(taskId); // 馃専 涓ユ牸閬靛畧灞€閮ㄦ覆鏌撴硶鍒?    
-    // 馃専 鎷︽埅澶勭悊锛氬鏋?size 鏄┖鍊硷紝杩涜姣斾緥鎻愮ず璇嶇殑闅愬紡鏃犳劅鎷兼帴
+    renderCard(taskId); // 🌟 严格遵守局部渲染法则
+    
+    // 🌟 拦截处理：如果 size 是空值，进行比例提示词的隐式无感拼接
     let finalPrompt = task.state.prompt;
     if (task.state.size === '') {
         const w = task.state.customW || 9;
         const h = task.state.customH || 21;
-        // 鍦ㄥ彂缁欐湇鍔″櫒鍓嶏紝鎮勬倓鍦ㄧ敤鎴锋彁绀鸿瘝鏈熬鍔犱笂姣斾緥瑕佹眰
-        finalPrompt = finalPrompt + ` 鐢婚潰姣斾緥${w}:${h}`; 
+        // 在发给服务器前，悄悄在用户提示词末尾加上比例要求
+        finalPrompt = finalPrompt + ` 画面比例${w}:${h}`; 
     }
 
-    // 2. 鏋勯€?Payload锛岃瀺鍚堟棫鐗堜涪澶辩殑 channel 鍙傛暟
+    // 2. 构造 Payload，融合旧版丢失的 channel 参数
     const apiPayload = { 
-        prompt: finalPrompt,  // 馃専 浣跨敤鎷兼帴鍚庣殑鏂?Prompt
-        size: task.state.size, // 鐓ф牱浼犵┖瀛楃涓茬粰 n8n
+        prompt: finalPrompt,  // 🌟 使用拼接后的新 Prompt
+        size: task.state.size, // 照样传空字符串给 n8n
         channel: task.state.channel || 'channel_1', 
         images: await Promise.all(task.state.images.map(b => blobToBase64(b))) 
     };
 
     let success = false;
     let attempts = 0;
-    // 鎭㈠鏃х増鐨勬櫤鑳介噸璇曟満鍒?    const maxAttempts = task.state.autoRetry ? 3 : 1; 
+    // 恢复旧版的智能重试机制
+    const maxAttempts = task.state.autoRetry ? 3 : 1; 
 
     while (attempts < maxAttempts && !success) {
         attempts++;
@@ -1501,56 +1501,59 @@ async function submitImgGen(taskId) {
                 body: JSON.stringify(apiPayload) 
             });
 
-            if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("瀵嗙爜閿欒"); }
-            if (!response.ok) throw new Error("API 寮傚父: " + response.status);
+            if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
+            if (!response.ok) throw new Error("API 异常: " + response.status);
             
-            // 3. 馃専 n8n 楂樺閿欒В鏋愶細鍓ョ澶栧眰鏁扮粍
+            // 3. 🌟 n8n 高容错解析：剥离外层数组
             const rawData = await response.json();
             const resData = Array.isArray(rawData) ? rawData[0] : rawData;
             
-            // 绮惧噯鍚戜笅鍖归厤浣犳彁渚涚殑缁撴瀯: resData.data[0].url
+            // 精准向下匹配你提供的结构: resData.data[0].url
             let returnedUrl = resData.imageUrl || resData.url;
             if (!returnedUrl && resData.data && Array.isArray(resData.data) && resData.data.length > 0) {
                 returnedUrl = resData.data[0].url;
             }
 
             if (returnedUrl) {
-                // 4. 鎴愬姛鎻愬彇鍥剧墖
+                // 4. 成功提取图片
                 const imgBlob = await fetch(returnedUrl).then(r => r.blob());
                 task.status = 'success'; 
                 task.state.resultBlob = imgBlob; 
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
-                task.timestamp = Date.now(); // 馃専 鏍稿績锛氬己琛屽埛鏂版椂闂存埑锛屾墦绌垮菇鐏电紦瀛?                success = true;
+                task.timestamp = Date.now(); // 🌟 核心：强行刷新时间戳，打穿幽灵缓存
+                success = true;
 
-                // 璐﹀崟璁板綍
+                // 账单记录
                 if (!task.isBilled) {
                     let cost = task.state.channel === 'channel_2' ? 0.06 : 0.084;
-                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: `AI鐢熷浘 (${task.state.channel || '涓婚€氶亾'})` });
+                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: `AI生图 (${task.state.channel || '主通道'})` });
                     task.isBilled = true;
                     updateBillingUI();
                 }
             } else if (resData && resData.taskId) {
-                // 鍏滃簳锛氬鏋滀綘鐨?API 鍙樻垚浜嗗紓姝ユ帓闃熸ā寮忥紝浜よ繕缁欒疆璇㈠紩鎿?                task.genTaskId = resData.taskId; 
+                // 兜底：如果你的 API 变成了异步排队模式，交还给轮询引擎
+                task.genTaskId = resData.taskId; 
                 await saveTaskDB(task); 
                 startTaskPolling(taskId); 
                 return; 
             } else {
-                throw new Error("无返回有效图片结果");
+                throw new Error("无返回有效图片结构");
             }
         } catch (err) { 
-            // 澶辫触閲嶈瘯閫昏緫
+            // 失败重试逻辑
             if (attempts >= maxAttempts) {
                 task.status = 'failed'; 
             } else {
                 task.retryCount = attempts;
                 await saveTaskDB(task); 
                 renderCard(taskId);
-                await new Promise(r => setTimeout(r, 2000)); // 缂撳啿 2 绉掑悗閲嶈瘯
+                await new Promise(r => setTimeout(r, 2000)); // 缓冲 2 秒后重试
             }
         }
     }
 
-    // 5. 寰幆缁撴潫锛岀粺涓€娓叉煋鏈€缁堢姸鎬?    await saveTaskDB(task); 
+    // 5. 循环结束，统一渲染最终状态
+    await saveTaskDB(task); 
     renderCard(taskId); 
     if (!success && task.status === 'failed') {
         showToast("生图请求失败，请检查通道余额或网络", "error"); 
@@ -1558,7 +1561,7 @@ async function submitImgGen(taskId) {
 }
 
 // ==========================================
-// 鉁傦笍 灞€閮ㄨ鍒囧櫒 鐗╃悊寮曟搸 (鎷栨嫿涓庣缉鏀?
+// ✂️ 局部裁切器 物理引擎 (拖拽与缩放)
 // ==========================================
 document.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('.crop-handle'); const box = e.target.closest('.crop-box');
@@ -1607,7 +1610,7 @@ document.addEventListener('mouseup', async () => {
     if (activeCrop) { await saveTaskDB(activeCrop.task); activeCrop = null; renderMinimap(); }
 });
 // ==========================================
-// 鈴憋笍 鍔ㄦ€佺琛ㄥ紩鎿?(Vanilla JS DOM 渚ф覆鏌擄紝涓嶈Е鍙戦噸缁?
+// ⏱️ 动态秒表引擎 (Vanilla JS DOM 侧渲染，不触发重绘)
 // ==========================================
 setInterval(() => {
     document.querySelectorAll('.veo-dynamic-timer').forEach(el => {
@@ -1621,4 +1624,3 @@ setInterval(() => {
         el.innerText = `${m}:${s}`;
     });
 }, 1000);
-

@@ -8,7 +8,6 @@
 ## Updated Files
 - js/store.js
 - js/db.js
-- js/app.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -44,18 +43,13 @@
 - Added `VeoDB` repository object for decoupled future integration.
 - Added defensive guards and unified transaction wrapper.
 
-## App Layer Changes (No Feature Change)
-- Replaced direct mutations of `globalStore.getState()` with `dispatch(...)` calls.
-- Covered reference list add/remove/clear and frame image set/clear flows.
-- Covered submit cleanup and task-to-console hydration flows.
-- Kept read paths as-is (`globalStore.getState()`) to minimize behavior drift.
-- Repaired legacy string/annotation corruption points that caused runtime parse failures in `app.js`.
-- Stabilized `generateCardHTML` template block and duplicate-card flow syntax.
+## App Layer Note
+- `js/app.js` has been restored to the source-equivalent version to ensure feature completeness and preserve original UI text behavior.
 
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
-- `node --check js/app.js`: pass
+- `node --check js/app.js`: pass (source-equivalent)
 - `node --check js/flow/flow-engine.js`: pass
 
 ## Compatibility Notes
@@ -63,6 +57,6 @@
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
-1. Isolate node execution scheduling from DOM rendering in `flow-engine.js`.
-2. Split material library logic into dedicated module shared by `app.js` and `flow-engine.js`.
-3. Introduce a thin UI adapter to reduce direct DOM access in business handlers.
+1. Refactor should proceed from source-equivalent `app.js` baseline to avoid feature drift.
+2. Isolate node execution scheduling from DOM rendering in `flow-engine.js`.
+3. Split material library logic into dedicated module shared by `app.js` and `flow-engine.js`.
