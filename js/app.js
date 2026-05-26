@@ -63,30 +63,39 @@ async function hashPassword(password) {
 }
 
 const THEME_MODE_KEY = 'veo_theme_mode';
+const THEME_DARK = 'dark';
+const THEME_LIGHT = 'light';
+
+function normalizeThemeMode(rawMode) {
+    if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
+    return THEME_DARK;
+}
 
 function applyThemeMode(mode) {
-    const isMono = mode === 'mono';
-    if (isMono) document.documentElement.setAttribute('data-theme', 'mono');
-    else document.documentElement.removeAttribute('data-theme');
+    const nextMode = normalizeThemeMode(mode);
+    const isLight = nextMode === THEME_LIGHT;
+    document.documentElement.setAttribute('data-theme', nextMode);
 
     const iconEl = document.getElementById('theme-toggle-icon');
     const btnEl = document.getElementById('theme-toggle-btn');
-    if (iconEl) iconEl.innerText = isMono ? 'radio_button_checked' : 'contrast';
-    if (btnEl) btnEl.setAttribute('data-tip', isMono ? '切换为彩色模式' : '切换为黑白模式');
+    if (iconEl) iconEl.innerText = isLight ? 'light_mode' : 'dark_mode';
+    if (btnEl) btnEl.setAttribute('data-tip', isLight ? '切换到夜间模式' : '切换到日间模式');
 }
 
 function initThemeMode() {
     const saved = localStorage.getItem(THEME_MODE_KEY);
-    applyThemeMode(saved === 'mono' ? 'mono' : 'default');
+    const nextMode = normalizeThemeMode(saved);
+    localStorage.setItem(THEME_MODE_KEY, nextMode);
+    applyThemeMode(nextMode);
 }
 
 window.toggleThemeMode = function() {
-    const current = localStorage.getItem(THEME_MODE_KEY) === 'mono' ? 'mono' : 'default';
-    const next = current === 'mono' ? 'default' : 'mono';
+    const current = normalizeThemeMode(localStorage.getItem(THEME_MODE_KEY));
+    const next = current === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
     localStorage.setItem(THEME_MODE_KEY, next);
     applyThemeMode(next);
     if (typeof showToast === 'function') {
-        showToast(next === 'mono' ? '已切换至黑白模式' : '已恢复彩色模式', 'info');
+        showToast(next === THEME_LIGHT ? '已切换至日间模式' : '已切换至夜间模式', 'info');
     }
 };
 

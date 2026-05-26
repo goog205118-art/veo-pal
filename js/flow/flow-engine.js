@@ -118,29 +118,42 @@ const canvas = document.getElementById('flow-canvas');
 const svgLayer = document.getElementById('svg-layer');
 const nodeBoard = document.getElementById('node-board');
 const FLOW_THEME_MODE_KEY = 'veo_theme_mode';
+const FLOW_THEME_DARK = 'dark';
+const FLOW_THEME_LIGHT = 'light';
+
+function normalizeFlowThemeMode(rawMode) {
+    if (rawMode === FLOW_THEME_LIGHT || rawMode === 'mono') return FLOW_THEME_LIGHT;
+    return FLOW_THEME_DARK;
+}
 
 function applyFlowThemeMode(mode) {
-    const isMono = mode === 'mono';
-    if (isMono) document.documentElement.setAttribute('data-theme', 'mono');
-    else document.documentElement.removeAttribute('data-theme');
+    const nextMode = normalizeFlowThemeMode(mode);
+    const isLight = nextMode === FLOW_THEME_LIGHT;
+    document.documentElement.setAttribute('data-theme', nextMode);
 
     const iconEl = document.getElementById('flow-theme-toggle-icon');
     const btnEl = document.getElementById('flow-theme-toggle-btn');
-    if (iconEl) iconEl.innerText = isMono ? 'radio_button_checked' : 'contrast';
-    if (btnEl) btnEl.title = isMono ? '切换为彩色模式' : '切换为黑白模式';
+    const labelEl = document.getElementById('flow-theme-toggle-label');
+    if (iconEl) iconEl.innerText = isLight ? 'light_mode' : 'dark_mode';
+    if (labelEl) labelEl.innerText = isLight ? '日间' : '夜间';
+    if (btnEl) btnEl.title = isLight ? '切换到夜间模式' : '切换到日间模式';
 }
 
 function initFlowThemeMode() {
     const saved = localStorage.getItem(FLOW_THEME_MODE_KEY);
-    applyFlowThemeMode(saved === 'mono' ? 'mono' : 'default');
+    const nextMode = normalizeFlowThemeMode(saved);
+    localStorage.setItem(FLOW_THEME_MODE_KEY, nextMode);
+    applyFlowThemeMode(nextMode);
 }
 
-window.toggleMonoTheme = function() {
-    const current = localStorage.getItem(FLOW_THEME_MODE_KEY) === 'mono' ? 'mono' : 'default';
-    const next = current === 'mono' ? 'default' : 'mono';
+window.toggleFlowThemeMode = function() {
+    const current = normalizeFlowThemeMode(localStorage.getItem(FLOW_THEME_MODE_KEY));
+    const next = current === FLOW_THEME_LIGHT ? FLOW_THEME_DARK : FLOW_THEME_LIGHT;
     localStorage.setItem(FLOW_THEME_MODE_KEY, next);
     applyFlowThemeMode(next);
 };
+
+window.toggleMonoTheme = window.toggleFlowThemeMode;
 
 // 🌟 修复 SVG 容器折叠导致的连线消失问题
 canvas.style.width = '1px'; canvas.style.height = '1px'; canvas.style.overflow = 'visible';

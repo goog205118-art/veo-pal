@@ -7,18 +7,46 @@
     <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
     <style>
-        /* 独立工作区专属暗黑极客主题 */
-        :root { --bg-dark: #0f0f11; --grid-color: rgba(255,255,255,0.03); --accent: #c084fc; }
-        :root[data-theme='mono'] { --accent: #d6d6d6; --grid-color: rgba(255,255,255,0.045); }
-        body { margin: 0; overflow: hidden; background-color: var(--bg-dark); color: #fff; font-family: 'Google Sans', sans-serif; user-select: none; }
-        :root[data-theme='mono'] .flow-header,
-        :root[data-theme='mono'] .material-drawer,
-        :root[data-theme='mono'] .veo-node,
-        :root[data-theme='mono'] .flow-top-toolbar,
-        :root[data-theme='mono'] .node-palette,
-        :root[data-theme='mono'] .flow-minimap-container {
-            filter: grayscale(1);
+        /* 独立工作区主题变量（日间/夜间） */
+        :root {
+            --bg-dark: #0f0f11;
+            --grid-color: rgba(255,255,255,0.03);
+            --accent: #c084fc;
+            --flow-text: #f5f5f5;
+            --flow-text-sub: #8f96a4;
+            --flow-surface: rgba(22, 22, 26, 0.95);
+            --flow-surface-soft: rgba(15,15,17,0.8);
+            --flow-border: rgba(255,255,255,0.08);
+            --flow-border-soft: rgba(255,255,255,0.05);
+            --flow-btn-bg: rgba(255,255,255,0.05);
+            --flow-btn-bg-hover: rgba(255,255,255,0.15);
+            --flow-btn-text: #fff;
+            --flow-input-bg: rgba(0,0,0,0.4);
+            --flow-input-focus-bg: rgba(0,0,0,0.6);
+            --flow-input-text: #eee;
+            --flow-color-scheme: dark;
         }
+
+        :root[data-theme='light'] {
+            --bg-dark: #f6f8fc;
+            --grid-color: rgba(15, 23, 42, 0.09);
+            --accent: #0a84ff;
+            --flow-text: #151925;
+            --flow-text-sub: #5d6574;
+            --flow-surface: rgba(255, 255, 255, 0.96);
+            --flow-surface-soft: rgba(255, 255, 255, 0.92);
+            --flow-border: rgba(15, 23, 42, 0.14);
+            --flow-border-soft: rgba(15, 23, 42, 0.1);
+            --flow-btn-bg: rgba(15, 23, 42, 0.06);
+            --flow-btn-bg-hover: rgba(15, 23, 42, 0.12);
+            --flow-btn-text: #111827;
+            --flow-input-bg: rgba(15, 23, 42, 0.04);
+            --flow-input-focus-bg: rgba(15, 23, 42, 0.08);
+            --flow-input-text: #111827;
+            --flow-color-scheme: light;
+        }
+
+        body { margin: 0; overflow: hidden; background-color: var(--bg-dark); color: var(--flow-text); font-family: 'Google Sans', sans-serif; user-select: none; color-scheme: var(--flow-color-scheme); }
         
         /* 无限点阵网格背景 */
         .flow-viewport {
@@ -29,8 +57,8 @@
         
         /* 顶部导航 */
         .flow-header {
-            position: absolute; top: 0; left: 0; width: 100%; height: 50px; background: rgba(15,15,17,0.8); backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255,255,255,0.05); z-index: 100; display: flex; align-items: center; padding: 0 20px; box-sizing: border-box;
+            position: absolute; top: 0; left: 0; width: 100%; height: 50px; background: var(--flow-surface-soft); backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--flow-border-soft); z-index: 100; display: flex; align-items: center; padding: 0 20px; box-sizing: border-box;
         }
 
         /* 核心画布容器 */
@@ -42,8 +70,8 @@
         /* 🌟 节点核心 UI (专业连线优化版) */
         /* ========================================== */
         .veo-node {
-            position: absolute; width: 280px; background: rgba(22, 22, 26, 0.95); backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            position: absolute; width: 280px; background: var(--flow-surface); backdrop-filter: blur(12px);
+            border: 1px solid var(--flow-border); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
             display: flex; flex-direction: column; cursor: grab; user-select: none; transition: border-color 0.2s;
         }
         .veo-node:hover { border-color: rgba(255,255,255,0.2); }
@@ -51,20 +79,20 @@
         
         /* 头部栏 */
         .node-header { 
-            padding: 12px 16px; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.05); 
+            padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--flow-border-soft); 
             display: flex; align-items: center; gap: 8px; font-size: 14px; border-radius: 12px 12px 0 0; text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
-        .node-body { padding: 12px 0; font-size: 13px; color: #bbb; display: flex; flex-direction: column; }
+        .node-body { padding: 12px 0; font-size: 13px; color: var(--flow-text-sub); display: flex; flex-direction: column; }
         
         /* 🔌 引脚端口排版优化 (左侧输入，右侧输出) */
         .port-group { padding: 4px 0; }
         .port-row { display: flex; position: relative; align-items: center; padding: 4px 16px; transition: background 0.2s; }
-        .port-row:hover { background: rgba(255,255,255,0.03); color: #fff; }
+        .port-row:hover { background: rgba(255,255,255,0.03); color: var(--flow-text); }
         
         /* 引脚原点设计 */
         .port { 
-            width: 14px; height: 14px; border-radius: 50%; background: #1a1a20; 
-            border: 2px solid #666; position: absolute; top: 50%; transform: translateY(-50%); 
+            width: 14px; height: 14px; border-radius: 50%; background: var(--bg-dark); 
+            border: 2px solid var(--flow-text-sub); position: absolute; top: 50%; transform: translateY(-50%); 
             cursor: crosshair; transition: all 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28); z-index: 10; 
         }
         .port:hover { transform: translateY(-50%) scale(1.4); box-shadow: 0 0 10px currentColor; }
@@ -76,22 +104,22 @@
         .port-video { border-color: #38bdf8; color: #38bdf8; } /* 视频类型：蓝色 */
         
         /* 📝 表单控件区 */
-        .node-inputs-container { margin-top: 8px; padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.2); }
+        .node-inputs-container { margin-top: 8px; padding: 12px 16px; border-top: 1px solid var(--flow-border-soft); background: var(--flow-input-bg); }
         .node-input-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
         .node-input-group:last-child { margin-bottom: 0; }
-        .node-input-label { font-size: 11px; color: #888; font-weight: 500; letter-spacing: 0.5px; }
+        .node-input-label { font-size: 11px; color: var(--flow-text-sub); font-weight: 500; letter-spacing: 0.5px; }
         .node-input {
-            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1);
-            color: #eee; padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none;
+            background: var(--flow-input-bg); border: 1px solid var(--flow-border);
+            color: var(--flow-input-text); padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none;
             font-family: inherit; transition: 0.2s; resize: vertical; line-height: 1.4;
         }
-        .node-input:focus { border-color: var(--accent); background: rgba(0,0,0,0.6); box-shadow: 0 0 0 2px rgba(192,132,252,0.15); }
-        .node-input option { background: #1e1e23; color: #fff; padding: 4px; }
+        .node-input:focus { border-color: var(--accent); background: var(--flow-input-focus-bg); box-shadow: 0 0 0 2px rgba(192,132,252,0.15); }
+        .node-input option { background: var(--flow-surface); color: var(--flow-input-text); padding: 4px; }
        /* 👇 新增：全局素材库侧边栏样式 */
         .material-drawer {
             position: fixed; right: -340px; top: 0; width: 320px; height: 100vh;
-            background: rgba(22, 22, 26, 0.95); backdrop-filter: blur(20px);
-            border-left: 1px solid rgba(255,255,255,0.05); z-index: 900;
+            background: var(--flow-surface); backdrop-filter: blur(20px);
+            border-left: 1px solid var(--flow-border-soft); z-index: 900;
             transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             padding: 70px 20px 20px 20px; display: flex; flex-direction: column;
             box-shadow: -10px 0 30px rgba(0,0,0,0.8);
@@ -105,11 +133,78 @@
         .material-grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
         .material-item {
             position: relative; border-radius: 8px; overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.1); aspect-ratio: 1; cursor: grab; background: #0b0b0c;
+            border: 1px solid var(--flow-border); aspect-ratio: 1; cursor: grab; background: var(--flow-input-bg);
         }
         .material-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
         .material-item:hover img { transform: scale(1.05); }
         .material-item:active { cursor: grabbing; }
+
+        :root[data-theme='light'] .flow-header,
+        :root[data-theme='light'] .veo-node,
+        :root[data-theme='light'] .material-drawer,
+        :root[data-theme='light'] .flow-top-toolbar,
+        :root[data-theme='light'] .node-palette,
+        :root[data-theme='light'] .flow-minimap-container,
+        :root[data-theme='light'] .flow-autocomplete-dropdown {
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+        }
+
+        :root[data-theme='light'] .flow-top-toolbar {
+            background: var(--flow-surface) !important;
+            border: 1px solid var(--flow-border) !important;
+        }
+
+        :root[data-theme='light'] .node-palette {
+            background: var(--flow-surface) !important;
+            border-right: 1px solid var(--flow-border) !important;
+        }
+
+        :root[data-theme='light'] .palette-toggle-btn {
+            background: var(--flow-surface) !important;
+            border: 1px solid var(--flow-border) !important;
+            color: var(--flow-text-sub) !important;
+        }
+
+        :root[data-theme='light'] .flow-minimap-container {
+            background: var(--flow-surface) !important;
+            border: 1px solid var(--flow-border) !important;
+        }
+
+        :root[data-theme='light'] .flow-autocomplete-dropdown {
+            background: var(--flow-surface) !important;
+            border-color: var(--flow-border) !important;
+        }
+
+        :root[data-theme='light'] .flow-tool-btn,
+        :root[data-theme='light'] .palette-item,
+        :root[data-theme='light'] .autocomplete-item,
+        :root[data-theme='light'] .palette-group-title,
+        :root[data-theme='light'] .palette-toggle-btn,
+        :root[data-theme='light'] .node-body,
+        :root[data-theme='light'] .material-drawer,
+        :root[data-theme='light'] .flow-header {
+            color: var(--flow-text);
+        }
+
+        :root[data-theme='light'] .palette-group-title {
+            color: var(--flow-text-sub) !important;
+        }
+
+        :root[data-theme='light'] .palette-item {
+            background: rgba(255, 255, 255, 0.88) !important;
+            border: 1px solid var(--flow-border) !important;
+        }
+
+        :root[data-theme='light'] .autocomplete-item {
+            background: transparent !important;
+        }
+
+        :root[data-theme='light'] .flow-tool-btn:hover,
+        :root[data-theme='light'] .palette-item:hover,
+        :root[data-theme='light'] .autocomplete-item:hover,
+        :root[data-theme='light'] .autocomplete-item.is-active {
+            background: rgba(15, 23, 42, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -117,13 +212,13 @@
     <div class="flow-header">
         <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined" style="color: var(--accent);">account_tree</span>
-            Veo Flow <span style="font-size: 12px; color: #666; font-weight: normal;">| 节点架构师模式</span>
+            Veo Flow <span style="font-size: 12px; color: var(--flow-text-sub); font-weight: normal;">| 节点架构师模式</span>
         </div>
         <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
-            <button id="flow-theme-toggle-btn" onclick="toggleMonoTheme()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 10px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
-                <span class="material-symbols-outlined" id="flow-theme-toggle-icon" style="font-size:16px;">contrast</span> 黑白
+            <button id="flow-theme-toggle-btn" onclick="toggleFlowThemeMode()" style="background: var(--flow-btn-bg); border: 1px solid var(--flow-border); padding: 6px 10px; border-radius: 6px; color: var(--flow-btn-text); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='var(--flow-btn-bg-hover)'" onmouseout="this.style.background='var(--flow-btn-bg)'">
+                <span class="material-symbols-outlined" id="flow-theme-toggle-icon" style="font-size:16px;">dark_mode</span> <span id="flow-theme-toggle-label">夜间</span>
             </button>
-            <button onclick="toggleMaterialDrawer()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+            <button onclick="toggleMaterialDrawer()" style="background: var(--flow-btn-bg); border: 1px solid var(--flow-border); padding: 6px 12px; border-radius: 6px; color: var(--flow-btn-text); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='var(--flow-btn-bg-hover)'" onmouseout="this.style.background='var(--flow-btn-bg)'">
                 <span class="material-symbols-outlined" style="font-size: 16px;">perm_media</span> 素材库
             </button>
             <button onclick="runFlow()" style="background: var(--accent); border: none; padding: 6px 16px; border-radius: 6px; color: #fff; font-weight: bold; cursor: pointer; transition: 0.2s;" onmouseover="this.style.filter='brightness(1.2)'" onmouseout="this.style.filter='brightness(1)'">▶ 运行工作流</button>
@@ -131,10 +226,10 @@
     </div>
 
     <div class="material-drawer" id="material-drawer" onmousedown="event.stopPropagation()">
-        <div style="font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+        <div style="font-size: 14px; font-weight: 600; color: var(--flow-text); margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
             <span class="material-symbols-outlined" style="font-size:18px; color: #c084fc;">all_inclusive</span> Infinity 共享素材区
         </div>
-        <p style="font-size: 11px; color: #666; margin-bottom: 16px; line-height: 1.5;">此处与主画布 IndexedDB 底层直连。按住图片，拖入左侧节点的虚线框内即可极速挂载内存图。</p>
+        <p style="font-size: 11px; color: var(--flow-text-sub); margin-bottom: 16px; line-height: 1.5;">此处与主画布 IndexedDB 底层直连。按住图片，拖入左侧节点的虚线框内即可极速挂载内存图。</p>
         <div class="material-grid" id="material-grid"></div>
     </div>
 
