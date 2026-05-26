@@ -117,6 +117,30 @@ const viewport = document.getElementById('flow-viewport');
 const canvas = document.getElementById('flow-canvas');
 const svgLayer = document.getElementById('svg-layer');
 const nodeBoard = document.getElementById('node-board');
+const FLOW_THEME_MODE_KEY = 'veo_theme_mode';
+
+function applyFlowThemeMode(mode) {
+    const isMono = mode === 'mono';
+    if (isMono) document.documentElement.setAttribute('data-theme', 'mono');
+    else document.documentElement.removeAttribute('data-theme');
+
+    const iconEl = document.getElementById('flow-theme-toggle-icon');
+    const btnEl = document.getElementById('flow-theme-toggle-btn');
+    if (iconEl) iconEl.innerText = isMono ? 'radio_button_checked' : 'contrast';
+    if (btnEl) btnEl.title = isMono ? '切换为彩色模式' : '切换为黑白模式';
+}
+
+function initFlowThemeMode() {
+    const saved = localStorage.getItem(FLOW_THEME_MODE_KEY);
+    applyFlowThemeMode(saved === 'mono' ? 'mono' : 'default');
+}
+
+window.toggleMonoTheme = function() {
+    const current = localStorage.getItem(FLOW_THEME_MODE_KEY) === 'mono' ? 'mono' : 'default';
+    const next = current === 'mono' ? 'default' : 'mono';
+    localStorage.setItem(FLOW_THEME_MODE_KEY, next);
+    applyFlowThemeMode(next);
+};
 
 // 🌟 修复 SVG 容器折叠导致的连线消失问题
 canvas.style.width = '1px'; canvas.style.height = '1px'; canvas.style.overflow = 'visible';
@@ -403,6 +427,110 @@ function renderLinks() {
     }
 }
 
+function getNodeById(nodeId) {
+    return flowState.nodes.find(n => n.id === nodeId) || null;
+}
+
+function getPortById(node, ioType, portId) {
+    if (!node || !node.ports) return null;
+    const list = ioType === 'out' ? (node.ports.out || []) : (node.ports.in || []);
+    return list.find(p => p.id === portId) || null;
+}
+
+function hasGraphCycle(nodes, links) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return false;
+
+    const indegree = new Map();
+    const adjacency = new Map();
+    nodes.forEach(n => {
+        indegree.set(n.id, 0);
+        adjacency.set(n.id, new Set());
+    });
+
+    (links || []).forEach(link => {
+        if (!link || !indegree.has(link.source) || !indegree.has(link.target)) return;
+        if (adjacency.get(link.source).has(link.target)) return;
+        adjacency.get(link.source).add(link.target);
+        indegree.set(link.target, indegree.get(link.target) + 1);
+    });
+
+    const queue = [];
+    indegree.forEach((deg, nodeId) => {
+        if (deg === 0) queue.push(nodeId);
+    });
+
+    let visited = 0;
+    while (queue.length > 0) {
+        const current = queue.shift();
+        visited++;
+        adjacency.get(current).forEach(next => {
+            const nextDeg = indegree.get(next) - 1;
+            indegree.set(next, nextDeg);
+            if (nextDeg === 0) queue.push(next);
+        });
+    }
+
+    return visited !== nodes.length;
+}
+
+function sanitizeFlowLinks(links) {
+    const sanitized = [];
+    const exactSet = new Set();
+    const targetInputSlotIndex = new Map();
+
+    (links || []).forEach((link) => {
+        if (!link) return;
+
+        const sourceNode = getNodeById(link.source);
+        const targetNode = getNodeById(link.target);
+        if (!sourceNode || !targetNode) return;
+
+        const sourcePort = getPortById(sourceNode, 'out', link.sourcePort);
+        const targetPort = getPortById(targetNode, 'in', link.targetPort);
+        if (!sourcePort || !targetPort) return;
+        if (sourcePort.type !== targetPort.type) return;
+
+        const exactKey = `${link.source}|${link.sourcePort}|${link.target}|${link.targetPort}|${sourcePort.type}`;
+        if (exactSet.has(exactKey)) return;
+        exactSet.add(exactKey);
+
+        const normalizedLink = {
+            id: link.id || ('link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)),
+            source: link.source,
+            sourcePort: link.sourcePort,
+            target: link.target,
+            targetPort: link.targetPort,
+            type: sourcePort.type
+        };
+
+        const inputSlotKey = `${normalizedLink.target}|${normalizedLink.targetPort}`;
+        if (targetInputSlotIndex.has(inputSlotKey)) {
+            sanitized[targetInputSlotIndex.get(inputSlotKey)] = normalizedLink;
+        } else {
+            targetInputSlotIndex.set(inputSlotKey, sanitized.length);
+            sanitized.push(normalizedLink);
+        }
+    });
+
+    return sanitized.filter(Boolean);
+}
+
+function linksFingerprint(links) {
+    return JSON.stringify((links || []).map(l => `${l.source}|${l.sourcePort}|${l.target}|${l.targetPort}|${l.type}`).sort());
+}
+
+function normalizeFlowLinks(persistToDb = true) {
+    const current = flowState.links || [];
+    const next = sanitizeFlowLinks(current);
+    const changed = linksFingerprint(current) !== linksFingerprint(next);
+    if (changed) {
+        flowState.links = next;
+        renderLinks();
+        if (persistToDb && typeof saveFlowToDB === 'function') saveFlowToDB();
+    }
+    return flowState.links;
+}
+
 // ==========================================
 // 🖱️ 交互引擎 (拖拉拽核心)
 // ==========================================
@@ -472,21 +600,62 @@ window.startDrawLink = function(e, nodeId, portId, portType, ioType) {
 window.finishDrawLink = function(e, targetNodeId, targetPortId, targetPortType, ioType) {
     e.stopPropagation();
     if (!flowState.drawingLink.active) return;
+
     const { sourceNode, sourcePort, type } = flowState.drawingLink;
-    if (sourceNode !== targetNodeId && ioType === 'in' && type === targetPortType) {
-        const exists = flowState.links.find(l => l.source === sourceNode && l.sourcePort === sourcePort && l.target === targetNodeId && l.targetPort === targetPortId);
-        if (!exists) {
-            flowState.links.push({
-                id: 'link_' + Date.now(),
-                source: sourceNode, sourcePort: sourcePort,
-                target: targetNodeId, targetPort: targetPortId,
-                type: type
-            });
-            console.log(`🔗 连线成功: ${sourceNode} -> ${targetNodeId}`);
-        }
-    }
     flowState.drawingLink.active = false;
+
+    if (ioType !== 'in' || sourceNode === targetNodeId || type !== targetPortType) {
+        renderLinks();
+        return;
+    }
+
+    const sourceNodeData = getNodeById(sourceNode);
+    const targetNodeData = getNodeById(targetNodeId);
+    const sourcePortData = getPortById(sourceNodeData, 'out', sourcePort);
+    const targetPortData = getPortById(targetNodeData, 'in', targetPortId);
+
+    if (!sourceNodeData || !targetNodeData || !sourcePortData || !targetPortData) {
+        renderLinks();
+        return;
+    }
+    if (sourcePortData.type !== targetPortData.type) {
+        alert('端口类型不匹配，连线已取消。');
+        renderLinks();
+        return;
+    }
+
+    const sameLinkExists = flowState.links.some(l =>
+        l.source === sourceNode &&
+        l.sourcePort === sourcePort &&
+        l.target === targetNodeId &&
+        l.targetPort === targetPortId
+    );
+    if (sameLinkExists) {
+        renderLinks();
+        return;
+    }
+
+    const withoutTargetInput = flowState.links.filter(l => !(l.target === targetNodeId && l.targetPort === targetPortId));
+    const candidateLink = {
+        id: 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        source: sourceNode,
+        sourcePort: sourcePort,
+        target: targetNodeId,
+        targetPort: targetPortId,
+        type: sourcePortData.type
+    };
+    const nextLinks = sanitizeFlowLinks(withoutTargetInput.concat(candidateLink));
+
+    if (hasGraphCycle(flowState.nodes, nextLinks)) {
+        alert('检测到死循环风险：该连线会形成环路，已阻止。');
+        renderLinks();
+        return;
+    }
+
+    flowState.links = nextLinks;
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
     renderLinks();
+    console.log(`🔗 连线成功: ${sourceNode} -> ${targetNodeId}`);
 };
 
 let isTicking = false;
@@ -663,7 +832,10 @@ window.disconnectPort = function(e, nodeId, portId) {
         (l.source === nodeId && l.sourcePort === portId) ||
         (l.target === nodeId && l.targetPort === portId)
     ));
-    if (flowState.links.length !== initialLen) renderLinks();
+    if (flowState.links.length !== initialLen) {
+        renderLinks();
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
+    }
 };
 
 // ==========================================
@@ -731,6 +903,10 @@ window.importFlowFromJSON = function(event) {
             flowState.nodes = reconstructedNodes;
             flowState.links = importedData.links;
             if (importedData.transform) flowState.transform = importedData.transform;
+            normalizeFlowLinks(false);
+            if (hasGraphCycle(flowState.nodes, flowState.links)) {
+                throw new Error("导入后检测到环路，请修正后再执行");
+            }
 
             // 触发渲染轰炸与重写存档
             renderNodes();
@@ -987,6 +1163,7 @@ function initFlowToolbar() {
 }
 
 async function bootstrapFlowEngine() {
+    initFlowThemeMode();
     initNodePalette();
     initFlowToolbar();
     initMinimapUI();
@@ -994,6 +1171,7 @@ async function bootstrapFlowEngine() {
         window.AutocompleteController.init();
     }
     await loadFlowFromDB();
+    normalizeFlowLinks(false);
     renderNodes();
     setTimeout(() => { renderLinks(); renderMinimap(); }, 50);
     updateCanvasTransform();
@@ -1177,15 +1355,29 @@ viewport.addEventListener('drop', (e) => {
 // ==========================================
 window.runFlow = async function() {
     console.log("🚀 [执行引擎] 启动工业级 DAG 拓扑扫描...");
-    const nodeDeps = {};      
-    const nodePromises = {};  
-    
-    flowState.nodes.forEach(n => nodeDeps[n.id] = new Set());
+    if (!Array.isArray(flowState.nodes) || flowState.nodes.length === 0) {
+        return alert("⚠️ 当前画布没有节点可执行。");
+    }
+
+    normalizeFlowLinks(true);
+
+    if (hasGraphCycle(flowState.nodes, flowState.links)) {
+        return alert("⚠️ 错误：工作流存在死循环连线，请先断开环路。");
+    }
+
+    const indegree = new Map();
+    const downstream = new Map();
+    flowState.nodes.forEach(n => {
+        indegree.set(n.id, 0);
+        downstream.set(n.id, []);
+    });
     flowState.links.forEach(link => {
-        if (nodeDeps[link.target]) nodeDeps[link.target].add(link.source);
+        if (!indegree.has(link.source) || !indegree.has(link.target)) return;
+        indegree.set(link.target, indegree.get(link.target) + 1);
+        downstream.get(link.source).push(link.target);
     });
 
-    let readyQueue = flowState.nodes.filter(n => nodeDeps[n.id].size === 0).map(n => n.id);
+    let readyQueue = flowState.nodes.filter(n => indegree.get(n.id) === 0).map(n => n.id);
     if (readyQueue.length === 0) return alert("⚠️ 错误：未找到起点节点，或者工作流中存在死循环连线！");
 
     flowState.nodes.forEach(n => {
@@ -1193,21 +1385,28 @@ window.runFlow = async function() {
         setNodeStatus(n.id, 'idle');
     });
 
-    const scheduleNode = async (nodeId) => {
-        if (nodePromises[nodeId]) return nodePromises[nodeId];
-        const deps = Array.from(nodeDeps[nodeId]);
-        const upstreamPromises = deps.map(depId => scheduleNode(depId));
-        
-        nodePromises[nodeId] = (async () => {
-            if (upstreamPromises.length > 0) await Promise.all(upstreamPromises);
-            await executeNode(nodeId);
-        })();
-        return nodePromises[nodeId];
-    };
-
     try {
-        const allExecutions = flowState.nodes.map(n => scheduleNode(n.id));
-        await Promise.all(allExecutions);
+        let processed = 0;
+        while (readyQueue.length > 0) {
+            const batch = readyQueue.slice();
+            readyQueue = [];
+
+            await Promise.all(batch.map(nodeId => executeNode(nodeId)));
+            processed += batch.length;
+
+            batch.forEach(nodeId => {
+                const nextNodes = downstream.get(nodeId) || [];
+                nextNodes.forEach(nextId => {
+                    const left = indegree.get(nextId) - 1;
+                    indegree.set(nextId, left);
+                    if (left === 0) readyQueue.push(nextId);
+                });
+            });
+        }
+
+        if (processed !== flowState.nodes.length) {
+            throw new Error('执行队列异常：存在未完成节点（可能是隐式环路或损坏连线）');
+        }
         console.log("✅ [执行引擎] 工作流全链路并发执行完毕！");
     } catch (err) {
         console.error("❌ [执行引擎] 链路崩溃:", err);

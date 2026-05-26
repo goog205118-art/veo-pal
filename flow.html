@@ -9,7 +9,16 @@
     <style>
         /* 独立工作区专属暗黑极客主题 */
         :root { --bg-dark: #0f0f11; --grid-color: rgba(255,255,255,0.03); --accent: #c084fc; }
+        :root[data-theme='mono'] { --accent: #d6d6d6; --grid-color: rgba(255,255,255,0.045); }
         body { margin: 0; overflow: hidden; background-color: var(--bg-dark); color: #fff; font-family: 'Google Sans', sans-serif; user-select: none; }
+        :root[data-theme='mono'] .flow-header,
+        :root[data-theme='mono'] .material-drawer,
+        :root[data-theme='mono'] .veo-node,
+        :root[data-theme='mono'] .flow-top-toolbar,
+        :root[data-theme='mono'] .node-palette,
+        :root[data-theme='mono'] .flow-minimap-container {
+            filter: grayscale(1);
+        }
         
         /* 无限点阵网格背景 */
         .flow-viewport {
@@ -111,6 +120,9 @@
             Veo Flow <span style="font-size: 12px; color: #666; font-weight: normal;">| 节点架构师模式</span>
         </div>
         <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+            <button id="flow-theme-toggle-btn" onclick="toggleMonoTheme()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 10px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                <span class="material-symbols-outlined" id="flow-theme-toggle-icon" style="font-size:16px;">contrast</span> 黑白
+            </button>
             <button onclick="toggleMaterialDrawer()" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">
                 <span class="material-symbols-outlined" style="font-size: 16px;">perm_media</span> 素材库
             </button>

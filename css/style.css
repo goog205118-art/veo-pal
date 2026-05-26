@@ -3,6 +3,30 @@
     --text-main: #f5f5f5; --text-sub: #8e8e93; --accent: #0a84ff; --success: #32d74b; --danger: #ff453a;
     --radius-lg: 20px; --radius-md: 12px; --radius-sm: 8px;
 }
+:root[data-theme='mono'] {
+    --accent: #d9d9d9;
+    --success: #cfcfcf;
+    --danger: #a8a8a8;
+    --text-main: #f2f2f2;
+    --text-sub: #9a9a9a;
+    --border: #3a3a3a;
+}
+:root[data-theme='mono'] .top-bar,
+:root[data-theme='mono'] .login-gate,
+:root[data-theme='mono'] .login-canvas,
+:root[data-theme='mono'] .gate-step,
+:root[data-theme='mono'] .launch-btn,
+:root[data-theme='mono'] .tool-drawer,
+:root[data-theme='mono'] .floating-console,
+:root[data-theme='mono'] .material-drawer,
+:root[data-theme='mono'] .help-content,
+:root[data-theme='mono'] .sys-modal-content,
+:root[data-theme='mono'] .video-card,
+:root[data-theme='mono'] .frame-box,
+:root[data-theme='mono'] .minimap-container,
+:root[data-theme='mono'] .form-box {
+    filter: grayscale(1);
+}
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Google Sans', -apple-system, sans-serif; user-select: none; }
 
 body { 

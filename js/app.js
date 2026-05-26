@@ -62,7 +62,36 @@ async function hashPassword(password) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const THEME_MODE_KEY = 'veo_theme_mode';
+
+function applyThemeMode(mode) {
+    const isMono = mode === 'mono';
+    if (isMono) document.documentElement.setAttribute('data-theme', 'mono');
+    else document.documentElement.removeAttribute('data-theme');
+
+    const iconEl = document.getElementById('theme-toggle-icon');
+    const btnEl = document.getElementById('theme-toggle-btn');
+    if (iconEl) iconEl.innerText = isMono ? 'radio_button_checked' : 'contrast';
+    if (btnEl) btnEl.setAttribute('data-tip', isMono ? '切换为彩色模式' : '切换为黑白模式');
+}
+
+function initThemeMode() {
+    const saved = localStorage.getItem(THEME_MODE_KEY);
+    applyThemeMode(saved === 'mono' ? 'mono' : 'default');
+}
+
+window.toggleThemeMode = function() {
+    const current = localStorage.getItem(THEME_MODE_KEY) === 'mono' ? 'mono' : 'default';
+    const next = current === 'mono' ? 'default' : 'mono';
+    localStorage.setItem(THEME_MODE_KEY, next);
+    applyThemeMode(next);
+    if (typeof showToast === 'function') {
+        showToast(next === 'mono' ? '已切换至黑白模式' : '已恢复彩色模式', 'info');
+    }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
+    initThemeMode();
     const gate = document.getElementById('login-gate');
     const savedSessionPwd = sessionStorage.getItem('veo_admin_pwd');
     if (savedSessionPwd) { gate.style.display = 'none'; }
