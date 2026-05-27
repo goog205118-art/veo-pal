@@ -65,6 +65,65 @@ async function hashPassword(password) {
 const THEME_MODE_KEY = 'veo_theme_mode';
 const THEME_DARK = 'dark';
 const THEME_LIGHT = 'light';
+const ROUTE_TRANSITION_MS = 460;
+
+function isReducedMotion() {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (err) {
+        console.error(err);
+        return false;
+    }
+}
+
+function ensureRouteTransitionLayer() {
+    let layer = document.getElementById('route-transition');
+    if (layer) return layer;
+    layer = document.createElement('div');
+    layer.id = 'route-transition';
+    layer.className = 'route-transition';
+    layer.setAttribute('aria-hidden', 'true');
+    layer.innerHTML = '<div class="route-transition-ring"></div><div class="route-transition-label">ROUTE HANDSHAKE</div>';
+    document.body.appendChild(layer);
+    return layer;
+}
+
+function startRouteTransition(labelText) {
+    const layer = ensureRouteTransitionLayer();
+    if (!layer) return;
+    const label = layer.querySelector('.route-transition-label');
+    if (label && labelText) label.textContent = labelText;
+    layer.classList.add('is-active');
+}
+
+function markAppShellReady() {
+    document.body.classList.remove('app-shell-init');
+    document.body.classList.add('app-shell-ready');
+}
+
+window.navigateWithTransition = function(url, options = {}) {
+    if (!url || typeof url !== 'string') return;
+    const replace = !!options.replace;
+    const label = options.label || 'ROUTE HANDSHAKE';
+    if (isReducedMotion()) {
+        if (replace) window.location.replace(url);
+        else window.location.href = url;
+        return;
+    }
+    startRouteTransition(label);
+    window.setTimeout(() => {
+        if (replace) window.location.replace(url);
+        else window.location.href = url;
+    }, ROUTE_TRANSITION_MS);
+};
+
+window.openFlowWorkspace = function(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    window.navigateWithTransition('flow.html', { label: 'OPEN NODE FLOW' });
+};
 
 function normalizeThemeMode(rawMode) {
     if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
@@ -89,6 +148,20 @@ function initThemeMode() {
     applyThemeMode(nextMode);
 }
 
+function activateLoginPanel(focusDelay = 360) {
+    const panel = document.getElementById('gate-step-2');
+    if (!panel) return;
+    panel.classList.remove('step-passed');
+    panel.classList.remove('step-active');
+    requestAnimationFrame(() => {
+        panel.classList.add('step-active');
+    });
+    setTimeout(() => {
+        const input = document.getElementById('studio-pwd-input');
+        if (input) input.focus();
+    }, focusDelay);
+}
+
 window.toggleThemeMode = function() {
     const current = normalizeThemeMode(localStorage.getItem(THEME_MODE_KEY));
     const next = current === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
@@ -100,10 +173,16 @@ window.toggleThemeMode = function() {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    ensureRouteTransitionLayer();
     initThemeMode();
     const gate = document.getElementById('login-gate');
     const savedSessionPwd = sessionStorage.getItem('veo_admin_pwd');
-    if (savedSessionPwd) { gate.style.display = 'none'; }
+    if (savedSessionPwd) {
+        if (gate) gate.style.display = 'none';
+        window.requestAnimationFrame(() => markAppShellReady());
+    } else if (gate) {
+        activateLoginPanel(420);
+    }
 
     const rememberedPwd = localStorage.getItem('veo_admin_pwd_saved');
     if (rememberedPwd) {
@@ -169,8 +248,7 @@ window.toggleMinimap = function(e) {
 };
 
 function startLoginTransition() {
-    document.getElementById('gate-step-1').classList.remove('step-active'); document.getElementById('gate-step-1').classList.add('step-passed'); 
-    setTimeout(() => { document.getElementById('gate-step-2').classList.add('step-active'); document.getElementById('studio-pwd-input').focus(); }, 200); 
+    activateLoginPanel(180);
 }
 
 async function handleLoginSubmit(e) {
@@ -198,6 +276,7 @@ async function handleLoginSubmit(e) {
             setTimeout(() => {
                 if (typeof loginAnimationId !== 'undefined' && loginAnimationId) cancelAnimationFrame(loginAnimationId);
                 gate.remove(); showToast("欢迎回来", "success");
+                markAppShellReady();
                 setTimeout(showAnnouncement, 500); 
             }, 800);
         }, 400);
@@ -217,7 +296,14 @@ function handleAuthError() {
     if (!sessionStorage.getItem('veo_admin_pwd')) return; 
     sessionStorage.removeItem('veo_admin_pwd'); 
     showToast("密钥验证失败或已过期，即将退回登录舱", "error"); 
-    setTimeout(() => location.reload(), 1500); 
+    setTimeout(() => {
+        if (isReducedMotion()) {
+            location.reload();
+            return;
+        }
+        startRouteTransition('SESSION EXPIRED');
+        setTimeout(() => location.reload(), ROUTE_TRANSITION_MS);
+    }, 1500); 
 }
 
 // ==========================================

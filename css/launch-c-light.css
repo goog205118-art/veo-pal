@@ -1,0 +1,124 @@
+@import url("./launch-c.css");
+
+:root {
+    --bg-dark: #f3f5f8;
+    --bg-mid: #ffffff;
+    --bg-glow-a: rgba(255, 255, 255, 0.9);
+    --bg-glow-b: rgba(173, 196, 230, 0.34);
+    --text-main: #111827;
+    --text-sub: #5a6578;
+    --accent: #1b66ff;
+    --accent-soft: rgba(27, 102, 255, 0.28);
+    --border: rgba(12, 31, 62, 0.2);
+    --border-soft: rgba(12, 31, 62, 0.12);
+    --surface: rgba(255, 255, 255, 0.78);
+    --surface-strong: rgba(255, 255, 255, 0.95);
+    --surface-hover: rgba(255, 255, 255, 0.92);
+    --panel-shadow: 0 20px 40px rgba(20, 42, 74, 0.12);
+
+    --noise-a: rgba(24, 64, 122, 0.35);
+    --noise-b: rgba(24, 64, 122, 0.24);
+    --grid-line: rgba(17, 30, 52, 0.09);
+    --grid-sweep-core: rgba(66, 126, 255, 0.2);
+    --grid-sweep-mid: rgba(66, 126, 255, 0.07);
+    --grid-sweep-end: rgba(66, 126, 255, 0);
+
+    --cursor-dot-bg: #13386f;
+    --cursor-ring-border: rgba(19, 56, 111, 0.45);
+    --cursor-ring-hover: rgba(19, 56, 111, 0.85);
+    --cursor-blend: normal;
+
+    --topbar-bg: rgba(255, 255, 255, 0.72);
+    --topbar-border: rgba(12, 31, 62, 0.12);
+    --brand-color: #16335f;
+    --brand-pulse-bg: #1b66ff;
+    --brand-pulse-glow: rgba(27, 102, 255, 0.58);
+
+    --btn-solid-bg: linear-gradient(135deg, #1d6cff 0%, #4f8bff 100%);
+    --btn-solid-bg-hover: linear-gradient(135deg, #1a62eb 0%, #4483f8 100%);
+    --btn-solid-border: #2a70ff;
+    --btn-solid-text: #f8fbff;
+    --btn-ghost-bg: rgba(255, 255, 255, 0.62);
+    --btn-ghost-bg-hover: rgba(255, 255, 255, 0.86);
+    --btn-ghost-text: #173764;
+    --btn-ghost-border: rgba(24, 58, 112, 0.22);
+
+    --rail-line-a: rgba(22, 68, 136, 0.46);
+    --rail-line-b: rgba(22, 68, 136, 0.1);
+    --rail-dot-border: rgba(23, 72, 146, 0.55);
+    --rail-dot-bg: rgba(23, 72, 146, 0.12);
+    --rail-dot-active-bg: #1b66ff;
+    --rail-label-color: #385682;
+
+    --tag-color: #4f6587;
+    --hero-shadow: 0 16px 26px rgba(40, 74, 122, 0.2);
+    --hero-highlight: rgba(66, 126, 255, 0.16);
+
+    --list-text: #42536e;
+    --list-number: #1b66ff;
+    --flow-board-bg: rgba(255, 255, 255, 0.9);
+    --flow-grid: rgba(27, 102, 255, 0.07);
+    --flow-link: rgba(26, 85, 181, 0.38);
+    --flow-link-hot: rgba(19, 66, 145, 0.94);
+    --flow-node-bg: rgba(255, 255, 255, 0.95);
+    --flow-node-bg-hover: rgba(255, 255, 255, 1);
+    --flow-node-border: rgba(25, 84, 170, 0.26);
+    --flow-node-border-hover: rgba(25, 84, 170, 0.58);
+    --flow-node-sub: #60708b;
+    --flow-tip-text: #415470;
+    --flow-tip-border: rgba(27, 102, 255, 0.45);
+
+    --metric-text: #60708b;
+    --metric-num: #173764;
+    --ticker-text: #2f476b;
+
+    --boot-overlay: rgba(247, 250, 255, 0.82);
+    --boot-panel-bg: rgba(255, 255, 255, 0.95);
+    --boot-tag: #47638c;
+    --boot-row: #60708b;
+    --boot-step: #7a8ca9;
+    --boot-step-active: #16335f;
+    --scroll-progress-bg: linear-gradient(90deg, #3f84ff, #b9d4ff);
+    --boot-fill-start: #4f8bff;
+    --boot-fill-end: #c6dcff;
+}
+
+body[data-theme="light"] {
+    background:
+        radial-gradient(circle at 18% -4%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0) 42%),
+        radial-gradient(circle at 86% 22%, rgba(173, 196, 230, 0.4) 0%, rgba(173, 196, 230, 0) 34%),
+        linear-gradient(180deg, #f8fbff 0%, #eef3fb 52%, #e6edf7 100%);
+}
+
+body[data-theme="light"] .panel {
+    filter: saturate(0.75);
+}
+
+body[data-theme="light"] .panel.is-active {
+    filter: saturate(1);
+}
+
+body[data-theme="light"] .topbar {
+    box-shadow: 0 16px 28px rgba(54, 87, 132, 0.12);
+}
+
+body[data-theme="light"] .panel-inner {
+    text-shadow: none;
+}
+
+body[data-theme="light"] .mono-list li,
+body[data-theme="light"] .metric,
+body[data-theme="light"] .ticker-wrap,
+body[data-theme="light"] .boot-panel,
+body[data-theme="light"] .flow-board {
+    box-shadow: 0 14px 30px rgba(22, 56, 109, 0.08);
+}
+
+body[data-theme="light"] .flow-node:hover,
+body[data-theme="light"] .flow-node.active {
+    box-shadow: 0 14px 28px rgba(22, 56, 109, 0.16), 0 0 0 1px rgba(27, 102, 255, 0.18);
+}
+
+body[data-theme="light"] .boot-overlay {
+    backdrop-filter: blur(8px);
+}

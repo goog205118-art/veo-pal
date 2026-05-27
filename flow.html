@@ -47,12 +47,61 @@
         }
 
         body { margin: 0; overflow: hidden; background-color: var(--bg-dark); color: var(--flow-text); font-family: 'Google Sans', sans-serif; user-select: none; color-scheme: var(--flow-color-scheme); }
+
+        body.flow-shell-init .flow-header,
+        body.flow-shell-init .flow-viewport,
+        body.flow-shell-init .material-drawer {
+            opacity: 0;
+            transform: translateY(14px) scale(0.988);
+        }
+
+        body.flow-shell-ready .flow-header,
+        body.flow-shell-ready .flow-viewport,
+        body.flow-shell-ready .material-drawer {
+            opacity: 1;
+            transform: none;
+            transition: opacity 0.44s cubic-bezier(0.16, 1, 0.3, 1), transform 0.44s cubic-bezier(0.16, 1, 0.3, 1);
+        }
         
         /* 无限点阵网格背景 */
         .flow-viewport {
             position: absolute; width: 100vw; height: 100vh; overflow: hidden; cursor: grab;
             background-image: radial-gradient(var(--grid-color) 1px, transparent 1px);
             background-size: 20px 20px; background-position: 0 0;
+        }
+
+        .flow-route-transition {
+            position: fixed; inset: 0; z-index: 999999;
+            display: grid; place-items: center;
+            background: rgba(7, 11, 19, 0.88);
+            opacity: 0; visibility: hidden; pointer-events: none;
+            transition: opacity 0.46s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.46s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .flow-route-transition.is-active { opacity: 1; visibility: visible; }
+        .flow-route-ring {
+            width: min(44vw, 360px); height: min(44vw, 360px);
+            border-radius: 50%;
+            border: 1px solid rgba(192, 132, 252, 0.45);
+            box-shadow: 0 0 0 22px rgba(192, 132, 252, 0.2), 0 0 0 56px rgba(192, 132, 252, 0.1);
+            animation: flowRoutePulse 1.2s ease-in-out infinite;
+        }
+        .flow-route-label {
+            position: absolute;
+            font-size: 11px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: #d7c0f6;
+        }
+        :root[data-theme='light'] .flow-route-transition { background: rgba(239, 245, 255, 0.9); }
+        :root[data-theme='light'] .flow-route-ring {
+            border-color: rgba(37, 109, 255, 0.45);
+            box-shadow: 0 0 0 22px rgba(37, 109, 255, 0.2), 0 0 0 56px rgba(37, 109, 255, 0.1);
+        }
+        :root[data-theme='light'] .flow-route-label { color: #3f5c8f; }
+        @keyframes flowRoutePulse {
+            0% { transform: scale(0.96); opacity: 0.76; }
+            50% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.04); opacity: 0.82; }
         }
         
         /* 顶部导航 */
@@ -201,7 +250,7 @@
         }
     </style>
 </head>
-<body>
+<body class="flow-shell-init">
 
     <div class="flow-header">
         <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
@@ -209,6 +258,9 @@
             Veo Flow <span style="font-size: 12px; color: var(--flow-text-sub); font-weight: normal;">| 节点架构师模式</span>
         </div>
         <div style="margin-left: auto; display: flex; gap: 12px; align-items: center;">
+            <button onclick="navigateFlowRoute('index.html', 'RETURN WORKSPACE')" style="background: var(--flow-btn-bg); border: 1px solid var(--flow-border); padding: 6px 12px; border-radius: 6px; color: var(--flow-btn-text); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='var(--flow-btn-bg-hover)'" onmouseout="this.style.background='var(--flow-btn-bg)'">
+                <span class="material-symbols-outlined" style="font-size: 16px;">arrow_back</span> 返回工作台
+            </button>
             <div id="flow-header-tools" style="display:flex; align-items:center; gap:8px;"></div>
             <button id="flow-theme-toggle-btn" onclick="toggleFlowThemeMode()" style="background: var(--flow-btn-bg); border: 1px solid var(--flow-border); padding: 6px 10px; border-radius: 6px; color: var(--flow-btn-text); cursor: pointer; display: flex; align-items: center; gap: 6px; transition: 0.2s;" onmouseover="this.style.background='var(--flow-btn-bg-hover)'" onmouseout="this.style.background='var(--flow-btn-bg)'">
                 <span class="material-symbols-outlined" id="flow-theme-toggle-icon" style="font-size:16px;">dark_mode</span> <span id="flow-theme-toggle-label">夜间</span>
@@ -235,11 +287,52 @@
         </div>
     </div>
 
+    <div id="flow-route-transition" class="flow-route-transition" aria-hidden="true">
+        <div class="flow-route-ring"></div>
+        <div class="flow-route-label" id="flow-route-label">ROUTE HANDSHAKE</div>
+    </div>
+
     <script src="js/db.js"></script>
     <script src="./js/flow/flow-engine.js"></script> 
 
     <script>
+        const FLOW_ROUTE_TRANSITION_MS = 460;
+
+        function setFlowShellReady() {
+            document.body.classList.remove('flow-shell-init');
+            document.body.classList.add('flow-shell-ready');
+        }
+
+        function triggerFlowTransition(labelText) {
+            const layer = document.getElementById('flow-route-transition');
+            const label = document.getElementById('flow-route-label');
+            if (label && labelText) label.textContent = labelText;
+            if (layer) layer.classList.add('is-active');
+        }
+
+        function isFlowReducedMotion() {
+            try {
+                return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        function navigateFlowRoute(url, labelText = 'ROUTE HANDSHAKE') {
+            if (!url) return;
+            if (isFlowReducedMotion()) {
+                window.location.href = url;
+                return;
+            }
+            triggerFlowTransition(labelText);
+            window.setTimeout(() => {
+                window.location.href = url;
+            }, FLOW_ROUTE_TRANSITION_MS);
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
+            requestAnimationFrame(() => setFlowShellReady());
             try {
                 await initDB();
                 console.log("🟢 Flow 节点数据库加载完毕");

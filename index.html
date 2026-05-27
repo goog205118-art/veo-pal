@@ -9,20 +9,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="app-shell-init">
     <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
 
     <div id="login-gate" class="login-gate">
         <canvas id="login-canvas" class="login-canvas"></canvas>
-        <div id="gate-step-1" class="gate-step step-active">
-            <div class="launch-btn" onclick="startLoginTransition()">
-                <span class="material-symbols-outlined" style="font-size: 48px; color: var(--accent);">fingerprint</span>
-                <div style="margin-top: 16px; font-weight: 600; letter-spacing: 2px;">初始化系统 / INIT</div>
-            </div>
-        </div>
-
-        <div id="gate-step-2" class="gate-step">
+        <div id="gate-step-2" class="gate-step login-panel-direct">
             <div class="form-box">
                 <div class="form-value">
                     <form onsubmit="handleLoginSubmit(event)">
@@ -64,7 +57,7 @@
                 <span class="material-symbols-outlined" style="font-size: 16px;">grid_view</span> 工具箱
             </button>
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-            <button class="top-btn" onclick="window.open('flow.html', '_blank')" data-tip="进入高级节点工作流 (Pro)" style="background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
+            <button class="top-btn top-btn-pro" onclick="openFlowWorkspace(event)" data-tip="进入高级节点工作流 (Pro)">
                 <span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> 节点流
             </button>
            
@@ -305,27 +298,31 @@
         <div class="sys-modal-content">
             <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 8px;">
                 <span class="material-symbols-outlined" style="color: var(--accent);">campaign</span>
-                <span style="font-weight: 600; letter-spacing: 1px;">系统升级公告</span>
+                <span style="font-weight: 600; letter-spacing: 1px;">Infinity Flow 能力总览</span>
             </div>
             <div style="padding: 20px; font-size: 13px; line-height: 1.8; color: var(--text-main);">
-                <p style="margin-bottom: 15px; color: var(--accent); font-weight: 600;">⚠️ 模型下架与更替通知：</p>
-                <p>由于官方接口调整，原 <span style="text-decoration: line-through; opacity: 0.6;">Fast 系列模型</span> 已正式下架。现已全面替换为<span style="color: var(--success);">高质量标准模型</span>，生成质量大幅提升，价格同步调整如下：</p>
-                
+                <p style="margin-bottom: 15px; color: var(--accent); font-weight: 600;">你当前工作台已具备以下生产能力：</p>
                 <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin: 15px 0; border-left: 3px solid var(--accent);">
                     <ul style="list-style: none; padding: 0; margin: 0;">
-                        <li>🎞️ 视频标准模型：<span style="color: var(--accent);">￥0.35</span> /条</li>
-                        <li>🎞️ 视频 4K 模型：<span style="color: var(--accent);">￥0.50</span> /条</li>
-                        <li>🎨 生图通道 1 (主)：<span style="color: var(--accent);">￥0.084</span> /张</li>
-                        <li>🎨 生图通道 2 (备)：<span style="color: var(--accent);">￥0.06</span> /张</li>
+                        <li>🧭 无限平移缩放画布 + 框选/打组/解组/网格排版</li>
+                        <li>🎞️ 文生视频 + 首尾帧通道 + 自动重试轮询</li>
+                        <li>🎨 生图模块（多垫图拖拽挂载 + 局部裁切复用）</li>
+                        <li>🗂 全局素材库（拖入、Ctrl+V、去重、彻底清理）</li>
+                        <li>⛓ Pro 节点流（端口校验、导入导出、调度执行）</li>
+                        <li>💾 IndexedDB 本地持久化 + 账单统计与任务追踪</li>
                     </ul>
                 </div>
-                
-                <p style="font-size: 11px; color: var(--text-sub);">请各位知悉，悠着点用啊</p>
+                <p style="font-size: 11px; color: var(--text-sub);">建议流程：先在画布快速试产，再进入节点流固化为可复用模板。</p>
             </div>
             <button onclick="closeAnnouncement()" style="width: 100%; justify-content: center; background: var(--accent); color: white; border: none; padding: 14px; font-weight: 600; cursor: pointer; transition: 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 进入工作台
             </button>
         </div>
+    </div>
+
+    <div id="route-transition" class="route-transition" aria-hidden="true">
+        <div class="route-transition-ring"></div>
+        <div class="route-transition-label">ROUTE HANDSHAKE</div>
     </div>
     
     <script src="js/db.js"></script>
