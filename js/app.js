@@ -285,7 +285,9 @@ async function handleLoginSubmit(e) {
 
 const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit'; 
 const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll'; 
-const API_IMAGE_GEN = 'https://api.wallyai.top/webhook/proxy-image-gen'; 
+const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
+const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
+const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
 let activeTasks = [], activeRetries = new Set(); 
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
@@ -873,7 +875,30 @@ viewport.addEventListener('drop', async (e) => {
     if (pluginType) {
         const spawnX = (e.clientX - transform.x) / transform.scale, spawnY = (e.clientY - transform.y) / transform.scale; let newTool = null;
         if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
-        else if (pluginType === 'image_gen') newTool = { id: 'tool_img_' + Date.now(), type: 'tool_image_gen', x: spawnX, y: spawnY, timestamp: Date.now(), status: 'idle', state: { size: '1024x1024', prompt: '', images: [], resultUrl: null, resultBlob: null, channel: 'channel_1', autoRetry: false }, retryCount: 0 };
+        else if (pluginType === 'image_gen') newTool = {
+            id: 'tool_img_' + Date.now(),
+            type: 'tool_image_gen',
+            x: spawnX,
+            y: spawnY,
+            timestamp: Date.now(),
+            status: 'idle',
+            state: {
+                version: 'trial',
+                providerSort: 'quality',
+                quality: 'high',
+                format: 'png',
+                n: 1,
+                size: '1024x1024',
+                prompt: '',
+                images: [],
+                maskImage: null,
+                resultUrl: null,
+                resultBlob: null,
+                channel: 'channel_1',
+                autoRetry: false
+            },
+            retryCount: 0
+        };
         else if (pluginType === 'cropper') newTool = { id: 'tool_crop_' + Date.now(), type: 'tool_cropper', x: spawnX, y: spawnY, timestamp: Date.now(), state: { sourceBlob: null, resultBlob: null, cropParams: { left: 10, top: 10, width: 80, height: 80 } } };
         if (newTool) { await saveTaskDB(newTool); renderBoard(); document.getElementById('tool-drawer').classList.remove('open'); return; }
     }
@@ -935,6 +960,7 @@ async function renderCard(taskId) {
     const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
     const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
     const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
+    const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
 
     cardEl.setAttribute('data-sync-status', task.status || 'static');
     cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
@@ -943,6 +969,7 @@ async function renderCard(taskId) {
     cardEl.setAttribute('data-sync-crop-src', cropSrc);
     cardEl.setAttribute('data-sync-crop-res', cropRes);
     cardEl.setAttribute('data-sync-channel', currentChannel);
+    cardEl.setAttribute('data-sync-version', currentVersion);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
 }
@@ -1304,24 +1331,25 @@ function generateCardHTML(task) {
     if (task.type === 'tool_generator') return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')" data-tip="摇骰子：随机抽取一套爆款剧本组合"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)" data-tip="一键将结构化剧本反填至底部 Prompt 框"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用至控制台</button></div>`;
 
     if (task.type === 'tool_image_gen') {
-        const isProcessing = task.status === 'processing', isFailed = task.status === 'failed', resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>` : '';
+        ensureImgGenState(task);
+        const isProcessing = task.status === 'processing';
+        const isFailed = task.status === 'failed';
+        const isPro = task.state.version === 'pro';
+        const isChannel2 = task.state.channel === 'channel_2';
+        const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
+        const resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>` : '';
         let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
         if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
-        
-        const isChannel2 = task.state.channel === 'channel_2', currentCost = isChannel2 ? '0.06' : '0.084';
-        // 🌟 1. 正常/成功状态下的按钮 (显示历史耗时)
         let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">⏱️ ${task.state.costTime}s</span>` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 生成图像 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">￥${currentCost}</span> ${costTxt}`;
-        
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span style="font-family:monospace; opacity:0.8; margin-left:4px;">${isPro ? currentCost : `￥${currentCost}`}</span> ${costTxt}`;
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
-        
-        // 🌟 2. 生成中：展示跳动的秒表与进度条
+
         if (isProcessing) {
             btnContent = `
                 <div style="display:flex; flex-direction:column; width:100%; gap:6px; align-items:center;">
                     <div style="display:flex; justify-content:space-between; width:100%; font-size:13px;">
                         <div style="display:flex; align-items:center; gap:6px;">
-                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg> 
+                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg>
                             生成中...${retryTxt}
                         </div>
                         <div class="veo-dynamic-timer" data-start-time="${task.state.startTime || Date.now()}" style="font-family:monospace; color:var(--accent); font-weight:bold; letter-spacing:1px;">00:00</div>
@@ -1332,16 +1360,12 @@ function generateCardHTML(task) {
                 </div>
             `;
         }
-        
-        // 🌟 3. 失败状态
-        if (isFailed) {
-            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
-        }
-        
-        // 🌟 核心修改 1：处理自定义比例 UI
+
+        if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
+
         let customRatioHtml = '';
         if (task.state.size === '') {
-            const w = task.state.customW || 9; 
+            const w = task.state.customW || 9;
             const h = task.state.customH || 21;
             customRatioHtml = `
             <div style="display:flex; align-items:center; gap:6px; padding: 0 12px; margin-top:-4px; margin-bottom:8px;">
@@ -1353,10 +1377,23 @@ function generateCardHTML(task) {
                 <span style="font-size:10px; color:rgba(255,255,255,0.3); margin-left:auto;">提交时将自动隐式拼接</span>
             </div>`;
         }
-        
-        // 🌟 核心修改 2：打散原本超长的 return，加入自定义选项和动态框
+
         return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
         <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+        <div class="img-gen-controls">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
+                <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
+                <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
+                <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
+                <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
+                <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
+            </select>
+        </div>
         <div class="img-gen-controls">
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="选择图像生成比例">
                 <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1:1</option>
@@ -1364,8 +1401,26 @@ function generateCardHTML(task) {
                 <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>2:3</option>
                 <option value="" ${task.state.size===''?'selected':''}>自定义</option>
             </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5;" data-tip="若生成失败，可尝试切换备用 API 节点"><option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>节点 1 (主)</option><option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>节点 2 (备)</option></select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)"><option value="false" ${!task.state.autoRetry?'selected':''}>单次</option><option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option></select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：质量优先或速度优先">
+                <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
+                <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：输出质量">
+                <option value="high" ${task.state.quality==='high'?'selected':''}>高质量</option>
+                <option value="medium" ${task.state.quality==='medium'?'selected':''}>中质量</option>
+                <option value="low" ${task.state.quality==='low'?'selected':''}>低质量</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'format', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：输出格式">
+                <option value="png" ${task.state.format==='png'?'selected':''}>PNG</option>
+                <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
+                <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：单次返回张数">
+                <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
+                <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
+                <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
+                <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
+            </select>
         </div>
         ${customRatioHtml}
         <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
@@ -1406,7 +1461,7 @@ async function renderBoard() {
 
     boardTasks.forEach(task => {
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1'; 
+        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial'; 
         
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
@@ -1435,10 +1490,10 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
             
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'); 
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'); 
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
                 cardEl.innerHTML = generateCardHTML(task); 
             }
         }
@@ -1447,7 +1502,7 @@ async function renderBoard() {
 
         bindCardDrag(cardEl, task);
         
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); 
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); 
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -1490,9 +1545,11 @@ async function duplicateTask(originalTask, mouseEvent) {
 
         // ⚠️ 生图组件特判：继承参数，但必须清空之前的生成结果和状态！
         if (clone.type === 'tool_image_gen') {
+            ensureImgGenState(clone);
             clone.status = 'idle';
             clone.state.resultBlob = null;
             clone.state.resultUrl = null;
+            clone.state.maskImage = null;
             clone.retryCount = 0;
         }
         
@@ -1547,11 +1604,80 @@ async function duplicateTask(originalTask, mouseEvent) {
 // ==========================================
 // 🎨 AI 多模生图核心控制模块 (局部渲染完全体)
 // ==========================================
-async function updateImgGenState(taskId, key, val) { const task = await getTaskDB(taskId); if (task) { task.state[key] = val; await saveTaskDB(task); renderCard(taskId); } }
+function ensureImgGenState(task) {
+    if (!task || task.type !== 'tool_image_gen') return;
+    if (!task.state || typeof task.state !== 'object') task.state = {};
+    if (!Array.isArray(task.state.images)) task.state.images = [];
+    if (!task.state.version) task.state.version = 'trial';
+    if (!task.state.providerSort) task.state.providerSort = 'quality';
+    if (!task.state.quality) task.state.quality = 'high';
+    if (!task.state.format) task.state.format = 'png';
+    const parsedN = parseInt(task.state.n, 10);
+    task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 4) : 1;
+    if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
+    if (!task.state.prompt) task.state.prompt = '';
+    if (!task.state.channel) task.state.channel = 'channel_1';
+    if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
+    if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
+}
+
+function resolveImgGenMode(state) {
+    const imageCount = Array.isArray(state.images) ? state.images.length : 0;
+    if (imageCount === 0) return 'text2img';
+    if (state.maskImage) return 'mask_edit';
+    return 'img2img';
+}
+
+function buildImgGenHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    const pwd = sessionStorage.getItem('veo_admin_pwd');
+    if (pwd) headers['wally123'] = pwd;
+    if (API_IMAGE_AUTH) headers['Authorization'] = API_IMAGE_AUTH;
+    return headers;
+}
+
+function extractImageUrlFromResponse(rawData) {
+    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (!resData) return null;
+    if (typeof resData === 'string' && (resData.startsWith('http://') || resData.startsWith('https://'))) return resData;
+    if (resData.imageUrl) return resData.imageUrl;
+    if (resData.url) return resData.url;
+    if (resData.output && Array.isArray(resData.output) && resData.output[0]) {
+        if (typeof resData.output[0] === 'string') return resData.output[0];
+        if (resData.output[0].url) return resData.output[0].url;
+    }
+    if (resData.images && Array.isArray(resData.images) && resData.images[0]) {
+        if (typeof resData.images[0] === 'string') return resData.images[0];
+        if (resData.images[0].url) return resData.images[0].url;
+    }
+    if (resData.data && Array.isArray(resData.data) && resData.data[0]) {
+        if (typeof resData.data[0] === 'string') return resData.data[0];
+        if (resData.data[0].url) return resData.data[0].url;
+        if (resData.data[0].b64_json) return 'data:image/png;base64,' + resData.data[0].b64_json;
+    }
+    if (resData.result && resData.result.url) return resData.result.url;
+    if (resData.body && resData.body.imageUrl) return resData.body.imageUrl;
+    return null;
+}
+
+async function updateImgGenState(taskId, key, val) {
+    const task = await getTaskDB(taskId);
+    if (!task) return;
+    ensureImgGenState(task);
+    if (key === 'n') {
+        const n = parseInt(val, 10);
+        task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 4) : 1;
+    } else {
+        task.state[key] = val;
+    }
+    await saveTaskDB(task);
+    renderCard(taskId);
+}
 
 async function handleGenImageUpload(input, taskId) {
     if (!input.files || input.files.length === 0) return;
     const task = await getTaskDB(taskId); if (!task) return;
+    ensureImgGenState(task);
     for (let file of Array.from(input.files)) {
         if (task.state.images.length >= 5) break;
         task.state.images.push(await compressImageToBlob(file, 1024));
@@ -1577,6 +1703,7 @@ async function handleGenImageDrop(e, taskId) {
     // 数据落袋为安后，再从容地去查库和校验
     const task = await getTaskDB(taskId); 
     if (!task) return;
+    ensureImgGenState(task);
     
     if (task.state.images.length >= 5) {
         return showToast("最多只能垫入 5 张图", "error");
@@ -1593,6 +1720,7 @@ async function handleGenImageDrop(e, taskId) {
 
 async function removeGenImage(e, taskId, index) {
     e.stopPropagation(); const task = await getTaskDB(taskId); if (!task) return;
+    ensureImgGenState(task);
     task.state.images.splice(index, 1); 
     task.timestamp = Date.now();
     await saveTaskDB(task); renderCard(taskId);
@@ -1602,105 +1730,147 @@ async function removeGenImage(e, taskId, index) {
 // 🎨 AI 多模生图核心控制模块 (完全融合版)
 // ==========================================
 async function submitImgGen(taskId) {
-    const task = await getTaskDB(taskId); 
+    const task = await getTaskDB(taskId);
     if (!task) return;
+    ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
 
-    // 1. 初始化生图状态
-    task.status = 'processing'; 
-    task.retryCount = 0; 
-    task.isBilled = false; 
+    task.status = 'processing';
+    task.retryCount = 0;
+    task.isBilled = false;
     task.state.startTime = Date.now();
-    await saveTaskDB(task); 
-    renderCard(taskId); // 🌟 严格遵守局部渲染法则
-    
-    // 🌟 拦截处理：如果 size 是空值，进行比例提示词的隐式无感拼接
+    await saveTaskDB(task);
+    renderCard(taskId);
+
     let finalPrompt = task.state.prompt;
     if (task.state.size === '') {
         const w = task.state.customW || 9;
         const h = task.state.customH || 21;
-        // 在发给服务器前，悄悄在用户提示词末尾加上比例要求
-        finalPrompt = finalPrompt + ` 画面比例${w}:${h}`; 
+        finalPrompt = finalPrompt + ` 画面比例${w}:${h}`;
     }
 
-    // 2. 构造 Payload，融合旧版丢失的 channel 参数
-    const apiPayload = { 
-        prompt: finalPrompt,  // 🌟 使用拼接后的新 Prompt
-        size: task.state.size, // 照样传空字符串给 n8n
-        channel: task.state.channel || 'channel_1', 
-        images: await Promise.all(task.state.images.map(b => blobToBase64(b))) 
+    const version = task.state.version === 'pro' ? 'pro' : 'trial';
+    const mode = resolveImgGenMode(task.state);
+    const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
+    const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
+    const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 4) : 1;
+
+    const unifiedPayloadCore = {
+        version: version,
+        channel: task.state.channel || 'channel_1',
+        mode: mode,
+        prompt: finalPrompt,
+        size: task.state.size,
+        providerSort: task.state.providerSort || 'quality',
+        quality: task.state.quality || 'high',
+        format: task.state.format || 'png',
+        n: nValue,
+        images: imagesBase64,
+        mask: maskBase64
+    };
+
+    const unifiedPayload = {
+        body: { ...unifiedPayloadCore },
+        ...unifiedPayloadCore,
+        inputImages: imagesBase64,
+        maskImage: maskBase64
+    };
+
+    const legacyPayload = {
+        prompt: finalPrompt,
+        size: task.state.size,
+        channel: task.state.channel || 'channel_1',
+        images: imagesBase64
     };
 
     let success = false;
     let attempts = 0;
-    // 恢复旧版的智能重试机制
-    const maxAttempts = task.state.autoRetry ? 3 : 1; 
+    const maxAttempts = task.state.autoRetry ? 3 : 1;
+    let lastError = null;
 
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const response = await fetch(API_IMAGE_GEN, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, 
-                body: JSON.stringify(apiPayload) 
-            });
+            const requestInit = {
+                method: 'POST',
+                headers: buildImgGenHeaders(),
+                body: JSON.stringify(unifiedPayload)
+            };
 
-            if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
-            if (!response.ok) throw new Error("API 异常: " + response.status);
-            
-            // 3. 🌟 n8n 高容错解析：剥离外层数组
-            const rawData = await response.json();
-            const resData = Array.isArray(rawData) ? rawData[0] : rawData;
-            
-            // 精准向下匹配你提供的结构: resData.data[0].url
-            let returnedUrl = resData.imageUrl || resData.url;
-            if (!returnedUrl && resData.data && Array.isArray(resData.data) && resData.data.length > 0) {
-                returnedUrl = resData.data[0].url;
+            let response = await fetch(API_IMAGE_GEN, requestInit);
+            if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
+                response = await fetch(API_IMAGE_GEN_LEGACY, {
+                    method: 'POST',
+                    headers: buildImgGenHeaders(),
+                    body: JSON.stringify(legacyPayload)
+                });
             }
 
+            if (response.status === 401 || response.status === 403) {
+                handleAuthError();
+                throw new Error("密钥校验失败");
+            }
+            if (!response.ok) throw new Error("API 异常: " + response.status);
+
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            let rawData = null;
+            if (contentType.includes('application/json')) {
+                rawData = await response.json();
+            } else {
+                const rawText = await response.text();
+                try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
+            }
+
+            const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+            const returnedUrl = extractImageUrlFromResponse(rawData);
+
             if (returnedUrl) {
-                // 4. 成功提取图片
                 const imgBlob = await fetch(returnedUrl).then(r => r.blob());
-                task.status = 'success'; 
-                task.state.resultBlob = imgBlob; 
+                task.status = 'success';
+                task.state.resultBlob = imgBlob;
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
-                task.timestamp = Date.now(); // 🌟 核心：强行刷新时间戳，打穿幽灵缓存
+                task.timestamp = Date.now();
                 success = true;
 
-                // 账单记录
                 if (!task.isBilled) {
-                    let cost = task.state.channel === 'channel_2' ? 0.06 : 0.084;
-                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: `AI生图 (${task.state.channel || '主通道'})` });
+                    let cost = 0.084;
+                    let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
+                    if (version === 'pro') {
+                        cost = 0.12;
+                        detail = "AI生图 专业版 GPT Image 2";
+                    } else if (task.state.channel === 'channel_2') {
+                        cost = 0.06;
+                    }
+                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
                     task.isBilled = true;
                     updateBillingUI();
                 }
             } else if (resData && resData.taskId) {
-                // 兜底：如果你的 API 变成了异步排队模式，交还给轮询引擎
-                task.genTaskId = resData.taskId; 
-                await saveTaskDB(task); 
-                startTaskPolling(taskId); 
-                return; 
+                task.genTaskId = resData.taskId;
+                await saveTaskDB(task);
+                startTaskPolling(taskId);
+                return;
             } else {
                 throw new Error("无返回有效图片结构");
             }
-        } catch (err) { 
-            // 失败重试逻辑
+        } catch (err) {
+            lastError = err;
             if (attempts >= maxAttempts) {
-                task.status = 'failed'; 
+                task.status = 'failed';
             } else {
                 task.retryCount = attempts;
-                await saveTaskDB(task); 
+                await saveTaskDB(task);
                 renderCard(taskId);
-                await new Promise(r => setTimeout(r, 2000)); // 缓冲 2 秒后重试
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
 
-    // 5. 循环结束，统一渲染最终状态
-    await saveTaskDB(task); 
-    renderCard(taskId); 
+    await saveTaskDB(task);
+    renderCard(taskId);
     if (!success && task.status === 'failed') {
-        showToast("生图请求失败，请检查通道余额或网络", "error"); 
+        showToast("生图请求失败，请检查 webhook、密钥或网络", "error");
+        if (lastError) console.warn('[submitImgGen] failed:', lastError);
     }
 }
 
