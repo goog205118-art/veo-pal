@@ -471,7 +471,7 @@
                     window.clearInterval(timer);
                     setStep(steps.length - 1);
                     window.setTimeout(function () {
-                        window.location.href = "index.html";
+                        window.location.href = "studio.html";
                     }, 440);
                 }
             }, 120);
@@ -499,4 +499,5 @@
 
     document.addEventListener("DOMContentLoaded", init);
 })();
+
 

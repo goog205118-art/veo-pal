@@ -1,332 +1,184 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Veo Studio - Infinity Flow</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-    <link rel="stylesheet" href="css/style.css">
+    <title>Veo Studio | Launch C</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/launch-c.css">
 </head>
-<body class="app-shell-init">
-    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<body data-theme="dark">
+    <canvas id="mono-grid" aria-hidden="true"></canvas>
+    <div class="noise" aria-hidden="true"></div>
+    <div id="scroll-progress" aria-hidden="true"></div>
 
-    <div id="login-gate" class="login-gate">
-        <canvas id="login-canvas" class="login-canvas"></canvas>
-        <div id="gate-step-2" class="gate-step login-panel-direct">
-            <div class="form-box">
-                <div class="form-value">
-                    <form onsubmit="handleLoginSubmit(event)">
-                        <h2>Veo Studio</h2>
-                        <div class="inputbox">
-                            <ion-icon name="person-outline"></ion-icon>
-                            <input type="text" value="admin@infinity.flow" readonly style="color: #aaa; cursor: not-allowed;">
-                            <label style="top: -5px;">超级管理员</label>
-                        </div>
-                        <div class="inputbox">
-                            <ion-icon name="lock-closed-outline"></ion-icon>
-                            <input type="password" id="studio-pwd-input" required autocomplete="off">
-                            <label>系统密钥 (n8n API Key)</label>
-                        </div>
-                        <div class="forget">
-                            <label><input type="checkbox" id="remember-pwd" checked /> 记住设备</label>
-                        </div>
-                        <button type="submit" id="login-submit-btn">验证身份 / LOGIN</button>
-                    </form>
+    <div id="cursor-dot" class="cursor-dot" aria-hidden="true"></div>
+    <div id="cursor-ring" class="cursor-ring" aria-hidden="true"></div>
+
+    <header class="topbar">
+        <div class="brand-wrap">
+            <span class="brand-pulse"></span>
+            <span class="brand-name">Veo Studio / Launch-C</span>
+        </div>
+        <div class="top-actions">
+            <button id="top-explore-btn" class="btn ghost magnetic" type="button">浏览分屏</button>
+            <button id="top-enter-btn" class="btn solid magnetic" type="button">进入工作台</button>
+        </div>
+    </header>
+
+    <aside class="rail">
+        <div class="rail-line" aria-hidden="true"></div>
+        <button class="rail-dot is-active" data-panel-target="0" type="button" aria-label="Panel 1"></button>
+        <button class="rail-dot" data-panel-target="1" type="button" aria-label="Panel 2"></button>
+        <button class="rail-dot" data-panel-target="2" type="button" aria-label="Panel 3"></button>
+        <button class="rail-dot" data-panel-target="3" type="button" aria-label="Panel 4"></button>
+        <button class="rail-dot" data-panel-target="4" type="button" aria-label="Panel 5"></button>
+        <div id="rail-label" class="rail-label">01 / 05</div>
+    </aside>
+
+    <main id="snap-root" aria-label="Launch C Scroll Panels">
+        <section class="panel hero-panel is-active" data-panel="0" data-panel-name="IGNITE">
+            <div class="panel-inner">
+                <p class="tag">CINEMATIC . INTERACTIVE . PRODUCTION READY</p>
+                <h1 id="hero-title" class="hero-title">
+                    <span class="line line-a">VOID</span>
+                    <span class="line line-b serif">ENGINE</span>
+                </h1>
+                <p class="desc">
+                    Veo Studio 是一套可落地生产的 AIGC 工作台：无限画布编排、文生视频与生图双通道、
+                    IndexedDB 素材记忆、自动重试轮询、账单追踪与节点流模板化，全部在同一中控完成。
+                </p>
+                <div class="action-row">
+                    <button id="hero-flow-btn" class="btn solid magnetic" type="button">查看节点链路</button>
+                    <button id="hero-enter-btn" class="btn ghost magnetic" type="button">立即登录</button>
                 </div>
             </div>
-        </div>
-    </div>
+        </section>
 
-    <div class="top-bar">
-        <div class="logo">
-            <span class="material-symbols-outlined">account_tree</span> Veo Studio <span style="font-size:12px; color:var(--text-sub); font-weight:normal;">/ Infinity Flow</span>
-        </div>
-       <div class="top-actions">
-            <button class="top-btn" onclick="createFrame()" data-tip="按住 Shift 框选多张卡片后，点击将其打组收纳">
-                <span class="material-symbols-outlined" style="font-size: 16px; color: #a78bfa;">view_cofy</span> 建组
-            </button>
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-
-            <button class="top-btn" onclick="alignSelectedCards()" data-tip="将选中的卡片(或全盘)网格化自动对齐">
-                <span class="material-symbols-outlined" style="font-size: 16px; color: #ffca28;">grid_on</span> 排版
-            </button>
-            <button class="top-btn" onclick="toggleDrawer()" data-tip="展开工具箱，拖拽 AI 插件组件至画布">
-                <span class="material-symbols-outlined" style="font-size: 16px;">grid_view</span> 工具箱
-            </button>
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-            <button class="top-btn top-btn-pro" onclick="openFlowWorkspace(event)" data-tip="进入高级节点工作流 (Pro)">
-                <span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> 节点流
-            </button>
-           
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-            <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
-                <span class="material-symbols-outlined">perm_media</span>
-            </button>
-            <button class="top-btn icon-only" onclick="createStickyNote()" data-tip="新建文本便签">
-                <span class="material-symbols-outlined">sticky_note_2</span>
-            </button>
-            <label class="top-btn icon-only" style="cursor: pointer; margin: 0;" data-tip="导入 .veo 工程文件">
-                <span class="material-symbols-outlined">upload</span>
-                <input type="file" accept=".veo" style="display: none;" onchange="importWorkspace(this)">
-            </label>
-            <button class="top-btn icon-only" id="export-btn" onclick="exportWorkspace()" data-tip="导出当前工程">
-                <span class="material-symbols-outlined">download</span>
-            </button>
-            <button class="top-btn icon-only" onclick="openHelpModal()" data-tip="操作快捷键与教程">
-                <span class="material-symbols-outlined">help</span>
-            </button>
-            <button class="top-btn icon-only" id="theme-toggle-btn" onclick="toggleThemeMode()" data-tip="切换到日间模式">
-                <span class="material-symbols-outlined" id="theme-toggle-icon">dark_mode</span>
-            </button>
-
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-
-            <button class="top-btn" id="billing-top-btn" onclick="openBillingModal()" data-tip="查看 API 消耗与账单流水" style="border-color: rgba(50,215,75,0.3); background: rgba(50,215,75,0.05);">
-                <span class="material-symbols-outlined" style="font-size: 16px; color:var(--success);">account_balance_wallet</span> 
-                <span id="top-bill-text" style="color:var(--success); font-weight: bold;">￥0.000</span>
-            </button>
-        </div>
-    </div>
-
-    <div class="tool-drawer" id="tool-drawer">
-        <div class="drawer-title">
-            <span class="material-symbols-outlined" style="font-size:18px;">apps</span> 拖拽组件至画布
-        </div>
-        
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'generator')">
-            <div style="background: rgba(79, 70, 229, 0.2); color: #818cf8; padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">auto_awesome</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">社媒灵感生成器 测试中</div>
-                <div style="font-size: 11px; color: var(--text-sub);">一键生成爆款剧本四要素</div>
-            </div>
-        </div>
-
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'image_gen')">
-            <div style="background: rgba(10, 132, 255, 0.2); color: var(--accent); padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">brush</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">Neo gpt-image-2生图</div>
-                <div style="font-size: 11px; color: var(--text-sub);">支持 1-5 张垫图合并创作</div>
-            </div>
-        </div>
-
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'cropper')">
-            <div style="background: rgba(50, 215, 75, 0.2); color: var(--success); padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">crop</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">图片裁切器</div>
-                <div style="font-size: 11px; color: var(--text-sub);">提取局部画面直接复用</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="canvas-viewport" id="canvas-viewport" data-tip="双击空白处：快速新建文本便签">
-        <div class="canvas-board" id="canvas-board"></div>
-        <div id="selection-marquee" class="selection-marquee"></div> 
-    </div>
-
-    <div class="floating-console" id="floating-console">
-        <div class="prompt-container">
-            <div class="mode-tabs">
-                <div class="mode-tab active" onclick="switchMode('ref')" id="tab-ref" data-tip="输入最多 3 张参考图，控制画面风格走向"><span class="material-symbols-outlined">image</span> 参考图</div>
-                <div class="mode-tab" onclick="switchMode('frame')" id="tab-frame" data-tip="输入首帧或尾帧图片，精准控制视频起始与结束画面"><span class="material-symbols-outlined">movie</span> 首尾帧</div>
-            </div>
-
-            <div class="input-wrapper">
-                <div class="slot-group active" id="slots-ref">
-                    <div class="img-slot" id="slot-ref-box" onclick="toggleRefPopover(event)" data-tip="点击上传或从画布拖入参考图 (最多3张)">
-                        <span class="material-symbols-outlined" id="ref-icon-placeholder">add_photo_alternate</span>
-                        <span id="ref-text-placeholder">参考图</span>
-                        <img id="ref-img">
-                        <div class="count-badge" id="ref-count-badge">0</div>
-                        <div class="remove-badge" onclick="clearReferences(event)">×</div>
-                    </div>
-                    <input type="file" id="ref-file" class="hidden-input" accept="image/*" multiple onchange="handleMultiRefs(this)">
-                    <div class="ref-popover" id="ref-popover" style="display: none;" onclick="event.stopPropagation()">
-                        <div class="ref-list" id="ref-list-container"></div>
-                        <div class="ref-add-btn" onclick="document.getElementById('ref-file').click()" id="ref-popover-add"><span class="material-symbols-outlined">add</span></div>
-                    </div>
+        <section class="panel manifesto-panel" data-panel="1" data-panel-name="MANIFESTO">
+            <div class="panel-inner split">
+                <div class="split-left">
+                    <p class="tag">MANIFESTO</p>
+                    <h2>不是概念页，而是可执行的生产链路说明</h2>
                 </div>
-
-                <div class="slot-group" id="slots-frame">
-                    <div class="img-slot" id="slot-first-box" onclick="document.getElementById('first-file').click()" data-tip="设置视频的起始画面">
-                        <span class="material-symbols-outlined">add</span><span>首帧</span>
-                        <img id="first-img"><div class="remove-badge" onclick="clearFrame(event, 'firstFrame')">×</div>
-                        <input type="file" id="first-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'firstFrame')">
-                    </div>
-                    <span class="material-symbols-outlined" style="color: #666;">swap_horiz</span>
-                    <div class="img-slot" id="slot-last-box" onclick="document.getElementById('last-file').click()" data-tip="设置视频的结束画面">
-                        <span class="material-symbols-outlined">add</span><span>尾帧</span>
-                        <img id="last-img"><div class="remove-badge" onclick="clearFrame(event, 'lastFrame')">×</div>
-                        <input type="file" id="last-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'lastFrame')">
-                    </div>
-                </div>
-
-                <textarea id="prompt-input" class="prompt-input" placeholder="描述视频画面内容和动态过程... (支持将画布上的图片拖入左侧框内)"></textarea>
-            </div>
-        </div>
-
-        <div class="console-actions-row">
-            <div class="pill-group">
-                <div class="action-pill" data-tip="切换底层视频生成模型 (Cmp代表多模态参考图模型)">
-                    <span class="material-symbols-outlined">model_training</span><span id="model-text">Veo 3.1</span>
-                    <select id="model-select" onchange="updateModel(this)">
-                        <option value="veo3.1">Veo 3.1 (首尾帧)</option>
-                        <option value="veo3.1-4k">Veo 3.1 4K (首尾帧)</option>
-                        <option value="veo3.1-components">Veo 3.1 Cmp (参考图)</option>
-                        <option value="veo3.1-components-4k">Veo 3.1 Cmp 4K (参考图)</option>
-                    </select>
-                </div>
-                <div class="action-pill" data-tip="选择视频的输出比例">
-                    <span class="material-symbols-outlined" id="ratio-icon">crop_portrait</span><span id="ratio-text">竖屏 9:16</span>
-                    <select id="ratio-select" onchange="updateRatio(this)"><option value="9:16">竖屏 9:16</option><option value="16:9">横屏 16:9</option></select>
-                </div>
-                <div class="action-pill" id="pill-enhance" data-tip="开启后，系统会自动为您扩写丰富提示词细节">
-                    <span class="material-symbols-outlined">auto_fix_high</span><span id="enhance-text">AI 扩写提示词</span>
-                    <select id="enhance-select" onchange="updateEnhance(this)"><option value="true">AI 扩写提示词</option><option value="false">原词生成</option></select>
-                </div>
-                <div class="action-pill" id="pill-upsample" data-tip="开启超分辨率提升画质（生成时间会变长）">
-                    <span class="material-symbols-outlined">high_quality</span><span id="upsample-text">标准画质</span>
-                    <select id="upsample-select" onchange="updateUpsample(this)"><option value="false">标准画质</option><option value="true">开启超分 (更慢)</option></select>
-                </div>
-                <div class="action-pill" data-tip="同时发起多个任务，支持并行生成排队">
-                    <span class="material-symbols-outlined" style="color:var(--accent)">layers</span><span id="batch-text" style="color:var(--accent)">单次 (x1)</span>
-                    <select id="batch-select" onchange="updateBatchCount(this)"><option value="1">单次 (x1)</option><option value="2">并行 (x2)</option></select>
-                </div>
-                <div class="action-pill" style="border-color: rgba(50, 215, 75, 0.4);" data-tip="挂机神器：遇网络波动失败时，系统将自动重新发起生成">
-                    <span class="material-symbols-outlined" style="color:var(--success)">autorenew</span><span id="retry-text" style="color:var(--success)">不自动重试</span>
-                    <select id="retry-select" onchange="updateAutoRetry(this)"><option value="false">不自动重试</option><option value="true">失败自动重试</option></select>
-                </div>
-            </div>
-            
-           <button class="submit-btn" id="generate-btn" onclick="submitBatchTask()" data-tip="发送至服务器生成 | 预估: ￥0.35">
-                <span class="material-symbols-outlined">arrow_upward</span>
-            </button>
-        </div>
-    </div>
-
-    <div id="global-tooltip" class="global-tooltip"></div>
-
-    <div id="billing-modal" class="help-modal" onclick="closeBillingModal()">
-        <div class="help-content" style="max-width: 440px; text-align: center; padding: 40px;" onclick="event.stopPropagation()">
-            <button class="help-close" onclick="closeBillingModal()">&times;</button>
-            <h2 style="justify-content: center; margin-bottom: 8px;"><span class="material-symbols-outlined" style="color:var(--success); font-size: 28px;">account_balance_wallet</span> 数据中心</h2>
-            <p style="color: var(--text-sub); font-size: 12px; margin-bottom: 28px;">账单记录永久绑定浏览器，删除画布卡片不影响统计</p>
-            
-            <div style="background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 16px; padding: 32px 24px; margin-bottom: 20px; position: relative; overflow: hidden;">
-                <div style="position:absolute; top:-20px; right:-20px; width:100px; height:100px; background:var(--success); filter:blur(60px); opacity:0.2;"></div>
-                <div style="font-size: 14px; color: var(--text-sub); margin-bottom: 8px;">累计生成消耗总额</div>
-                <div id="bill-total" style="font-size: 42px; font-family: monospace; font-weight: bold; color: var(--success); text-shadow: 0 0 20px rgba(50,215,75,0.4);">￥0.000</div>
-            </div>
-
-            <div style="display: flex; gap: 12px;">
-                <div style="flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;">
-                    <span class="material-symbols-outlined" style="color:var(--accent); font-size: 28px; margin-bottom: 8px;">movie</span>
-                    <div style="font-size: 24px; font-weight: bold; color: #fff; font-family: monospace;" id="bill-video-count">0</div>
-                    <div style="font-size: 12px; color: var(--text-sub); margin-top: 4px;">成功出片</div>
-                </div>
-                <div style="flex: 1; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;">
-                    <span class="material-symbols-outlined" style="color:#818cf8; font-size: 28px; margin-bottom: 8px;">brush</span>
-                    <div style="font-size: 24px; font-weight: bold; color: #fff; font-family: monospace;" id="bill-image-count">0</div>
-                    <div style="font-size: 12px; color: var(--text-sub); margin-top: 4px;">成功生图</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="help-modal" class="help-modal" onclick="closeHelpModal()">
-        <div class="help-content" onclick="event.stopPropagation()">
-            <button class="help-close" onclick="closeHelpModal()">&times;</button>
-            <h2><span class="material-symbols-outlined" style="color:var(--accent);">explore</span> Infinity Flow 创作者指南</h2>
-            <div class="help-section">
-                <h3>🎨 画布基础操作</h3>
-                <ul>
-                    <li><strong>平移与缩放</strong>：按住左键拖动空白处平移；滚轮上下滚动无级缩放。</li>
-                    <li><strong>极速落图 (Ctrl+V)</strong>：在任意处截图后，直接在画布按 <code>Ctrl+V</code> 粘贴，瞬间落图。</li>
-                    <li><strong>多选与清理</strong>：按住 <code>Shift</code> 拖拽可框选卡片，按 <code>Delete</code> 一键删除。</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <div id="error-modal" class="help-modal" style="z-index: 999999;" onclick="closeErrorModal()">
-        <div class="help-content" id="error-modal-content" style="max-width: 280px; text-align: center; padding: 32px 24px; border-color: rgba(255, 69, 58, 0.2); background: rgba(20, 20, 22, 0.95); border-radius: 16px;" onclick="event.stopPropagation()">
-            <span class="material-symbols-outlined" style="color: var(--danger); font-size: 36px; margin-bottom: 12px; filter: drop-shadow(0 0 12px rgba(255, 69, 58, 0.5));">lock_person</span>
-            <div style="color: var(--text-main); font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: 1px;">访问被拒绝</div>
-            <div style="color: var(--text-sub); font-size: 12px; margin-bottom: 24px;">系统密钥与哈希锁不匹配</div>
-            <button style="width: 100%; padding: 10px; border-radius: 8px; background: rgba(255, 69, 58, 0.1); color: var(--danger); border: 1px solid rgba(255, 69, 58, 0.2); cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='rgba(255, 69, 58, 0.2)'" onmouseout="this.style.background='rgba(255, 69, 58, 0.1)'" onclick="closeErrorModal()">重新输入</button>
-        </div>
-    </div>
-
-    <div class="material-drawer" id="material-drawer">
-        <div class="drawer-title" style="margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <span class="material-symbols-outlined" style="font-size:18px;">perm_media</span> 全局素材库
-            </div>
-            <button class="help-close" onclick="toggleMaterialDrawer()" style="position:static; width:24px; height:24px; margin:0;">&times;</button>
-        </div>
-        <p style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px; line-height: 1.4;">外部拖入与 Ctrl+V 粘贴的图片会在这里统一管理，保持画布清爽。</p>
-        
-        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-            <button class="top-btn" style="flex: 1; justify-content: center; background: rgba(10, 132, 255, 0.1); border-color: rgba(10, 132, 255, 0.3); color: var(--accent);" onclick="deduplicateMaterials(event)">
-                <span class="material-symbols-outlined" style="font-size: 16px;">filter_auto</span> 一键去重
-            </button>
-            <button class="top-btn" style="flex: 1; justify-content: center; background: rgba(255, 69, 58, 0.1); border-color: rgba(255, 69, 58, 0.3); color: var(--danger);" onclick="clearAllMaterials()">
-                <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> 彻底清空
-            </button>
-        </div>
-
-        <div class="material-grid" id="material-grid"></div>
-            </div>
-    </div>
-
-    <div class="minimap-container" id="minimap-container" onclick="handleMinimapClick(event)" data-tip="全局鹰眼：点击可瞬间跃迁至该区域">
-        <canvas id="minimap-canvas"></canvas>
-        <div class="minimap-viewport-box" id="minimap-viewport-box"></div>
-    </div>
-
-    </div> 
-
-    <div id="announcement-modal" class="sys-modal-overlay" style="display: none;">
-        <div class="sys-modal-content">
-            <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-outlined" style="color: var(--accent);">campaign</span>
-                <span style="font-weight: 600; letter-spacing: 1px;">Infinity Flow 能力总览</span>
-            </div>
-            <div style="padding: 20px; font-size: 13px; line-height: 1.8; color: var(--text-main);">
-                <p style="margin-bottom: 15px; color: var(--accent); font-weight: 600;">你当前工作台已具备以下生产能力：</p>
-                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin: 15px 0; border-left: 3px solid var(--accent);">
-                    <ul style="list-style: none; padding: 0; margin: 0;">
-                        <li>🧭 无限平移缩放画布 + 框选/打组/解组/网格排版</li>
-                        <li>🎞️ 文生视频 + 首尾帧通道 + 自动重试轮询</li>
-                        <li>🎨 生图模块（多垫图拖拽挂载 + 局部裁切复用）</li>
-                        <li>🗂 全局素材库（拖入、Ctrl+V、去重、彻底清理）</li>
-                        <li>⛓ Pro 节点流（端口校验、导入导出、调度执行）</li>
-                        <li>💾 IndexedDB 本地持久化 + 账单统计与任务追踪</li>
+                <div class="split-right">
+                    <ul class="mono-list">
+                        <li><span>01</span> 无限画布支持平移缩放、框选、打组、网格排版与便签协作。</li>
+                        <li><span>02</span> 主控台内置文生视频（首尾帧/参考图）与生图模块双链路。</li>
+                        <li><span>03</span> 全局素材库支持拖拽复用、Ctrl+V 收图、去重与彻底清理。</li>
+                        <li><span>04</span> 节点流支持导入导出与连线调度，方便沉淀为模板资产。</li>
                     </ul>
                 </div>
-                <p style="font-size: 11px; color: var(--text-sub);">建议流程：先在画布快速试产，再进入节点流固化为可复用模板。</p>
             </div>
-            <button onclick="closeAnnouncement()" style="width: 100%; justify-content: center; background: var(--accent); color: white; border: none; padding: 14px; font-weight: 600; cursor: pointer; transition: 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
-                进入工作台
-            </button>
+        </section>
+
+        <section id="flow-panel" class="panel flow-panel" data-panel="2" data-panel-name="FLOW">
+            <div class="panel-inner">
+                <p class="tag">FLOW LAB / LIVE INTERACTION</p>
+                <h2 class="flow-title">节点链路在首屏即可直接交互</h2>
+                <div class="flow-board">
+                    <svg class="flow-svg" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
+                        <path class="flow-link" data-link="p-i" d="M160 120 C 280 120, 350 150, 500 170"></path>
+                        <path class="flow-link" data-link="i-v" d="M560 190 C 700 220, 820 180, 960 140"></path>
+                        <path class="flow-link" data-link="p-q" d="M170 120 C 320 270, 380 330, 520 360"></path>
+                        <path class="flow-link" data-link="q-o" d="M580 380 C 720 410, 840 350, 970 320"></path>
+                        <path class="flow-link" data-link="v-o" d="M970 160 C 1040 210, 1040 270, 970 320"></path>
+                    </svg>
+                    <button class="flow-node active magnetic" data-node="p" type="button">
+                        <strong>Prompt</strong>
+                        <span>策略注入</span>
+                    </button>
+                    <button class="flow-node magnetic" data-node="i" type="button">
+                        <strong>Image</strong>
+                        <span>生图执行</span>
+                    </button>
+                    <button class="flow-node magnetic" data-node="v" type="button">
+                        <strong>Video</strong>
+                        <span>视频合成</span>
+                    </button>
+                    <button class="flow-node magnetic" data-node="q" type="button">
+                        <strong>QA</strong>
+                        <span>质量回环</span>
+                    </button>
+                    <button class="flow-node magnetic" data-node="o" type="button">
+                        <strong>Output</strong>
+                        <span>发布输出</span>
+                    </button>
+                </div>
+                <div id="flow-tip" class="flow-tip">Prompt：注入策略模板，驱动整个 DAG 的输入语义。</div>
+            </div>
+        </section>
+
+        <section class="panel pulse-panel" data-panel="3" data-panel-name="PULSE">
+            <div class="panel-inner">
+                <p class="tag">RUNTIME PULSE</p>
+                <div class="metrics">
+                    <div class="metric">
+                        <strong data-counter="410">0</strong>
+                        <span>并发阈值</span>
+                    </div>
+                    <div class="metric">
+                        <strong data-counter="56">0</strong>
+                        <span>节点上限</span>
+                    </div>
+                    <div class="metric">
+                        <strong data-counter="99.97">0</strong>
+                        <span>流程稳定率(%)</span>
+                    </div>
+                    <div class="metric">
+                        <strong data-counter="9">0</strong>
+                        <span>预热秒数</span>
+                    </div>
+                </div>
+                <div class="ticker-wrap" aria-hidden="true">
+                    <div class="ticker">
+                        <span>NODE STATE ONLINE</span>
+                        <span>INFINITY FLOW READY</span>
+                        <span>QUEUE HEALTHY</span>
+                        <span>RUNTIME STABLE</span>
+                        <span>NODE STATE ONLINE</span>
+                        <span>INFINITY FLOW READY</span>
+                        <span>QUEUE HEALTHY</span>
+                        <span>RUNTIME STABLE</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel cta-panel" data-panel="4" data-panel-name="GATE">
+            <div class="panel-inner center">
+                <p class="tag">FINAL GATE</p>
+                <h2>Launch-C：电影感首页，可直接进入同一套工作台</h2>
+                <p class="desc">
+                    该入口只负责品牌展示与流程引导，不改动你的登录、画布、节点流与数据存储逻辑。
+                </p>
+                <button id="final-enter-btn" class="btn solid large magnetic" type="button">进入 Veo Studio</button>
+            </div>
+        </section>
+    </main>
+
+    <div id="boot-overlay" class="boot-overlay" aria-hidden="true">
+        <div class="boot-panel">
+            <p class="boot-tag">HANDSHAKE / LAUNCH-C</p>
+            <h3>正在切换到主工作台</h3>
+            <div class="boot-progress">
+                <div id="boot-progress-fill" class="boot-progress-fill"></div>
+            </div>
+            <div class="boot-row">
+                <span id="boot-progress-text">0%</span>
+                <span>Session · Engine · Canvas · Enter</span>
+            </div>
+            <ul id="boot-steps" class="boot-steps">
+                <li>校验本地配置与会话</li>
+                <li>连接节点调度状态</li>
+                <li>加载素材与画布缓存</li>
+                <li>进入 Infinity Flow</li>
+            </ul>
         </div>
     </div>
 
-    <div id="route-transition" class="route-transition" aria-hidden="true">
-        <div class="route-transition-ring"></div>
-        <div class="route-transition-label">ROUTE HANDSHAKE</div>
-    </div>
-    
-    <script src="js/db.js"></script>
-    <script src="js/store.js"></script> 
-    <script src="js/app.js"></script>
+    <script src="./js/launch-c.js"></script>
 </body>
 </html>
