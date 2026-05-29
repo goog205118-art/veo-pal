@@ -576,14 +576,20 @@ let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let activeCrop = null, activeFrameResize = null; 
 let isPrimaryPointerDown = false;
+let lastPointerClientX = 0;
+let lastPointerClientY = 0;
 
 window.addEventListener('mousedown', (e) => {
     if (e.button === 0) isPrimaryPointerDown = true;
+    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
+    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
 }, true);
 
 function clearSelection() { selectedTasks.clear(); document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected')); }
 
 window.addEventListener('mousemove', (e) => {
+    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
+    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
     if (!ticking) {
         requestAnimationFrame(() => {
             if (isPanning) {
@@ -1759,7 +1765,7 @@ async function duplicateTask(originalTask, mouseEvent) {
     clone.x = baseX + 40;
     clone.y = baseY + 40;
 
-    // 如可计算鼠标坐标，则优先放在鼠标附近，确保在当前视口
+    // 如可计算鼠标坐标，则优先放在鼠标附近
     if (mouseEvent && Number.isFinite(transform.scale) && transform.scale !== 0) {
         const vRect = viewport && typeof viewport.getBoundingClientRect === 'function'
             ? viewport.getBoundingClientRect()
@@ -1770,6 +1776,34 @@ async function duplicateTask(originalTask, mouseEvent) {
             clone.x = pointerBoardX + 24;
             clone.y = pointerBoardY + 24;
         }
+    }
+
+    // 不再平移整张画布，只把克隆落点限制在当前视口可见区，避免“瞬移很远”
+    if (Number.isFinite(transform.scale) && transform.scale > 0) {
+        const viewLeft = (-transform.x) / transform.scale;
+        const viewTop = (-transform.y) / transform.scale;
+        const viewRight = viewLeft + window.innerWidth / transform.scale;
+        const viewBottom = viewTop + window.innerHeight / transform.scale;
+        const margin = 24;
+
+        const estW = clone.type === 'tool_image_gen'
+            ? ((clone.state && clone.state.previewCollapsed === true) ? 360 : 680)
+            : (clone.type === 'note' ? (clone.width || 260) : (clone.width || 340));
+        const estH = clone.type === 'frame'
+            ? ((clone.isCollapsed ? 56 : (clone.height || 260)))
+            : (clone.height || 420);
+
+        const minX = viewLeft + margin;
+        const maxX = viewRight - estW - margin;
+        const minY = viewTop + margin;
+        const maxY = viewBottom - estH - margin;
+
+        clone.x = (minX <= maxX)
+            ? Math.min(Math.max(clone.x, minX), maxX)
+            : (viewLeft + (window.innerWidth / transform.scale - estW) / 2);
+        clone.y = (minY <= maxY)
+            ? Math.min(Math.max(clone.y, minY), maxY)
+            : (viewTop + (window.innerHeight / transform.scale - estH) / 2);
     }
 
     await saveTaskDB(clone);
@@ -1788,35 +1822,19 @@ async function duplicateTask(originalTask, mouseEvent) {
     newCardEl.style.transform = `translate(${clone.x}px, ${clone.y}px)`;
     newCardEl.classList.remove('hidden-in-frame');
 
-    // 兜底：若卡片落在视口外，则微调画布平移把它拉回可视区
-    const rect = newCardEl.getBoundingClientRect();
-    const pad = 28;
-    let shiftX = 0;
-    let shiftY = 0;
-    if (rect.right < pad) shiftX = pad - rect.right;
-    else if (rect.left > window.innerWidth - pad) shiftX = (window.innerWidth - pad) - rect.left;
-    if (rect.bottom < pad) shiftY = pad - rect.bottom;
-    else if (rect.top > window.innerHeight - pad) shiftY = (window.innerHeight - pad) - rect.top;
-    if (shiftX || shiftY) {
-        transform.x += shiftX;
-        transform.y += shiftY;
-        board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
-        document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
-        document.body.style.backgroundSize = `${30 * transform.scale}px ${30 * transform.scale}px`;
-        syncMinimapViewport();
-    }
-
     clearSelection();
     selectedTasks.add(newId);
     newCardEl.classList.add('selected');
 
     // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
     if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
+        const dragStartX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : mouseEvent.clientX;
+        const dragStartY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : mouseEvent.clientY;
         draggingCardInfo = {
             el: newCardEl,
             task: newCardEl.__veoTask,
-            startMouseX: mouseEvent.clientX,
-            startMouseY: mouseEvent.clientY,
+            startMouseX: dragStartX,
+            startMouseY: dragStartY,
             initialX: Number(newCardEl.__veoTask.x) || clone.x || 0,
             initialY: Number(newCardEl.__veoTask.y) || clone.y || 0
         };
