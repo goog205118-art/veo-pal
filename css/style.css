@@ -1161,6 +1161,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
 .img-gen-split {
     position: relative;
     display: block;
+    min-height: 100%;
 }
 .img-gen-left {
     display: flex;
@@ -1210,21 +1211,29 @@ body.app-shell-ready .floating-console:not(.minimized) {
 
 .img-gen-preview-panel {
     position: absolute;
-    left: calc(100% + 12px);
-    top: 0;
-    bottom: 0;
+    left: calc(100% - 1px);
+    top: -1px;
+    bottom: -1px;
     width: 320px;
     min-height: 340px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-left: none;
+    border-radius: 0 12px 12px 0;
     background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    min-width: 320px;
+    min-width: 0;
     z-index: 46;
-    box-shadow: 0 18px 38px rgba(0,0,0,0.55);
-    transition: opacity 0.22s ease, transform 0.24s ease, background 0.24s ease;
+    box-shadow: 16px 14px 30px rgba(0,0,0,0.28);
+    transform-origin: left center;
+    transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease, transform 0.24s ease, border-color 0.2s ease, background 0.24s ease, box-shadow 0.24s ease;
+}
+.img-gen-preview-panel .img-gen-preview-head,
+.img-gen-preview-panel .img-gen-preview-body {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.16s ease;
 }
 .img-gen-preview-head {
     height: 38px;
@@ -1343,9 +1352,17 @@ body.app-shell-ready .floating-console:not(.minimized) {
 }
 
 .img-gen-preview-panel.is-collapsed {
+    width: 0;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(10px) scaleX(0.9);
+    transform: translateX(0) scaleX(0.92);
+    border-color: transparent;
+    box-shadow: none;
+}
+.img-gen-preview-panel.is-collapsed .img-gen-preview-head,
+.img-gen-preview-panel.is-collapsed .img-gen-preview-body {
+    opacity: 0;
+    visibility: hidden;
 }
 
 @keyframes previewSweep {
@@ -1360,7 +1377,6 @@ body.app-shell-ready .floating-console:not(.minimized) {
 @media (max-width: 1120px) {
     .img-gen-preview-panel {
         width: 300px;
-        min-width: 300px;
     }
 }
 
@@ -1377,14 +1393,18 @@ body.app-shell-ready .floating-console:not(.minimized) {
         position: relative;
         left: auto;
         top: auto;
+        bottom: auto;
         width: 100%;
         min-width: 0;
         height: auto;
         min-height: 0;
+        border-left: 1px solid var(--border);
+        border-radius: 12px;
         box-shadow: none;
     }
     .img-gen-preview-panel.is-collapsed {
         display: none;
+        width: 100%;
         opacity: 0;
         transform: none;
     }

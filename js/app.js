@@ -1998,6 +1998,7 @@ async function submitImgGen(taskId) {
     if (!task) return;
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
+    if (task.state.previewCollapsed) task.state.previewCollapsed = false;
 
     task.status = 'processing';
     task.retryCount = 0;
