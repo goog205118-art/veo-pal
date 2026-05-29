@@ -575,6 +575,11 @@ let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = fals
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout; 
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let activeCrop = null, activeFrameResize = null; 
+let isPrimaryPointerDown = false;
+
+window.addEventListener('mousedown', (e) => {
+    if (e.button === 0) isPrimaryPointerDown = true;
+}, true);
 
 function clearSelection() { selectedTasks.clear(); document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected')); }
 
@@ -630,6 +635,7 @@ viewport.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mouseup', async () => { 
+    isPrimaryPointerDown = false;
     isPanning = false; board.classList.remove('is-moving'); 
     if (isSelecting) { isSelecting = false; if(marquee) marquee.style.display = 'none'; }
     
@@ -716,7 +722,9 @@ function bindCardDrag(cardEl, task) {
 
             // 🌟🌟🌟 新增：侦测到按住 Alt 键，直接执行克隆并阻断原卡片的拖拽
             if (e.altKey) {
+                e.preventDefault();
                 e.stopPropagation();
+                if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
                 await duplicateTask(task, e);
                 return;
             }
@@ -1316,6 +1324,9 @@ function startTaskPolling(taskId) {
         attempts++;
         try {
             const task = await getTaskDB(taskId); if (!task) { removeActiveTask(taskId); return; }
+            // 仅视频任务使用该轮询器，防止生图/工具卡在刷新后被误判失败。
+            if (task.type) { removeActiveTask(taskId); return; }
+            if (!task.modelVal) { removeActiveTask(taskId); return; }
             const currentPwd = sessionStorage.getItem('veo_admin_pwd');
             if (!currentPwd) { setTimeout(poll, 2000); return; } 
 
@@ -1658,7 +1669,7 @@ async function renderBoard() {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; cardEl.innerHTML = generateCardHTML(task); board.appendChild(cardEl); 
             applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
-            if (task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
+            if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`;
             
@@ -1749,8 +1760,8 @@ async function duplicateTask(originalTask, mouseEvent) {
     }
 
     // 4. 将新卡片位置错开一点点
-    clone.x += 20;
-    clone.y += 20;
+    clone.x = (Number(originalTask.x) || 0) + 20;
+    clone.y = (Number(originalTask.y) || 0) + 20;
 
     // 5. 入库并触发局部重绘挂载
     await saveTaskDB(clone);
@@ -1767,16 +1778,19 @@ async function duplicateTask(originalTask, mouseEvent) {
         selectedTasks.add(newId);
         newCardEl.classList.add('selected');
 
-        // 将系统的拖拽控制权移交给新卡片
+        // 仅在鼠标仍按下时接管拖拽，避免 Alt 克隆异步完成后的“幽灵位移”
+        if (isPrimaryPointerDown && newCardEl.__veoTask) {
             draggingCardInfo = {
                 el: newCardEl,
-                // 🌟 核心修复：抛弃局部变量 clone，直接指向 DOM 身上绑定的真实内存地址
-                task: newCardEl.__veoTask, 
+                task: newCardEl.__veoTask,
                 startMouseX: mouseEvent.clientX,
                 startMouseY: mouseEvent.clientY,
-                initialX: newCardEl.__veoTask.x,
-                initialY: newCardEl.__veoTask.y
+                initialX: Number(newCardEl.__veoTask.x) || 0,
+                initialY: Number(newCardEl.__veoTask.y) || 0
             };
+        } else {
+            newCardEl.style.willChange = 'auto';
+        }
         
         showToast("🪄 已克隆组件及参数", "success");
     }
@@ -2231,7 +2245,6 @@ async function submitImgGen(taskId) {
     const trialCustomW = task.state.customW || 9;
     const trialCustomH = task.state.customH || 16;
     const trialCustomRatio = (version !== 'pro' && task.state.trialRatio === 'custom') ? `${trialCustomW}:${trialCustomH}` : '';
-    const trialSizeToSend = resolvedSize;
     if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
 
     if (version === 'pro' && resolvedSize !== 'auto') {
@@ -2248,6 +2261,7 @@ async function submitImgGen(taskId) {
         }
     }
     task.state.size = resolvedSize;
+    const sizeToSend = resolvedSize;
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
     const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
@@ -2258,7 +2272,7 @@ async function submitImgGen(taskId) {
         channel: task.state.channel || 'channel_1',
         mode: mode,
         prompt: finalPrompt,
-        size: trialSizeToSend,
+        size: sizeToSend,
         providerSort: task.state.providerSort || 'quality',
         provider: { sort: task.state.providerSort || 'quality' },
         quality: task.state.quality || 'auto',
@@ -2283,7 +2297,7 @@ async function submitImgGen(taskId) {
 
     const legacyPayload = {
         prompt: finalPrompt,
-        size: trialSizeToSend,
+        size: sizeToSend,
         channel: task.state.channel || 'channel_1',
         n: nValue,
         quality: task.state.quality || 'auto',
