@@ -1721,20 +1721,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 🌟 智能克隆引擎 (Alt + Drag 专用)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    // 1. 生成新 ID 与基础浅克隆
-    const newId = originalTask.type + '_copy_' + Date.now();
-    let clone = { ...originalTask, id: newId, timestamp: Date.now() };
+    const baseType = originalTask && originalTask.type ? originalTask.type : 'task';
+    const newId = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const clone = { ...originalTask, id: newId, timestamp: Date.now() };
 
     // 解除从属关系，让克隆出的卡片自由散落
-    delete clone.parentId; 
+    delete clone.parentId;
 
-    // 2. 深度克隆内部状态 (保护提示词、尺寸等，防止引用污染)
-    if (originalTask.state) {
+    // 深拷贝内部状态，避免引用串联污染
+    if (originalTask && originalTask.state) {
         clone.state = { ...originalTask.state };
-        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images]; // 继承多模态垫图
+        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images];
         if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
 
-        // ⚠️ 生图组件特判：继承参数，但必须清空之前的生成结果和状态！
         if (clone.type === 'tool_image_gen') {
             ensureImgGenState(clone);
             clone.status = 'idle';
@@ -1744,56 +1743,88 @@ async function duplicateTask(originalTask, mouseEvent) {
             clone.state.maskImage = null;
             clone.retryCount = 0;
         }
-        
-        // ⚠️ 裁切器特判：继承原图和选区，清空裁切结果
-        if (clone.type === 'tool_cropper') {
-            clone.state.resultBlob = null;
-        }
+        if (clone.type === 'tool_cropper') clone.state.resultBlob = null;
     }
 
-    // 3. 针对视频记录卡片，深拷贝参考图
-    if (originalTask.rawImages) {
+    if (originalTask && originalTask.rawImages) {
         clone.rawImages = { ...originalTask.rawImages };
-        if (Array.isArray(originalTask.rawImages.references)) {
-            clone.rawImages.references = [...originalTask.rawImages.references];
+        if (Array.isArray(originalTask.rawImages.references)) clone.rawImages.references = [...originalTask.rawImages.references];
+    }
+
+    // 先给一个明显偏移，保证不是“重叠到看不见”
+    const originX = Number(originalTask && originalTask.x);
+    const originY = Number(originalTask && originalTask.y);
+    const baseX = Number.isFinite(originX) ? originX : 0;
+    const baseY = Number.isFinite(originY) ? originY : 0;
+    clone.x = baseX + 40;
+    clone.y = baseY + 40;
+
+    // 如可计算鼠标坐标，则优先放在鼠标附近，确保在当前视口
+    if (mouseEvent && Number.isFinite(transform.scale) && transform.scale !== 0) {
+        const vRect = viewport && typeof viewport.getBoundingClientRect === 'function'
+            ? viewport.getBoundingClientRect()
+            : { left: 0, top: 0 };
+        const pointerBoardX = ((mouseEvent.clientX - vRect.left) - transform.x) / transform.scale;
+        const pointerBoardY = ((mouseEvent.clientY - vRect.top) - transform.y) / transform.scale;
+        if (Number.isFinite(pointerBoardX) && Number.isFinite(pointerBoardY)) {
+            clone.x = pointerBoardX + 24;
+            clone.y = pointerBoardY + 24;
         }
     }
 
-    // 4. 将新卡片位置错开一点点
-    clone.x = (Number(originalTask.x) || 0) + 20;
-    clone.y = (Number(originalTask.y) || 0) + 20;
-
-    // 5. 入库并触发局部重绘挂载
     await saveTaskDB(clone);
-    await renderBoard(); 
+    await renderBoard();
+    await renderCard(newId);
 
-    // 6. 🌟 核心：瞬间劫持鼠标焦点，让克隆出来的卡片直接跟着鼠标走！
     const newCardEl = document.getElementById('card-' + newId);
-    if (newCardEl) {
-        highestZIndex++;
-        newCardEl.style.zIndex = highestZIndex;
-        newCardEl.style.willChange = 'transform';
-
-        clearSelection();
-        selectedTasks.add(newId);
-        newCardEl.classList.add('selected');
-
-        // 仅在鼠标仍按下时接管拖拽，避免 Alt 克隆异步完成后的“幽灵位移”
-        if (isPrimaryPointerDown && newCardEl.__veoTask) {
-            draggingCardInfo = {
-                el: newCardEl,
-                task: newCardEl.__veoTask,
-                startMouseX: mouseEvent.clientX,
-                startMouseY: mouseEvent.clientY,
-                initialX: Number(newCardEl.__veoTask.x) || 0,
-                initialY: Number(newCardEl.__veoTask.y) || 0
-            };
-        } else {
-            newCardEl.style.willChange = 'auto';
-        }
-        
-        showToast("🪄 已克隆组件及参数", "success");
+    if (!newCardEl) {
+        showToast("已克隆，但渲染节点未挂载，请重试一次", "error");
+        return;
     }
+
+    highestZIndex++;
+    newCardEl.style.zIndex = highestZIndex;
+    newCardEl.style.willChange = 'transform';
+    newCardEl.style.transform = `translate(${clone.x}px, ${clone.y}px)`;
+    newCardEl.classList.remove('hidden-in-frame');
+
+    // 兜底：若卡片落在视口外，则微调画布平移把它拉回可视区
+    const rect = newCardEl.getBoundingClientRect();
+    const pad = 28;
+    let shiftX = 0;
+    let shiftY = 0;
+    if (rect.right < pad) shiftX = pad - rect.right;
+    else if (rect.left > window.innerWidth - pad) shiftX = (window.innerWidth - pad) - rect.left;
+    if (rect.bottom < pad) shiftY = pad - rect.bottom;
+    else if (rect.top > window.innerHeight - pad) shiftY = (window.innerHeight - pad) - rect.top;
+    if (shiftX || shiftY) {
+        transform.x += shiftX;
+        transform.y += shiftY;
+        board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+        document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
+        document.body.style.backgroundSize = `${30 * transform.scale}px ${30 * transform.scale}px`;
+        syncMinimapViewport();
+    }
+
+    clearSelection();
+    selectedTasks.add(newId);
+    newCardEl.classList.add('selected');
+
+    // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
+    if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
+        draggingCardInfo = {
+            el: newCardEl,
+            task: newCardEl.__veoTask,
+            startMouseX: mouseEvent.clientX,
+            startMouseY: mouseEvent.clientY,
+            initialX: Number(newCardEl.__veoTask.x) || clone.x || 0,
+            initialY: Number(newCardEl.__veoTask.y) || clone.y || 0
+        };
+    } else {
+        newCardEl.style.willChange = 'auto';
+    }
+
+    showToast("🪄 已克隆组件及参数", "success");
 }
 
 // ==========================================
