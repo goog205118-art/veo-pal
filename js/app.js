@@ -1871,6 +1871,83 @@ async function submitImgGen(taskId) {
         images: imagesBase64
     };
 
+    const requestImgGenOnce = async (payloadForUnified, payloadForLegacy) => {
+        const requestInit = {
+            method: 'POST',
+            headers: buildImgGenHeaders(),
+            body: JSON.stringify(payloadForUnified)
+        };
+
+        let response = await fetch(API_IMAGE_GEN, requestInit);
+        if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
+            response = await fetch(API_IMAGE_GEN_LEGACY, {
+                method: 'POST',
+                headers: buildImgGenHeaders(),
+                body: JSON.stringify(payloadForLegacy)
+            });
+        }
+
+        if (response.status === 401 || response.status === 403) {
+            handleAuthError();
+            throw new Error("密钥校验失败");
+        }
+        if (!response.ok) throw new Error("API 异常: " + response.status);
+
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        let rawData = null;
+        if (contentType.includes('application/json')) {
+            rawData = await response.json();
+        } else {
+            const rawText = await response.text();
+            try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
+        }
+
+        const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+        const returnedUrls = extractImageUrlsFromResponse(rawData);
+        return { rawData, resData, returnedUrls };
+    };
+
+    const collectRequestedUrls = async () => {
+        const targetCount = Math.min(Math.max(nValue, 1), 10);
+        const aggregatedUrls = [];
+
+        const firstResult = await requestImgGenOnce(unifiedPayload, legacyPayload);
+        if (Array.isArray(firstResult.returnedUrls) && firstResult.returnedUrls.length > 0) {
+            aggregatedUrls.push(...firstResult.returnedUrls);
+        }
+
+        let latestResData = firstResult.resData;
+        if (aggregatedUrls.length === 0 && firstResult.resData && firstResult.resData.taskId) {
+            return { returnedUrls: [], resData: firstResult.resData };
+        }
+
+        if (targetCount > aggregatedUrls.length) {
+            const missingCount = targetCount - aggregatedUrls.length;
+            for (let i = 0; i < missingCount; i++) {
+                const extraCore = { ...unifiedPayloadCore, n: 1 };
+                const extraUnifiedPayload = {
+                    body: { ...extraCore },
+                    ...extraCore,
+                    inputImages: imagesBase64,
+                    maskImage: maskBase64
+                };
+                const extraLegacyPayload = { ...legacyPayload, n: 1 };
+                try {
+                    const extraResult = await requestImgGenOnce(extraUnifiedPayload, extraLegacyPayload);
+                    latestResData = extraResult.resData || latestResData;
+                    if (Array.isArray(extraResult.returnedUrls) && extraResult.returnedUrls.length > 0) {
+                        aggregatedUrls.push(...extraResult.returnedUrls);
+                    }
+                    if (aggregatedUrls.length >= targetCount) break;
+                } catch (extraErr) {
+                    console.warn('[submitImgGen] extra image request failed:', extraErr);
+                }
+            }
+        }
+
+        return { returnedUrls: aggregatedUrls.slice(0, targetCount), resData: latestResData };
+    };
+
     let success = false;
     let attempts = 0;
     const maxAttempts = task.state.autoRetry ? 3 : 1;
@@ -1879,38 +1956,9 @@ async function submitImgGen(taskId) {
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const requestInit = {
-                method: 'POST',
-                headers: buildImgGenHeaders(),
-                body: JSON.stringify(unifiedPayload)
-            };
-
-            let response = await fetch(API_IMAGE_GEN, requestInit);
-            if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
-                response = await fetch(API_IMAGE_GEN_LEGACY, {
-                    method: 'POST',
-                    headers: buildImgGenHeaders(),
-                    body: JSON.stringify(legacyPayload)
-                });
-            }
-
-            if (response.status === 401 || response.status === 403) {
-                handleAuthError();
-                throw new Error("密钥校验失败");
-            }
-            if (!response.ok) throw new Error("API 异常: " + response.status);
-
-            const contentType = (response.headers.get('content-type') || '').toLowerCase();
-            let rawData = null;
-            if (contentType.includes('application/json')) {
-                rawData = await response.json();
-            } else {
-                const rawText = await response.text();
-                try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
-            }
-
-            const resData = Array.isArray(rawData) ? rawData[0] : rawData;
-            const returnedUrls = extractImageUrlsFromResponse(rawData);
+            const resultPack = await collectRequestedUrls();
+            const resData = resultPack.resData;
+            const returnedUrls = resultPack.returnedUrls;
 
             if (returnedUrls.length > 0) {
                 const resultBlobs = [];
@@ -1930,6 +1978,9 @@ async function submitImgGen(taskId) {
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
                 task.timestamp = Date.now();
                 success = true;
+                if (nValue > 1 && resultBlobs.length < nValue) {
+                    showToast(`当前通道只返回 ${resultBlobs.length}/${nValue} 张，已自动补发并完成聚合`, "warning");
+                }
 
                 if (!task.isBilled) {
                     let cost = 0.084;
