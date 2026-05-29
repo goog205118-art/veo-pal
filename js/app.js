@@ -901,6 +901,10 @@ viewport.addEventListener('drop', async (e) => {
                 format: 'png',
                 n: 1,
                 size: '1024x1024',
+                proRatio: '1:1',
+                proResolution: '1k',
+                customW: 9,
+                customH: 16,
                 background: 'auto',
                 moderation: 'auto',
                 prompt: '',
@@ -1355,33 +1359,36 @@ function generateCardHTML(task) {
         const isFailed = task.status === 'failed';
         const isPro = task.state.version === 'pro';
         const isChannel2 = task.state.channel === 'channel_2';
+        const resolvedSize = resolveImgGenSize(task.state);
         const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
         const resultBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
             ? task.state.resultBlobs
             : (task.state.resultBlob ? [task.state.resultBlob] : []);
         const resultHtml = task.status === 'success' && resultBlobs.length > 0
-            ? `<div class="img-gen-result-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">${
+            ? `<div class="img-gen-result-grid">${
                 resultBlobs.map((blob, idx) => `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
             }</div>`
             : '';
-        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
-        if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
-        let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">⏱️ ${task.state.costTime}s</span>` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span style="font-family:monospace; opacity:0.8; margin-left:4px;">${isPro ? currentCost : `￥${currentCost}`}</span> ${costTxt}`;
+        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
+        if (task.state.images.length < 5) {
+            slotsHtml += `<div class="img-gen-slot img-gen-slot-add" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
+        }
+        let costTxt = task.state.costTime ? `<span class="img-gen-runtime">⏱ ${task.state.costTime}s</span>` : '';
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span> ${costTxt}`;
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
 
         if (isProcessing) {
             btnContent = `
-                <div style="display:flex; flex-direction:column; width:100%; gap:6px; align-items:center;">
-                    <div style="display:flex; justify-content:space-between; width:100%; font-size:13px;">
-                        <div style="display:flex; align-items:center; gap:6px;">
+                <div class="img-gen-processing-wrap">
+                    <div class="img-gen-processing-head">
+                        <div class="img-gen-processing-left">
                             <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg>
                             生成中...${retryTxt}
                         </div>
-                        <div class="veo-dynamic-timer" data-start-time="${task.state.startTime || Date.now()}" style="font-family:monospace; color:var(--accent); font-weight:bold; letter-spacing:1px;">00:00</div>
+                        <div class="veo-dynamic-timer img-gen-timer" data-start-time="${task.state.startTime || Date.now()}">00:00</div>
                     </div>
-                    <div style="width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
-                        <div style="height: 100%; background: var(--accent); width: 0%; animation: fakeImgProgress 60s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;"></div>
+                    <div class="img-gen-progress">
+                        <div class="img-gen-progress-bar"></div>
                     </div>
                 </div>
             `;
@@ -1390,22 +1397,99 @@ function generateCardHTML(task) {
         if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
 
         let customRatioHtml = '';
-        if (task.state.size === '') {
+        const showCustomRatio = (!isPro && task.state.size === '') || (isPro && task.state.proRatio === 'custom');
+        if (showCustomRatio) {
             const w = task.state.customW || 9;
-            const h = task.state.customH || 21;
+            const h = task.state.customH || 16;
             customRatioHtml = `
-            <div style="display:flex; align-items:center; gap:6px; padding: 0 12px; margin-top:-4px; margin-bottom:8px;">
+            <div class="img-gen-custom-ratio">
                 <span class="material-symbols-outlined" style="font-size:14px; color:var(--accent);">aspect_ratio</span>
-                <span style="font-size:11px; color:var(--text-sub);">画幅:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
+                <span class="img-gen-custom-label">比例</span>
+                <input type="number" class="img-gen-select img-gen-ratio-input" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
                 <span style="color:var(--text-sub);">:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
-                <span style="font-size:10px; color:rgba(255,255,255,0.3); margin-left:auto;">提交时将自动隐式拼接</span>
+                <input type="number" class="img-gen-select img-gen-ratio-input" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
+                <span class="img-gen-size-hint">输出尺寸: ${resolvedSize}</span>
             </div>`;
         }
 
+        const proControlsHtml = isPro
+            ? `<div class="img-gen-controls img-gen-controls-pro">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proRatio', this.value)" data-tip="专业版：先选构图比例">
+                <option value="1:1" ${task.state.proRatio==='1:1'?'selected':''}>比例 1:1</option>
+                <option value="3:2" ${task.state.proRatio==='3:2'?'selected':''}>比例 3:2</option>
+                <option value="2:3" ${task.state.proRatio==='2:3'?'selected':''}>比例 2:3</option>
+                <option value="16:9" ${task.state.proRatio==='16:9'?'selected':''}>比例 16:9</option>
+                <option value="9:16" ${task.state.proRatio==='9:16'?'selected':''}>比例 9:16</option>
+                <option value="custom" ${task.state.proRatio==='custom'?'selected':''}>自定义比例</option>
+                <option value="auto" ${task.state.proRatio==='auto'?'selected':''}>Auto 比例</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：再选分辨率档位">
+                <option value="1k" ${task.state.proResolution==='1k'?'selected':''}>1K</option>
+                <option value="2k" ${task.state.proResolution==='2k'?'selected':''}>2K</option>
+                <option value="4k" ${task.state.proResolution==='4k'?'selected':''}>4K</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版：质量优先或速度优先">
+                <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
+                <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" data-tip="专业版：输出质量">
+                <option value="auto" ${task.state.quality==='auto'?'selected':''}>自动质量</option>
+                <option value="high" ${task.state.quality==='high'?'selected':''}>高质量</option>
+                <option value="medium" ${task.state.quality==='medium'?'selected':''}>中质量</option>
+                <option value="low" ${task.state.quality==='low'?'selected':''}>低质量</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'format', this.value)" data-tip="专业版：输出格式">
+                <option value="png" ${task.state.format==='png'?'selected':''}>PNG</option>
+                <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
+                <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" data-tip="专业版：目标张数">
+                <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
+                <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
+                <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
+                <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
+                <option value="5" ${String(task.state.n)==='5'?'selected':''}>5张</option>
+                <option value="6" ${String(task.state.n)==='6'?'selected':''}>6张</option>
+                <option value="7" ${String(task.state.n)==='7'?'selected':''}>7张</option>
+                <option value="8" ${String(task.state.n)==='8'?'selected':''}>8张</option>
+                <option value="9" ${String(task.state.n)==='9'?'selected':''}>9张</option>
+                <option value="10" ${String(task.state.n)==='10'?'selected':''}>10张</option>
+            </select>
+        </div>
+        <div class="img-gen-controls img-gen-controls-pro">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)" data-tip="专业版：背景模式">
+                <option value="auto" ${task.state.background==='auto'?'selected':''}>背景 auto</option>
+                <option value="transparent" ${task.state.background==='transparent'?'selected':''}>背景 transparent</option>
+                <option value="opaque" ${task.state.background==='opaque'?'selected':''}>背景 opaque</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'moderation', this.value)" data-tip="专业版：审核级别">
+                <option value="auto" ${task.state.moderation==='auto'?'selected':''}>审核 auto</option>
+                <option value="low" ${task.state.moderation==='low'?'selected':''}>审核 low</option>
+            </select>
+            <div class="img-gen-size-chip">输出尺寸: ${resolvedSize}</div>
+        </div>`
+            : `<div class="img-gen-controls">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="试用版：分辨率/比例选项">
+                <option value="auto" ${task.state.size==='auto'?'selected':''}>Auto</option>
+                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1024x1024</option>
+                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>1536x1024</option>
+                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>1024x1536</option>
+                <option value="2048x2048" ${task.state.size==='2048x2048'?'selected':''}>2048x2048</option>
+                <option value="2048x1152" ${task.state.size==='2048x1152'?'selected':''}>2048x1152</option>
+                <option value="3840x2160" ${task.state.size==='3840x2160'?'selected':''}>3840x2160</option>
+                <option value="2160x3840" ${task.state.size==='2160x3840'?'selected':''}>2160x3840</option>
+                <option value="" ${task.state.size===''?'selected':''}>自定义比例</option>
+            </select>
+        </div>`;
+
         return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
+        <div class="img-gen-shell ${isProcessing ? 'is-running' : ''}">
+        <div class="img-gen-statusbar">
+            <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
+            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+        </div>
         <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+        <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
         <div class="img-gen-controls">
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
                 <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
@@ -1420,60 +1504,13 @@ function generateCardHTML(task) {
                 <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
             </select>
         </div>
-        <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="分辨率 / 尺寸选项">
-                <option value="auto" ${task.state.size==='auto'?'selected':''}>Auto</option>
-                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1024x1024</option>
-                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>1536x1024</option>
-                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>1024x1536</option>
-                <option value="2048x2048" ${task.state.size==='2048x2048'?'selected':''}>2048x2048</option>
-                <option value="2048x1152" ${task.state.size==='2048x1152'?'selected':''}>2048x1152</option>
-                <option value="3840x2160" ${task.state.size==='3840x2160'?'selected':''}>3840x2160</option>
-                <option value="2160x3840" ${task.state.size==='2160x3840'?'selected':''}>2160x3840</option>
-                <option value="" ${task.state.size===''?'selected':''}>自定义比例</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：质量优先或速度优先">
-                <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
-                <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：输出质量">
-                <option value="auto" ${task.state.quality==='auto'?'selected':''}>自动质量</option>
-                <option value="high" ${task.state.quality==='high'?'selected':''}>高质量</option>
-                <option value="medium" ${task.state.quality==='medium'?'selected':''}>中质量</option>
-                <option value="low" ${task.state.quality==='low'?'selected':''}>低质量</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'format', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：输出格式">
-                <option value="png" ${task.state.format==='png'?'selected':''}>PNG</option>
-                <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
-                <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：单次返回张数 (1-10)">
-                <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
-                <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
-                <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
-                <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
-                <option value="5" ${String(task.state.n)==='5'?'selected':''}>5张</option>
-                <option value="6" ${String(task.state.n)==='6'?'selected':''}>6张</option>
-                <option value="7" ${String(task.state.n)==='7'?'selected':''}>7张</option>
-                <option value="8" ${String(task.state.n)==='8'?'selected':''}>8张</option>
-                <option value="9" ${String(task.state.n)==='9'?'selected':''}>9张</option>
-                <option value="10" ${String(task.state.n)==='10'?'selected':''}>10张</option>
-            </select>
-        </div>
-        <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：背景模式">
-                <option value="auto" ${task.state.background==='auto'?'selected':''}>背景 auto</option>
-                <option value="transparent" ${task.state.background==='transparent'?'selected':''}>背景 transparent</option>
-                <option value="opaque" ${task.state.background==='opaque'?'selected':''}>背景 opaque</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'moderation', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：内容审核级别">
-                <option value="auto" ${task.state.moderation==='auto'?'selected':''}>审核 auto</option>
-                <option value="low" ${task.state.moderation==='low'?'selected':''}>审核 low</option>
-            </select>
-        </div>
+        ${proControlsHtml}
         ${customRatioHtml}
         <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
-        <button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
+        <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
+        ${isProcessing ? `<div class="img-gen-running-fx"><div class="img-gen-running-beam"></div><div class="img-gen-running-beam beam-2"></div></div>` : ''}
+        ${resultHtml}
+        </div>`;
     }
 
     if (task.type === 'tool_cropper') {
@@ -1654,6 +1691,83 @@ async function duplicateTask(originalTask, mouseEvent) {
 // ==========================================
 // 🎨 AI 多模生图核心控制模块 (局部渲染完全体)
 // ==========================================
+const IMG_GEN_PRO_SIZE_PRESETS = Object.freeze({
+    '1:1': Object.freeze({ '1k': '1024x1024', '2k': '2048x2048', '4k': '4096x4096' }),
+    '3:2': Object.freeze({ '1k': '1536x1024', '2k': '3072x2048', '4k': '3840x2560' }),
+    '2:3': Object.freeze({ '1k': '1024x1536', '2k': '2048x3072', '4k': '2560x3840' }),
+    '16:9': Object.freeze({ '1k': '1024x576', '2k': '2048x1152', '4k': '3840x2160' }),
+    '9:16': Object.freeze({ '1k': '576x1024', '2k': '1152x2048', '4k': '2160x3840' })
+});
+
+function parseImgSizeValue(sizeStr) {
+    if (typeof sizeStr !== 'string') return null;
+    const m = sizeStr.trim().match(/^(\d+)\s*x\s*(\d+)$/i);
+    if (!m) return null;
+    const w = parseInt(m[1], 10);
+    const h = parseInt(m[2], 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    return { width: w, height: h };
+}
+
+function detectProPresetFromSize(sizeValue) {
+    if (sizeValue === '') return { proRatio: 'custom', proResolution: '1k' };
+    if (!sizeValue || sizeValue === 'auto') return { proRatio: 'auto', proResolution: '1k' };
+    const value = String(sizeValue).trim().toLowerCase();
+    for (const ratioKey of Object.keys(IMG_GEN_PRO_SIZE_PRESETS)) {
+        const perRes = IMG_GEN_PRO_SIZE_PRESETS[ratioKey];
+        for (const resKey of Object.keys(perRes)) {
+            if (perRes[resKey].toLowerCase() === value) return { proRatio: ratioKey, proResolution: resKey };
+        }
+    }
+    const parsed = parseImgSizeValue(value);
+    if (!parsed) return { proRatio: '1:1', proResolution: '1k' };
+    const ratioNum = parsed.width / parsed.height;
+    const ratioCandidates = [
+        { key: '1:1', num: 1 },
+        { key: '3:2', num: 3 / 2 },
+        { key: '2:3', num: 2 / 3 },
+        { key: '16:9', num: 16 / 9 },
+        { key: '9:16', num: 9 / 16 }
+    ];
+    let best = ratioCandidates[0];
+    let bestDiff = Infinity;
+    for (const item of ratioCandidates) {
+        const diff = Math.abs(item.num - ratioNum);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            best = item;
+        }
+    }
+    const maxSide = Math.max(parsed.width, parsed.height);
+    const proResolution = maxSide >= 3200 ? '4k' : (maxSide >= 1900 ? '2k' : '1k');
+    return { proRatio: best.key, proResolution };
+}
+
+function buildCustomSizeByResolution(customW, customH, proResolution) {
+    const ratioW = Math.max(1, parseInt(customW, 10) || 1);
+    const ratioH = Math.max(1, parseInt(customH, 10) || 1);
+    const longSideBase = proResolution === '4k' ? 3840 : (proResolution === '2k' ? 2048 : 1024);
+    const scale = longSideBase / Math.max(ratioW, ratioH);
+    const snappedW = Math.max(64, Math.round((ratioW * scale) / 64) * 64);
+    const snappedH = Math.max(64, Math.round((ratioH * scale) / 64) * 64);
+    return `${snappedW}x${snappedH}`;
+}
+
+function resolveImgGenSize(state) {
+    if (!state || typeof state !== 'object') return '1024x1024';
+    if (state.version !== 'pro') {
+        if (typeof state.size === 'string') return state.size;
+        return '1024x1024';
+    }
+    const ratio = state.proRatio || '1:1';
+    const res = state.proResolution || '1k';
+    if (ratio === 'auto') return 'auto';
+    if (ratio === 'custom') return buildCustomSizeByResolution(state.customW, state.customH, res);
+    const preset = IMG_GEN_PRO_SIZE_PRESETS[ratio];
+    if (preset && preset[res]) return preset[res];
+    return '1024x1024';
+}
+
 function ensureImgGenState(task) {
     if (!task || task.type !== 'tool_image_gen') return;
     if (!task.state || typeof task.state !== 'object') task.state = {};
@@ -1667,12 +1781,20 @@ function ensureImgGenState(task) {
     const parsedN = parseInt(task.state.n, 10);
     task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
+    const detected = detectProPresetFromSize(task.state.size);
+    if (!task.state.proRatio) task.state.proRatio = detected.proRatio;
+    if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+    const ratioCustomW = parseInt(task.state.customW, 10);
+    const ratioCustomH = parseInt(task.state.customH, 10);
+    if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
+    if (!Number.isFinite(ratioCustomH) || ratioCustomH < 1) task.state.customH = 16;
     if (!task.state.prompt) task.state.prompt = '';
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
+    if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
 }
 
 function resolveImgGenMode(state) {
@@ -1742,8 +1864,27 @@ async function updateImgGenState(taskId, key, val) {
     if (key === 'n') {
         const n = parseInt(val, 10);
         task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
+    } else if (key === 'proResolution') {
+        task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
+        task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'proRatio') {
+        task.state.proRatio = String(val || '1:1');
+        task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'customW' || key === 'customH') {
+        const parsed = parseInt(val, 10);
+        task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
+        if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'version') {
+        task.state.version = val === 'pro' ? 'pro' : 'trial';
+        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'size') {
+        task.state.size = val;
+        const detected = detectProPresetFromSize(val);
+        if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+        task.state.proResolution = detected.proResolution;
     } else {
         task.state[key] = val;
+        if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
     }
     await saveTaskDB(task);
     renderCard(taskId);
@@ -1819,14 +1960,16 @@ async function submitImgGen(taskId) {
     await saveTaskDB(task);
     renderCard(taskId);
 
+    const version = task.state.version === 'pro' ? 'pro' : 'trial';
+    const resolvedSize = resolveImgGenSize(task.state);
     let finalPrompt = task.state.prompt;
-    if (task.state.size === '') {
+    if (version !== 'pro' && task.state.size === '') {
         const w = task.state.customW || 9;
-        const h = task.state.customH || 21;
+        const h = task.state.customH || 16;
         finalPrompt = finalPrompt + ` 画面比例${w}:${h}`;
     }
 
-    const version = task.state.version === 'pro' ? 'pro' : 'trial';
+    if (version === 'pro') task.state.size = resolvedSize;
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
     const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
@@ -1837,7 +1980,7 @@ async function submitImgGen(taskId) {
         channel: task.state.channel || 'channel_1',
         mode: mode,
         prompt: finalPrompt,
-        size: task.state.size,
+        size: resolvedSize,
         providerSort: task.state.providerSort || 'quality',
         provider: { sort: task.state.providerSort || 'quality' },
         quality: task.state.quality || 'auto',
@@ -1859,7 +2002,7 @@ async function submitImgGen(taskId) {
 
     const legacyPayload = {
         prompt: finalPrompt,
-        size: task.state.size,
+        size: resolvedSize,
         channel: task.state.channel || 'channel_1',
         n: nValue,
         quality: task.state.quality || 'auto',
