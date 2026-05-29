@@ -1144,21 +1144,18 @@ body.app-shell-ready .floating-console:not(.minimized) {
 
 /* ===== Image Gen Right Preview Dock ===== */
 .tool-image-gen {
-    width: 860px;
-    max-width: min(92vw, 860px);
+    width: 360px;
+    max-width: min(92vw, 360px);
+    overflow: visible;
 }
 .img-gen-shell {
     gap: 0;
     padding: 10px 12px 12px 12px;
+    overflow: visible;
 }
 .img-gen-split {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 12px;
-    align-items: stretch;
-}
-.img-gen-split.preview-collapsed {
-    grid-template-columns: minmax(0, 1fr) 46px;
+    position: relative;
+    display: block;
 }
 .img-gen-left {
     display: flex;
@@ -1178,19 +1175,51 @@ body.app-shell-ready .floating-console:not(.minimized) {
     padding-left: 0;
     padding-right: 0;
 }
+.img-gen-left .img-gen-statusbar {
+    justify-content: flex-start;
+    gap: 6px;
+}
+.img-gen-left .img-gen-statusbar .img-gen-size-chip {
+    margin-left: auto;
+}
 .img-gen-left .img-gen-prompt { margin: 0; }
 .img-gen-left .img-gen-btn { margin: 0; }
+.img-gen-dock-toggle {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-sub);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.img-gen-dock-toggle:hover {
+    color: var(--accent);
+    border-color: rgba(94,156,255,0.45);
+    background: rgba(94,156,255,0.1);
+}
 
 .img-gen-preview-panel {
-    position: relative;
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 0;
+    width: 320px;
+    height: 100%;
+    min-height: 360px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    min-width: 0;
-    transition: width 0.24s ease, background 0.24s ease;
+    min-width: 320px;
+    z-index: 12;
+    box-shadow: 0 18px 38px rgba(0,0,0,0.55);
+    transition: opacity 0.22s ease, transform 0.24s ease, background 0.24s ease;
 }
 .img-gen-preview-head {
     height: 38px;
@@ -1309,25 +1338,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
 }
 
 .img-gen-preview-panel.is-collapsed {
-    min-width: 0;
-}
-.img-gen-preview-panel.is-collapsed .img-gen-preview-body {
-    display: none;
-}
-.img-gen-preview-panel.is-collapsed .img-gen-preview-head {
-    flex: 1;
-    min-height: 322px;
-    border-bottom: none;
-    padding: 8px 6px;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
-}
-.img-gen-preview-panel.is-collapsed .img-gen-preview-title {
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    letter-spacing: 2px;
-    opacity: 0.92;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(10px) scaleX(0.9);
 }
 
 @keyframes previewSweep {
@@ -1340,12 +1353,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
 }
 
 @media (max-width: 1120px) {
-    .tool-image-gen {
-        width: 700px;
-        max-width: min(94vw, 700px);
-    }
-    .img-gen-split {
-        grid-template-columns: minmax(0, 1fr) 280px;
+    .img-gen-preview-panel {
+        width: 300px;
+        min-width: 300px;
     }
 }
 
@@ -1354,18 +1364,24 @@ body.app-shell-ready .floating-console:not(.minimized) {
         width: 94vw;
         max-width: 94vw;
     }
-    .img-gen-split,
-    .img-gen-split.preview-collapsed {
-        grid-template-columns: 1fr;
+    .img-gen-split {
+        display: flex;
+        flex-direction: column;
     }
-    .img-gen-preview-panel.is-collapsed .img-gen-preview-head {
-        min-height: 40px;
-        flex-direction: row;
-        border-bottom: 1px solid var(--border);
+    .img-gen-preview-panel {
+        position: relative;
+        left: auto;
+        top: auto;
+        width: 100%;
+        min-width: 0;
+        height: auto;
+        min-height: 0;
+        box-shadow: none;
     }
-    .img-gen-preview-panel.is-collapsed .img-gen-preview-title {
-        writing-mode: horizontal-tb;
-        letter-spacing: 1.2px;
+    .img-gen-preview-panel.is-collapsed {
+        display: none;
+        opacity: 0;
+        transform: none;
     }
 }
 

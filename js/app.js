@@ -1494,8 +1494,10 @@ function generateCardHTML(task) {
             }
         }
 
-        const panelToggleIcon = previewCollapsed ? 'keyboard_arrow_left' : 'keyboard_arrow_right';
-        const panelToggleTip = previewCollapsed ? '展开预览面板' : '收纳预览面板';
+        const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
+        const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
+        const panelToggleIcon = 'keyboard_arrow_right';
+        const panelToggleTip = '收纳预览面板';
 
         return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
         <div class="img-gen-shell">
@@ -1504,6 +1506,9 @@ function generateCardHTML(task) {
                     <div class="img-gen-statusbar">
                         <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
                         <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+                        <button class="img-gen-dock-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${dockToggleTip}">
+                            <span class="material-symbols-outlined" style="font-size:16px;">${dockToggleIcon}</span>
+                        </button>
                     </div>
                     <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
                     <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
