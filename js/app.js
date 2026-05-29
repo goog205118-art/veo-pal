@@ -1793,6 +1793,23 @@ const IMG_GEN_PRO_SIZE_PRESETS = Object.freeze({
     '9:16': Object.freeze({ '1k': '576x1024', '2k': '1152x2048', '4k': '2160x3840' })
 });
 
+const IMG_GEN_PRO_RULES = Object.freeze({
+    MAX_SIDE: 3840,
+    GRID: 16,
+    MAX_RATIO: 3,
+    MIN_PIXELS: 655360,
+    MAX_PIXELS: 8294400
+});
+
+function clampNumber(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+}
+
+function snapToGrid(v, grid) {
+    const g = Math.max(1, parseInt(grid, 10) || 1);
+    return Math.max(g, Math.round(v / g) * g);
+}
+
 function parseImgSizeValue(sizeStr) {
     if (typeof sizeStr !== 'string') return null;
     const m = sizeStr.trim().match(/^(\d+)\s*x\s*(\d+)$/i);
@@ -1847,6 +1864,102 @@ function buildCustomSizeByResolution(customW, customH, proResolution) {
     return `${snappedW}x${snappedH}`;
 }
 
+function enforceProSizeRules(sizeValue) {
+    const rules = IMG_GEN_PRO_RULES;
+    const fallback = { width: 1024, height: 1024 };
+    const parsed = parseImgSizeValue(sizeValue) || fallback;
+    let w = parsed.width;
+    let h = parsed.height;
+    const original = `${w}x${h}`;
+
+    for (let i = 0; i < 8; i++) {
+        w = Math.max(rules.GRID, w);
+        h = Math.max(rules.GRID, h);
+
+        const ratio = w / h;
+        if (ratio > rules.MAX_RATIO) w = h * rules.MAX_RATIO;
+        else if (ratio < (1 / rules.MAX_RATIO)) h = w * rules.MAX_RATIO;
+
+        let maxSide = Math.max(w, h);
+        if (maxSide > rules.MAX_SIDE) {
+            const scaleDown = rules.MAX_SIDE / maxSide;
+            w *= scaleDown;
+            h *= scaleDown;
+        }
+
+        let pixels = w * h;
+        if (pixels > rules.MAX_PIXELS) {
+            const scaleDownPixels = Math.sqrt(rules.MAX_PIXELS / pixels);
+            w *= scaleDownPixels;
+            h *= scaleDownPixels;
+        }
+
+        pixels = w * h;
+        if (pixels < rules.MIN_PIXELS) {
+            const scaleUpPixels = Math.sqrt(rules.MIN_PIXELS / Math.max(1, pixels));
+            w *= scaleUpPixels;
+            h *= scaleUpPixels;
+        }
+
+        maxSide = Math.max(w, h);
+        if (maxSide > rules.MAX_SIDE) {
+            const scaleDownAgain = rules.MAX_SIDE / maxSide;
+            w *= scaleDownAgain;
+            h *= scaleDownAgain;
+        }
+
+        w = snapToGrid(w, rules.GRID);
+        h = snapToGrid(h, rules.GRID);
+    }
+
+    w = clampNumber(snapToGrid(w, rules.GRID), rules.GRID, rules.MAX_SIDE);
+    h = clampNumber(snapToGrid(h, rules.GRID), rules.GRID, rules.MAX_SIDE);
+
+    if (w / h > rules.MAX_RATIO) w = snapToGrid(h * rules.MAX_RATIO, rules.GRID);
+    if (h / w > rules.MAX_RATIO) h = snapToGrid(w * rules.MAX_RATIO, rules.GRID);
+
+    w = clampNumber(w, rules.GRID, rules.MAX_SIDE);
+    h = clampNumber(h, rules.GRID, rules.MAX_SIDE);
+
+    let area = w * h;
+    if (area > rules.MAX_PIXELS) {
+        const scale = Math.sqrt(rules.MAX_PIXELS / area);
+        w = clampNumber(snapToGrid(w * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        h = clampNumber(snapToGrid(h * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        area = w * h;
+    }
+    if (area < rules.MIN_PIXELS) {
+        const scale = Math.sqrt(rules.MIN_PIXELS / Math.max(1, area));
+        w = clampNumber(snapToGrid(w * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        h = clampNumber(snapToGrid(h * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        area = w * h;
+    }
+
+    // 兜底：若经过缩放后仍未满足最小像素，优先抬升较短边，保持比例不超过 3:1。
+    if (area < rules.MIN_PIXELS) {
+        if (w >= h) {
+            h = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, w / h)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+            w = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, h * (w / h)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+        } else {
+            w = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, h / w)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+            h = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, w * (h / w)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+        }
+        area = w * h;
+    }
+
+    const normalized = `${w}x${h}`;
+    return {
+        size: normalized,
+        changed: normalized !== original,
+        isValid:
+            Math.max(w, h) <= rules.MAX_SIDE &&
+            (w % rules.GRID === 0) &&
+            (h % rules.GRID === 0) &&
+            (Math.max(w / h, h / w) <= rules.MAX_RATIO) &&
+            (area >= rules.MIN_PIXELS && area <= rules.MAX_PIXELS)
+    };
+}
+
 function resolveImgGenSize(state) {
     if (!state || typeof state !== 'object') return '1024x1024';
     if (state.version !== 'pro') {
@@ -1860,10 +1973,10 @@ function resolveImgGenSize(state) {
     const ratio = state.proRatio || '1:1';
     const res = state.proResolution || '1k';
     if (ratio === 'auto') return 'auto';
-    if (ratio === 'custom') return buildCustomSizeByResolution(state.customW, state.customH, res);
+    if (ratio === 'custom') return enforceProSizeRules(buildCustomSizeByResolution(state.customW, state.customH, res)).size;
     const preset = IMG_GEN_PRO_SIZE_PRESETS[ratio];
-    if (preset && preset[res]) return preset[res];
-    return '1024x1024';
+    if (preset && preset[res]) return enforceProSizeRules(preset[res]).size;
+    return enforceProSizeRules('1024x1024').size;
 }
 
 function ensureImgGenState(task) {
@@ -2113,7 +2226,7 @@ async function submitImgGen(taskId) {
     renderCard(taskId);
 
     const version = task.state.version === 'pro' ? 'pro' : 'trial';
-    const resolvedSize = resolveImgGenSize(task.state);
+    let resolvedSize = resolveImgGenSize(task.state);
     let finalPrompt = task.state.prompt;
     const trialCustomW = task.state.customW || 9;
     const trialCustomH = task.state.customH || 16;
@@ -2121,6 +2234,19 @@ async function submitImgGen(taskId) {
     const trialSizeToSend = resolvedSize;
     if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
 
+    if (version === 'pro' && resolvedSize !== 'auto') {
+        const strict = enforceProSizeRules(resolvedSize);
+        if (!strict.isValid) {
+            task.status = 'failed';
+            await saveTaskDB(task);
+            renderCard(taskId);
+            return showToast('Pro 尺寸不符合规则，请调整比例后重试', 'error');
+        }
+        if (strict.changed) {
+            resolvedSize = strict.size;
+            showToast(`Pro 尺寸已按规则校正为 ${strict.size}`, 'info');
+        }
+    }
     task.state.size = resolvedSize;
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
