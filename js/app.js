@@ -1490,7 +1490,7 @@ function generateCardHTML(task) {
             } else if (isFailed) {
                 previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-failed"><span class="material-symbols-outlined" style="font-size:28px;">warning</span><div class="img-gen-preview-placeholder-title">本次生成失败</div><div class="img-gen-preview-placeholder-sub">请调整提示词或参数后重试</div></div>`;
             } else {
-                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">imagesmode</span><div class="img-gen-preview-placeholder-title">等待生成结果</div><div class="img-gen-preview-placeholder-sub">右侧常态预览面板</div></div>`;
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">play_circle</span><div class="img-gen-preview-placeholder-title">点击生成开始预览</div><div class="img-gen-preview-placeholder-sub">输出结果将在此实时展示</div></div>`;
             }
         }
 
@@ -1503,37 +1503,48 @@ function generateCardHTML(task) {
         <div class="img-gen-shell">
             <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
                 <div class="img-gen-left">
-                    <div class="img-gen-statusbar">
-                        <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
-                        <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+                    <div class="img-gen-panel-head">
+                        <span class="img-gen-panel-title">INPUT</span>
                         <button class="img-gen-dock-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${dockToggleTip}">
                             <span class="material-symbols-outlined" style="font-size:16px;">${dockToggleIcon}</span>
                         </button>
                     </div>
-                    <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
-                    <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
-                    <div class="img-gen-controls">
-                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
-                            <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
-                            <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
-                        </select>
-                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
-                            <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
-                            <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
-                        </select>
-                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
-                            <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
-                            <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
-                        </select>
+                    <div class="img-gen-input-body">
+                        <div class="img-gen-statusbar">
+                            <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
+                            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+                        </div>
+                        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+                        <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
+                        <div class="img-gen-controls">
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                                <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
+                                <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
+                            </select>
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
+                                <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
+                                <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
+                            </select>
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
+                                <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
+                                <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
+                            </select>
+                        </div>
+                        ${proControlsHtml}
+                        ${customRatioHtml}
+                        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
+                        <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
                     </div>
-                    ${proControlsHtml}
-                    ${customRatioHtml}
-                    <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
-                    <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
                 </div>
                 <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${isProcessing ? 'is-running' : ''}">
                     <div class="img-gen-preview-head">
-                        <span class="img-gen-preview-title">OUTPUT</span>
+                        <div class="img-gen-preview-head-main">
+                            <span class="img-gen-preview-title">OUTPUT</span>
+                            <div class="img-gen-preview-tabs">
+                                <button class="img-gen-preview-tab is-active" type="button">Preview</button>
+                                <button class="img-gen-preview-tab" type="button" disabled>JSON</button>
+                            </div>
+                        </div>
                         <button class="img-gen-preview-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${panelToggleTip}">
                             <span class="material-symbols-outlined" style="font-size:16px;">${panelToggleIcon}</span>
                         </button>
