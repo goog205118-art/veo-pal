@@ -190,14 +190,48 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pwdInput) pwdInput.value = rememberedPwd; if (rememberCheckbox) rememberCheckbox.checked = true; 
     }
 
+    const loginScene = document.getElementById('login-scene');
+    const loginFormCard = loginScene ? loginScene.querySelector('.login-form-box') : null;
+    const loginIntroCard = loginScene ? loginScene.querySelector('.login-intro') : null;
+    const resetLoginTilt = () => {
+        if (!loginScene) return;
+        loginScene.style.setProperty('--login-tilt-x', '0deg');
+        loginScene.style.setProperty('--login-tilt-y', '0deg');
+        if (loginFormCard) loginFormCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
+        if (loginIntroCard) loginIntroCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
+    };
+
     const canvas = document.getElementById('login-canvas');
     if (canvas && gate && gate.style.display !== 'none') {
         const ctx = canvas.getContext('2d');
         let width, height, particles = [], mouse = { x: null, y: null };
         function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
         window.addEventListener('resize', resize); resize();
-        gate.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
-        gate.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+        gate.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            if (!loginScene || isReducedMotion()) return;
+            try {
+                const rect = loginScene.getBoundingClientRect();
+                if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                const px = (e.clientX - rect.left) / rect.width;
+                const py = (e.clientY - rect.top) / rect.height;
+                const tiltY = ((px - 0.5) * 3.2).toFixed(2);
+                const tiltX = ((0.5 - py) * 2.8).toFixed(2);
+                loginScene.style.setProperty('--login-tilt-x', `${tiltX}deg`);
+                loginScene.style.setProperty('--login-tilt-y', `${tiltY}deg`);
+                if (loginFormCard) loginFormCard.style.transform = `translateZ(0) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+                if (loginIntroCard) loginIntroCard.style.transform = `translateZ(0) rotateX(${(tiltX * 0.35).toFixed(2)}deg) rotateY(${(tiltY * 0.35).toFixed(2)}deg)`;
+            } catch (err) {
+                console.warn('[login-tilt] update failed:', err);
+            }
+        });
+        gate.addEventListener('mouseleave', () => {
+            mouse.x = null;
+            mouse.y = null;
+            resetLoginTilt();
+        });
+        resetLoginTilt();
 
         class Particle {
             constructor() {
