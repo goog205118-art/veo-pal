@@ -1874,9 +1874,8 @@ function ensureImgGenState(task) {
     const parsedN = parseInt(task.state.n, 10);
     task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
-    const detected = detectProPresetFromSize(task.state.size);
-    if (!task.state.proRatio) task.state.proRatio = detected.proRatio;
-    if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+    if (!task.state.proRatio) task.state.proRatio = '1:1';
+    if (!task.state.proResolution) task.state.proResolution = '1k';
     const ratioCustomW = parseInt(task.state.customW, 10);
     const ratioCustomH = parseInt(task.state.customH, 10);
     if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
@@ -1888,7 +1887,12 @@ function ensureImgGenState(task) {
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
-    if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+    if (task.state.version === 'pro') {
+        const detected = detectProPresetFromSize(task.state.size);
+        if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
+        if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+        task.state.size = resolveImgGenSize(task.state);
+    }
 }
 
 function resolveImgGenMode(state) {
@@ -1974,22 +1978,30 @@ async function updateImgGenState(taskId, key, val) {
         task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
     } else if (key === 'proResolution') {
         task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
-        task.state.size = resolveImgGenSize(task.state);
+        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
     } else if (key === 'proRatio') {
         task.state.proRatio = String(val || '1:1');
-        task.state.size = resolveImgGenSize(task.state);
+        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
     } else if (key === 'customW' || key === 'customH') {
         const parsed = parseInt(val, 10);
         task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
         if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
     } else if (key === 'version') {
-        task.state.version = val === 'pro' ? 'pro' : 'trial';
-        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+        const nextVersion = val === 'pro' ? 'pro' : 'trial';
+        task.state.version = nextVersion;
+        if (nextVersion === 'pro') {
+            const detected = detectProPresetFromSize(task.state.size);
+            if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+            if (detected.proResolution) task.state.proResolution = detected.proResolution;
+            task.state.size = resolveImgGenSize(task.state);
+        }
     } else if (key === 'size') {
         task.state.size = val;
-        const detected = detectProPresetFromSize(val);
-        if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
-        task.state.proResolution = detected.proResolution;
+        if (task.state.version === 'pro') {
+            const detected = detectProPresetFromSize(val);
+            if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+            task.state.proResolution = detected.proResolution;
+        }
     } else {
         task.state[key] = val;
         if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
@@ -2072,11 +2084,13 @@ async function submitImgGen(taskId) {
     const version = task.state.version === 'pro' ? 'pro' : 'trial';
     const resolvedSize = resolveImgGenSize(task.state);
     let finalPrompt = task.state.prompt;
-    if (version !== 'pro' && task.state.size === '') {
-        const w = task.state.customW || 9;
-        const h = task.state.customH || 16;
-        finalPrompt = finalPrompt + ` 画面比例${w}:${h}`;
-    }
+    const trialCustomW = task.state.customW || 9;
+    const trialCustomH = task.state.customH || 16;
+    const trialCustomRatio = (version !== 'pro' && task.state.size === '') ? `${trialCustomW}:${trialCustomH}` : '';
+    const trialSizeToSend = version === 'pro'
+        ? resolvedSize
+        : (task.state.size === '' ? 'auto' : (typeof task.state.size === 'string' && task.state.size.trim() ? task.state.size : '1024x1024'));
+    if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
 
     if (version === 'pro') task.state.size = resolvedSize;
     const mode = resolveImgGenMode(task.state);
@@ -2089,7 +2103,7 @@ async function submitImgGen(taskId) {
         channel: task.state.channel || 'channel_1',
         mode: mode,
         prompt: finalPrompt,
-        size: resolvedSize,
+        size: trialSizeToSend,
         providerSort: task.state.providerSort || 'quality',
         provider: { sort: task.state.providerSort || 'quality' },
         quality: task.state.quality || 'auto',
@@ -2099,7 +2113,10 @@ async function submitImgGen(taskId) {
         moderation: task.state.moderation || 'auto',
         n: nValue,
         images: imagesBase64,
-        mask: maskBase64
+        mask: maskBase64,
+        custom_ratio: trialCustomRatio || undefined,
+        custom_w: trialCustomRatio ? trialCustomW : undefined,
+        custom_h: trialCustomRatio ? trialCustomH : undefined
     };
 
     const unifiedPayload = {
@@ -2111,7 +2128,7 @@ async function submitImgGen(taskId) {
 
     const legacyPayload = {
         prompt: finalPrompt,
-        size: resolvedSize,
+        size: trialSizeToSend,
         channel: task.state.channel || 'channel_1',
         n: nValue,
         quality: task.state.quality || 'auto',
@@ -2120,23 +2137,44 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: task.state.providerSort || 'quality',
-        images: imagesBase64
+        images: imagesBase64,
+        custom_ratio: trialCustomRatio || undefined,
+        custom_w: trialCustomRatio ? trialCustomW : undefined,
+        custom_h: trialCustomRatio ? trialCustomH : undefined
     };
 
     const requestImgGenOnce = async (payloadForUnified, payloadForLegacy) => {
-        const requestInit = {
-            method: 'POST',
-            headers: buildImgGenHeaders(),
-            body: JSON.stringify(payloadForUnified)
-        };
+        const headers = buildImgGenHeaders();
+        const useTrialLegacyFirst = version !== 'pro';
+        let response = null;
 
-        let response = await fetch(API_IMAGE_GEN, requestInit);
-        if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
-            response = await fetch(API_IMAGE_GEN_LEGACY, {
+        if (useTrialLegacyFirst) {
+            const legacyUrl = API_IMAGE_GEN_LEGACY || API_IMAGE_GEN;
+            response = await fetch(legacyUrl, {
                 method: 'POST',
-                headers: buildImgGenHeaders(),
+                headers,
                 body: JSON.stringify(payloadForLegacy)
             });
+            if ((response.status === 404 || response.status === 405) && legacyUrl !== API_IMAGE_GEN) {
+                response = await fetch(API_IMAGE_GEN, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payloadForUnified)
+                });
+            }
+        } else {
+            response = await fetch(API_IMAGE_GEN, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payloadForUnified)
+            });
+            if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
+                response = await fetch(API_IMAGE_GEN_LEGACY, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payloadForLegacy)
+                });
+            }
         }
 
         if (response.status === 401 || response.status === 403) {
