@@ -1765,45 +1765,27 @@ async function duplicateTask(originalTask, mouseEvent) {
     clone.x = baseX + 40;
     clone.y = baseY + 40;
 
-    // 如可计算鼠标坐标，则优先放在鼠标附近
+    // 使用“抓取锚点”放置克隆：无论异步渲染耗时多久，都保持贴着鼠标
+    let grabOffsetX = 28;
+    let grabOffsetY = 20;
     if (mouseEvent && Number.isFinite(transform.scale) && transform.scale !== 0) {
         const vRect = viewport && typeof viewport.getBoundingClientRect === 'function'
             ? viewport.getBoundingClientRect()
             : { left: 0, top: 0 };
-        const pointerBoardX = ((mouseEvent.clientX - vRect.left) - transform.x) / transform.scale;
-        const pointerBoardY = ((mouseEvent.clientY - vRect.top) - transform.y) / transform.scale;
-        if (Number.isFinite(pointerBoardX) && Number.isFinite(pointerBoardY)) {
-            clone.x = pointerBoardX + 24;
-            clone.y = pointerBoardY + 24;
+        const pointerBoardAtStartX = ((mouseEvent.clientX - vRect.left) - transform.x) / transform.scale;
+        const pointerBoardAtStartY = ((mouseEvent.clientY - vRect.top) - transform.y) / transform.scale;
+        if (Number.isFinite(pointerBoardAtStartX) && Number.isFinite(pointerBoardAtStartY)) {
+            grabOffsetX = pointerBoardAtStartX - baseX;
+            grabOffsetY = pointerBoardAtStartY - baseY;
         }
-    }
-
-    // 不再平移整张画布，只把克隆落点限制在当前视口可见区，避免“瞬移很远”
-    if (Number.isFinite(transform.scale) && transform.scale > 0) {
-        const viewLeft = (-transform.x) / transform.scale;
-        const viewTop = (-transform.y) / transform.scale;
-        const viewRight = viewLeft + window.innerWidth / transform.scale;
-        const viewBottom = viewTop + window.innerHeight / transform.scale;
-        const margin = 24;
-
-        const estW = clone.type === 'tool_image_gen'
-            ? ((clone.state && clone.state.previewCollapsed === true) ? 360 : 680)
-            : (clone.type === 'note' ? (clone.width || 260) : (clone.width || 340));
-        const estH = clone.type === 'frame'
-            ? ((clone.isCollapsed ? 56 : (clone.height || 260)))
-            : (clone.height || 420);
-
-        const minX = viewLeft + margin;
-        const maxX = viewRight - estW - margin;
-        const minY = viewTop + margin;
-        const maxY = viewBottom - estH - margin;
-
-        clone.x = (minX <= maxX)
-            ? Math.min(Math.max(clone.x, minX), maxX)
-            : (viewLeft + (window.innerWidth / transform.scale - estW) / 2);
-        clone.y = (minY <= maxY)
-            ? Math.min(Math.max(clone.y, minY), maxY)
-            : (viewTop + (window.innerHeight / transform.scale - estH) / 2);
+        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : mouseEvent.clientX;
+        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : mouseEvent.clientY;
+        const pointerBoardNowX = ((currentClientX - vRect.left) - transform.x) / transform.scale;
+        const pointerBoardNowY = ((currentClientY - vRect.top) - transform.y) / transform.scale;
+        if (Number.isFinite(pointerBoardNowX) && Number.isFinite(pointerBoardNowY)) {
+            clone.x = pointerBoardNowX - grabOffsetX;
+            clone.y = pointerBoardNowY - grabOffsetY;
+        }
     }
 
     await saveTaskDB(clone);
