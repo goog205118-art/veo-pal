@@ -1141,3 +1141,244 @@ body.app-shell-ready .floating-console:not(.minimized) {
     background: rgba(43, 99, 216, 0.08);
     border-color: rgba(43, 99, 216, 0.2);
 }
+
+/* ===== Image Gen Right Preview Dock ===== */
+.tool-image-gen {
+    width: 860px;
+    max-width: min(92vw, 860px);
+}
+.img-gen-shell {
+    gap: 0;
+    padding: 10px 12px 12px 12px;
+}
+.img-gen-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 12px;
+    align-items: stretch;
+}
+.img-gen-split.preview-collapsed {
+    grid-template-columns: minmax(0, 1fr) 46px;
+}
+.img-gen-left {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+.img-gen-left .img-gen-statusbar,
+.img-gen-left .img-gen-slots,
+.img-gen-left .img-gen-upload-note,
+.img-gen-left .img-gen-controls,
+.img-gen-left .img-gen-custom-ratio,
+.img-gen-left .img-gen-prompt,
+.img-gen-left .img-gen-btn {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+}
+.img-gen-left .img-gen-prompt { margin: 0; }
+.img-gen-left .img-gen-btn { margin: 0; }
+
+.img-gen-preview-panel {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    transition: width 0.24s ease, background 0.24s ease;
+}
+.img-gen-preview-head {
+    height: 38px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 10px;
+}
+.img-gen-preview-title {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    color: var(--text-sub);
+}
+.img-gen-preview-toggle {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-sub);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.img-gen-preview-toggle:hover {
+    color: var(--accent);
+    border-color: rgba(94,156,255,0.45);
+    background: rgba(94,156,255,0.1);
+}
+.img-gen-preview-body {
+    min-height: 320px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+}
+.img-gen-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+.img-gen-preview-item {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-hover);
+    overflow: hidden;
+    min-height: 110px;
+}
+.img-gen-preview-item img {
+    width: 100%;
+    height: 100%;
+    min-height: 110px;
+    max-height: 300px;
+    object-fit: cover;
+    display: block;
+    cursor: grab;
+}
+.img-gen-preview-placeholder {
+    flex: 1;
+    min-height: 260px;
+    border-radius: 10px;
+    border: 1px dashed var(--border);
+    background: rgba(255,255,255,0.02);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-sub);
+    gap: 8px;
+    text-align: center;
+    padding: 12px;
+}
+.img-gen-preview-placeholder-title {
+    font-size: 13px;
+    color: var(--text-main);
+}
+.img-gen-preview-placeholder-sub {
+    font-size: 11px;
+    opacity: 0.82;
+}
+.img-gen-preview-placeholder.is-processing {
+    color: var(--accent);
+    border-color: rgba(94,156,255,0.32);
+    background: rgba(94,156,255,0.06);
+}
+.img-gen-preview-placeholder.is-failed {
+    color: var(--danger);
+    border-color: rgba(255,94,89,0.3);
+    background: rgba(255,94,89,0.06);
+}
+
+.img-gen-preview-panel.is-running::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid rgba(94,156,255,0.55);
+    box-shadow: 0 0 0 1px rgba(94,156,255,0.16), 0 0 24px rgba(94,156,255,0.28);
+    animation: previewPulse 1.3s ease-in-out infinite;
+}
+.img-gen-preview-panel.is-running::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -50%;
+    width: 44%;
+    height: 100%;
+    pointer-events: none;
+    background: linear-gradient(110deg, transparent, rgba(94,156,255,0.34), transparent);
+    animation: previewSweep 1.8s linear infinite;
+}
+
+.img-gen-preview-panel.is-collapsed {
+    min-width: 0;
+}
+.img-gen-preview-panel.is-collapsed .img-gen-preview-body {
+    display: none;
+}
+.img-gen-preview-panel.is-collapsed .img-gen-preview-head {
+    flex: 1;
+    min-height: 322px;
+    border-bottom: none;
+    padding: 8px 6px;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+}
+.img-gen-preview-panel.is-collapsed .img-gen-preview-title {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    letter-spacing: 2px;
+    opacity: 0.92;
+}
+
+@keyframes previewSweep {
+    0% { left: -50%; }
+    100% { left: 120%; }
+}
+@keyframes previewPulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
+@media (max-width: 1120px) {
+    .tool-image-gen {
+        width: 700px;
+        max-width: min(94vw, 700px);
+    }
+    .img-gen-split {
+        grid-template-columns: minmax(0, 1fr) 280px;
+    }
+}
+
+@media (max-width: 860px) {
+    .tool-image-gen {
+        width: 94vw;
+        max-width: 94vw;
+    }
+    .img-gen-split,
+    .img-gen-split.preview-collapsed {
+        grid-template-columns: 1fr;
+    }
+    .img-gen-preview-panel.is-collapsed .img-gen-preview-head {
+        min-height: 40px;
+        flex-direction: row;
+        border-bottom: 1px solid var(--border);
+    }
+    .img-gen-preview-panel.is-collapsed .img-gen-preview-title {
+        writing-mode: horizontal-tb;
+        letter-spacing: 1.2px;
+    }
+}
+
+:root[data-theme='light'] .img-gen-preview-panel {
+    background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.54));
+}
+:root[data-theme='light'] .img-gen-preview-placeholder {
+    background: rgba(43,99,216,0.02);
+}
+:root[data-theme='light'] .img-gen-preview-panel.is-running::before {
+    border-color: rgba(43,99,216,0.48);
+    box-shadow: 0 0 0 1px rgba(43,99,216,0.12), 0 0 20px rgba(43,99,216,0.18);
+}
+:root[data-theme='light'] .img-gen-preview-panel.is-running::after {
+    background: linear-gradient(110deg, transparent, rgba(43,99,216,0.28), transparent);
+}

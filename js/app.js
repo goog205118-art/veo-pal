@@ -913,6 +913,7 @@ viewport.addEventListener('drop', async (e) => {
                 resultUrl: null,
                 resultBlob: null,
                 resultBlobs: [],
+                previewCollapsed: false,
                 channel: 'channel_1',
                 autoRetry: false
             },
@@ -1359,24 +1360,21 @@ function generateCardHTML(task) {
         const isFailed = task.status === 'failed';
         const isPro = task.state.version === 'pro';
         const isChannel2 = task.state.channel === 'channel_2';
+        const previewCollapsed = task.state.previewCollapsed === true;
         const resolvedSize = resolveImgGenSize(task.state);
         const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
         const resultBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
             ? task.state.resultBlobs
             : (task.state.resultBlob ? [task.state.resultBlob] : []);
-        const resultHtml = task.status === 'success' && resultBlobs.length > 0
-            ? `<div class="img-gen-result-grid">${
-                resultBlobs.map((blob, idx) => `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
-            }</div>`
-            : '';
+        const hasResult = task.status === 'success' && resultBlobs.length > 0;
+
         let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
         if (task.state.images.length < 5) {
             slotsHtml += `<div class="img-gen-slot img-gen-slot-add" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
         }
-        let costTxt = task.state.costTime ? `<span class="img-gen-runtime">⏱ ${task.state.costTime}s</span>` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span> ${costTxt}`;
-        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
 
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span> ${task.state.costTime ? `<span class="img-gen-runtime">⏱ ${task.state.costTime}s</span>` : ''}`;
+        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
         if (isProcessing) {
             btnContent = `
                 <div class="img-gen-processing-wrap">
@@ -1387,13 +1385,10 @@ function generateCardHTML(task) {
                         </div>
                         <div class="veo-dynamic-timer img-gen-timer" data-start-time="${task.state.startTime || Date.now()}">00:00</div>
                     </div>
-                    <div class="img-gen-progress">
-                        <div class="img-gen-progress-bar"></div>
-                    </div>
+                    <div class="img-gen-progress"><div class="img-gen-progress-bar"></div></div>
                 </div>
             `;
         }
-
         if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
 
         let customRatioHtml = '';
@@ -1482,34 +1477,67 @@ function generateCardHTML(task) {
             </select>
         </div>`;
 
+        const previewGridHtml = hasResult
+            ? `<div class="img-gen-preview-grid">${
+                resultBlobs.map((blob, idx) => `<div class="img-gen-preview-item"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
+            }</div>`
+            : '';
+
+        let previewPlaceholderHtml = '';
+        if (!hasResult) {
+            if (isProcessing) {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-processing"><svg class="spinner" viewBox="0 0 50 50" style="width:30px;height:30px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg><div class="img-gen-preview-placeholder-title">正在生成图像...</div><div class="img-gen-preview-placeholder-sub">生成动效已绑定预览框</div></div>`;
+            } else if (isFailed) {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-failed"><span class="material-symbols-outlined" style="font-size:28px;">warning</span><div class="img-gen-preview-placeholder-title">本次生成失败</div><div class="img-gen-preview-placeholder-sub">请调整提示词或参数后重试</div></div>`;
+            } else {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">imagesmode</span><div class="img-gen-preview-placeholder-title">等待生成结果</div><div class="img-gen-preview-placeholder-sub">右侧常态预览面板</div></div>`;
+            }
+        }
+
+        const panelToggleIcon = previewCollapsed ? 'keyboard_arrow_left' : 'keyboard_arrow_right';
+        const panelToggleTip = previewCollapsed ? '展开预览面板' : '收纳预览面板';
+
         return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
-        <div class="img-gen-shell ${isProcessing ? 'is-running' : ''}">
-        <div class="img-gen-statusbar">
-            <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
-            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
-        </div>
-        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
-        <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
-        <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
-                <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
-                <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
-                <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
-                <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
-            </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
-                <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
-                <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
-            </select>
-        </div>
-        ${proControlsHtml}
-        ${customRatioHtml}
-        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
-        <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
-        ${isProcessing ? `<div class="img-gen-running-fx"><div class="img-gen-running-beam"></div><div class="img-gen-running-beam beam-2"></div></div>` : ''}
-        ${resultHtml}
+        <div class="img-gen-shell">
+            <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
+                <div class="img-gen-left">
+                    <div class="img-gen-statusbar">
+                        <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
+                        <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+                    </div>
+                    <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+                    <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
+                    <div class="img-gen-controls">
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                            <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
+                            <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
+                        </select>
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
+                            <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
+                            <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
+                        </select>
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
+                            <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
+                            <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
+                        </select>
+                    </div>
+                    ${proControlsHtml}
+                    ${customRatioHtml}
+                    <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
+                    <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
+                </div>
+                <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${isProcessing ? 'is-running' : ''}">
+                    <div class="img-gen-preview-head">
+                        <span class="img-gen-preview-title">OUTPUT</span>
+                        <button class="img-gen-preview-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${panelToggleTip}">
+                            <span class="material-symbols-outlined" style="font-size:16px;">${panelToggleIcon}</span>
+                        </button>
+                    </div>
+                    <div class="img-gen-preview-body">
+                        ${previewGridHtml || previewPlaceholderHtml}
+                    </div>
+                </aside>
+            </div>
         </div>`;
     }
 
@@ -1791,6 +1819,7 @@ function ensureImgGenState(task) {
     if (!task.state.prompt) task.state.prompt = '';
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
+    if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
@@ -1855,6 +1884,20 @@ function extractImageUrlsFromResponse(rawData) {
 function extractImageUrlFromResponse(rawData) {
     const list = extractImageUrlsFromResponse(rawData);
     return list.length > 0 ? list[0] : null;
+}
+
+async function toggleImgGenPreviewPanel(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const task = await getTaskDB(taskId);
+    if (!task) return;
+    ensureImgGenState(task);
+    task.state.previewCollapsed = !task.state.previewCollapsed;
+    task.timestamp = Date.now();
+    await saveTaskDB(task);
+    renderCard(taskId);
 }
 
 async function updateImgGenState(taskId, key, val) {
