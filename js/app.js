@@ -840,7 +840,12 @@ async function exportWorkspace() {
         const tasks = await getAllTasksDB(); const exportData = [];
         for (let t of tasks) {
             let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src);
-            if (clone.state) { if(clone.state.images) clone.state.images = await Promise.all(clone.state.images.map(b => blobToBase64(b))); if(clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob); if(clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob); }
+            if (clone.state) {
+                if (clone.state.images) clone.state.images = await Promise.all(clone.state.images.map(b => blobToBase64(b)));
+                if (Array.isArray(clone.state.resultBlobs)) clone.state.resultBlobs = await Promise.all(clone.state.resultBlobs.map(b => blobToBase64(b)));
+                if (clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob);
+                if (clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob);
+            }
             if (clone.rawImages) { if (clone.rawImages.firstFrame) clone.rawImages.firstFrame = await blobToBase64(clone.rawImages.firstFrame); if (clone.rawImages.lastFrame) clone.rawImages.lastFrame = await blobToBase64(clone.rawImages.lastFrame); if (clone.rawImages.references) clone.rawImages.references = await Promise.all(clone.rawImages.references.map(b => blobToBase64(b))); }
             exportData.push(clone);
         }
@@ -857,7 +862,14 @@ async function importWorkspace(input) {
             if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
                 for (let t of data) {
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
-                    if (t.state) { if(t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); if(t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob()); if(t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob()); }
+                    if (t.state) {
+                        if (t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
+                        if (Array.isArray(t.state.resultBlobs)) {
+                            t.state.resultBlobs = await Promise.all(t.state.resultBlobs.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
+                        }
+                        if (t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob());
+                        if (t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob());
+                    }
                     if (t.rawImages) { if (typeof t.rawImages.firstFrame === 'string') t.rawImages.firstFrame = await fetch(t.rawImages.firstFrame).then(r => r.blob()); if (typeof t.rawImages.lastFrame === 'string') t.rawImages.lastFrame = await fetch(t.rawImages.lastFrame).then(r => r.blob()); if (t.rawImages.references) t.rawImages.references = await Promise.all(t.rawImages.references.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); }
                     await saveTaskDB(t);
                 }
@@ -885,15 +897,18 @@ viewport.addEventListener('drop', async (e) => {
             state: {
                 version: 'trial',
                 providerSort: 'quality',
-                quality: 'high',
+                quality: 'auto',
                 format: 'png',
                 n: 1,
                 size: '1024x1024',
+                background: 'auto',
+                moderation: 'auto',
                 prompt: '',
                 images: [],
                 maskImage: null,
                 resultUrl: null,
                 resultBlob: null,
+                resultBlobs: [],
                 channel: 'channel_1',
                 autoRetry: false
             },
@@ -920,7 +935,11 @@ async function parseDroppedImage(e) {
             if (t) {
                 if (meta.type === 'local') srcToUse = t.src;
                 else if (meta.type === 'thumb') srcToUse = t.rawImages?.firstFrame || (t.rawImages?.references && t.rawImages.references[0]);
-                else if (meta.type === 'gen_result') srcToUse = t.state?.resultBlob;
+                else if (meta.type === 'gen_result') {
+                    const idx = Number.isFinite(Number(meta.index)) ? Number(meta.index) : 0;
+                    if (Array.isArray(t.state?.resultBlobs) && t.state.resultBlobs[idx]) srcToUse = t.state.resultBlobs[idx];
+                    else srcToUse = t.state?.resultBlob;
+                }
                 else if (meta.type === 'crop_result') srcToUse = t.state?.resultBlob;
             }
         }
@@ -1337,7 +1356,14 @@ function generateCardHTML(task) {
         const isPro = task.state.version === 'pro';
         const isChannel2 = task.state.channel === 'channel_2';
         const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
-        const resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>` : '';
+        const resultBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
+            ? task.state.resultBlobs
+            : (task.state.resultBlob ? [task.state.resultBlob] : []);
+        const resultHtml = task.status === 'success' && resultBlobs.length > 0
+            ? `<div class="img-gen-result-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">${
+                resultBlobs.map((blob, idx) => `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
+            }</div>`
+            : '';
         let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
         if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
         let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">⏱️ ${task.state.costTime}s</span>` : '';
@@ -1395,17 +1421,23 @@ function generateCardHTML(task) {
             </select>
         </div>
         <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="选择图像生成比例">
-                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1:1</option>
-                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>3:2</option>
-                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>2:3</option>
-                <option value="" ${task.state.size===''?'selected':''}>自定义</option>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="分辨率 / 尺寸选项">
+                <option value="auto" ${task.state.size==='auto'?'selected':''}>Auto</option>
+                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1024x1024</option>
+                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>1536x1024</option>
+                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>1024x1536</option>
+                <option value="2048x2048" ${task.state.size==='2048x2048'?'selected':''}>2048x2048</option>
+                <option value="2048x1152" ${task.state.size==='2048x1152'?'selected':''}>2048x1152</option>
+                <option value="3840x2160" ${task.state.size==='3840x2160'?'selected':''}>3840x2160</option>
+                <option value="2160x3840" ${task.state.size==='2160x3840'?'selected':''}>2160x3840</option>
+                <option value="" ${task.state.size===''?'selected':''}>自定义比例</option>
             </select>
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：质量优先或速度优先">
                 <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
                 <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
             </select>
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：输出质量">
+                <option value="auto" ${task.state.quality==='auto'?'selected':''}>自动质量</option>
                 <option value="high" ${task.state.quality==='high'?'selected':''}>高质量</option>
                 <option value="medium" ${task.state.quality==='medium'?'selected':''}>中质量</option>
                 <option value="low" ${task.state.quality==='low'?'selected':''}>低质量</option>
@@ -1415,11 +1447,28 @@ function generateCardHTML(task) {
                 <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
                 <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
             </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：单次返回张数">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：单次返回张数 (1-10)">
                 <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
                 <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
                 <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
                 <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
+                <option value="5" ${String(task.state.n)==='5'?'selected':''}>5张</option>
+                <option value="6" ${String(task.state.n)==='6'?'selected':''}>6张</option>
+                <option value="7" ${String(task.state.n)==='7'?'selected':''}>7张</option>
+                <option value="8" ${String(task.state.n)==='8'?'selected':''}>8张</option>
+                <option value="9" ${String(task.state.n)==='9'?'selected':''}>9张</option>
+                <option value="10" ${String(task.state.n)==='10'?'selected':''}>10张</option>
+            </select>
+        </div>
+        <div class="img-gen-controls">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：背景模式">
+                <option value="auto" ${task.state.background==='auto'?'selected':''}>背景 auto</option>
+                <option value="transparent" ${task.state.background==='transparent'?'selected':''}>背景 transparent</option>
+                <option value="opaque" ${task.state.background==='opaque'?'selected':''}>背景 opaque</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'moderation', this.value)" style="${isPro ? '' : 'opacity:0.45;'}" ${isPro ? '' : 'disabled'} data-tip="专业版：内容审核级别">
+                <option value="auto" ${task.state.moderation==='auto'?'selected':''}>审核 auto</option>
+                <option value="low" ${task.state.moderation==='low'?'selected':''}>审核 low</option>
             </select>
         </div>
         ${customRatioHtml}
@@ -1548,6 +1597,7 @@ async function duplicateTask(originalTask, mouseEvent) {
             ensureImgGenState(clone);
             clone.status = 'idle';
             clone.state.resultBlob = null;
+            clone.state.resultBlobs = [];
             clone.state.resultUrl = null;
             clone.state.maskImage = null;
             clone.retryCount = 0;
@@ -1610,15 +1660,19 @@ function ensureImgGenState(task) {
     if (!Array.isArray(task.state.images)) task.state.images = [];
     if (!task.state.version) task.state.version = 'trial';
     if (!task.state.providerSort) task.state.providerSort = 'quality';
-    if (!task.state.quality) task.state.quality = 'high';
+    if (!task.state.quality) task.state.quality = 'auto';
     if (!task.state.format) task.state.format = 'png';
+    if (!task.state.background) task.state.background = 'auto';
+    if (!task.state.moderation) task.state.moderation = 'auto';
     const parsedN = parseInt(task.state.n, 10);
-    task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 4) : 1;
+    task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.prompt) task.state.prompt = '';
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
+    if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
+    if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
 }
 
 function resolveImgGenMode(state) {
@@ -1636,28 +1690,49 @@ function buildImgGenHeaders() {
     return headers;
 }
 
-function extractImageUrlFromResponse(rawData) {
+function extractImageUrlsFromResponse(rawData) {
     const resData = Array.isArray(rawData) ? rawData[0] : rawData;
-    if (!resData) return null;
-    if (typeof resData === 'string' && (resData.startsWith('http://') || resData.startsWith('https://'))) return resData;
-    if (resData.imageUrl) return resData.imageUrl;
-    if (resData.url) return resData.url;
+    if (!resData) return [];
+    const urls = [];
+    const pushIf = (u) => {
+        if (!u || typeof u !== 'string') return;
+        const v = u.trim();
+        if (!v) return;
+        if (!urls.includes(v)) urls.push(v);
+    };
+    const fmt = (resData.output_format || resData.format || 'png').toString().toLowerCase();
+    const toDataUrl = (b64) => `data:image/${fmt};base64,${b64}`;
+
+    if (typeof resData === 'string' && (resData.startsWith('http://') || resData.startsWith('https://') || resData.startsWith('data:image'))) pushIf(resData);
+    if (resData.imageUrl) pushIf(resData.imageUrl);
+    if (resData.url) pushIf(resData.url);
     if (resData.output && Array.isArray(resData.output) && resData.output[0]) {
-        if (typeof resData.output[0] === 'string') return resData.output[0];
-        if (resData.output[0].url) return resData.output[0].url;
+        for (const outItem of resData.output) {
+            if (typeof outItem === 'string') pushIf(outItem);
+            else if (outItem && outItem.url) pushIf(outItem.url);
+        }
     }
     if (resData.images && Array.isArray(resData.images) && resData.images[0]) {
-        if (typeof resData.images[0] === 'string') return resData.images[0];
-        if (resData.images[0].url) return resData.images[0].url;
+        for (const imgItem of resData.images) {
+            if (typeof imgItem === 'string') pushIf(imgItem);
+            else if (imgItem && imgItem.url) pushIf(imgItem.url);
+        }
     }
     if (resData.data && Array.isArray(resData.data) && resData.data[0]) {
-        if (typeof resData.data[0] === 'string') return resData.data[0];
-        if (resData.data[0].url) return resData.data[0].url;
-        if (resData.data[0].b64_json) return 'data:image/png;base64,' + resData.data[0].b64_json;
+        for (const d of resData.data) {
+            if (typeof d === 'string') pushIf(d);
+            else if (d && d.url) pushIf(d.url);
+            else if (d && d.b64_json) pushIf(toDataUrl(d.b64_json));
+        }
     }
-    if (resData.result && resData.result.url) return resData.result.url;
-    if (resData.body && resData.body.imageUrl) return resData.body.imageUrl;
-    return null;
+    if (resData.result && resData.result.url) pushIf(resData.result.url);
+    if (resData.body && resData.body.imageUrl) pushIf(resData.body.imageUrl);
+    return urls;
+}
+
+function extractImageUrlFromResponse(rawData) {
+    const list = extractImageUrlsFromResponse(rawData);
+    return list.length > 0 ? list[0] : null;
 }
 
 async function updateImgGenState(taskId, key, val) {
@@ -1666,7 +1741,7 @@ async function updateImgGenState(taskId, key, val) {
     ensureImgGenState(task);
     if (key === 'n') {
         const n = parseInt(val, 10);
-        task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 4) : 1;
+        task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
     } else {
         task.state[key] = val;
     }
@@ -1738,6 +1813,8 @@ async function submitImgGen(taskId) {
     task.status = 'processing';
     task.retryCount = 0;
     task.isBilled = false;
+    task.state.resultBlob = null;
+    task.state.resultBlobs = [];
     task.state.startTime = Date.now();
     await saveTaskDB(task);
     renderCard(taskId);
@@ -1753,7 +1830,7 @@ async function submitImgGen(taskId) {
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
     const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
-    const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 4) : 1;
+    const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 10) : 1;
 
     const unifiedPayloadCore = {
         version: version,
@@ -1762,8 +1839,12 @@ async function submitImgGen(taskId) {
         prompt: finalPrompt,
         size: task.state.size,
         providerSort: task.state.providerSort || 'quality',
-        quality: task.state.quality || 'high',
+        provider: { sort: task.state.providerSort || 'quality' },
+        quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
+        output_format: task.state.format || 'png',
+        background: task.state.background || 'auto',
+        moderation: task.state.moderation || 'auto',
         n: nValue,
         images: imagesBase64,
         mask: maskBase64
@@ -1780,6 +1861,13 @@ async function submitImgGen(taskId) {
         prompt: finalPrompt,
         size: task.state.size,
         channel: task.state.channel || 'channel_1',
+        n: nValue,
+        quality: task.state.quality || 'auto',
+        format: task.state.format || 'png',
+        output_format: task.state.format || 'png',
+        background: task.state.background || 'auto',
+        moderation: task.state.moderation || 'auto',
+        providerSort: task.state.providerSort || 'quality',
         images: imagesBase64
     };
 
@@ -1822,12 +1910,23 @@ async function submitImgGen(taskId) {
             }
 
             const resData = Array.isArray(rawData) ? rawData[0] : rawData;
-            const returnedUrl = extractImageUrlFromResponse(rawData);
+            const returnedUrls = extractImageUrlsFromResponse(rawData);
 
-            if (returnedUrl) {
-                const imgBlob = await fetch(returnedUrl).then(r => r.blob());
+            if (returnedUrls.length > 0) {
+                const resultBlobs = [];
+                for (const u of returnedUrls) {
+                    try {
+                        const r = await fetch(u);
+                        if (!r.ok) throw new Error('fetch image failed');
+                        resultBlobs.push(await r.blob());
+                    } catch (fetchErr) {
+                        // CORS/临时 URL 失败时回退成原始 URL 字符串，仍可预览与复用
+                        resultBlobs.push(u);
+                    }
+                }
                 task.status = 'success';
-                task.state.resultBlob = imgBlob;
+                task.state.resultBlobs = resultBlobs;
+                task.state.resultBlob = resultBlobs[0] || null;
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
                 task.timestamp = Date.now();
                 success = true;
