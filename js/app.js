@@ -935,6 +935,7 @@ viewport.addEventListener('drop', async (e) => {
                 format: 'png',
                 n: 1,
                 size: '1024x1024',
+                trialRatio: '1:1',
                 proRatio: '1:1',
                 proResolution: '1k',
                 customW: 9,
@@ -1439,7 +1440,7 @@ function generateCardHTML(task) {
         if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
 
         let customRatioHtml = '';
-        const showCustomRatio = (!isPro && task.state.size === '') || (isPro && task.state.proRatio === 'custom');
+        const showCustomRatio = (!isPro && task.state.trialRatio === 'custom') || (isPro && task.state.proRatio === 'custom');
         if (showCustomRatio) {
             const w = task.state.customW || 9;
             const h = task.state.customH || 16;
@@ -1511,16 +1512,16 @@ function generateCardHTML(task) {
             <div class="img-gen-size-chip">输出尺寸: ${resolvedSize}</div>
         </div>`
             : `<div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="试用版：分辨率/比例选项">
-                <option value="auto" ${task.state.size==='auto'?'selected':''}>Auto</option>
-                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1024x1024</option>
-                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>1536x1024</option>
-                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>1024x1536</option>
-                <option value="2048x2048" ${task.state.size==='2048x2048'?'selected':''}>2048x2048</option>
-                <option value="2048x1152" ${task.state.size==='2048x1152'?'selected':''}>2048x1152</option>
-                <option value="3840x2160" ${task.state.size==='3840x2160'?'selected':''}>3840x2160</option>
-                <option value="2160x3840" ${task.state.size==='2160x3840'?'selected':''}>2160x3840</option>
-                <option value="" ${task.state.size===''?'selected':''}>自定义比例</option>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'trialRatio', this.value)" data-tip="试用版：分辨率固定 1K，仅按比例调整构图">
+                <option value="1:1" ${task.state.trialRatio==='1:1'?'selected':''}>比例 1:1</option>
+                <option value="3:2" ${task.state.trialRatio==='3:2'?'selected':''}>比例 3:2</option>
+                <option value="2:3" ${task.state.trialRatio==='2:3'?'selected':''}>比例 2:3</option>
+                <option value="16:9" ${task.state.trialRatio==='16:9'?'selected':''}>比例 16:9</option>
+                <option value="9:16" ${task.state.trialRatio==='9:16'?'selected':''}>比例 9:16</option>
+                <option value="custom" ${task.state.trialRatio==='custom'?'selected':''}>自定义比例</option>
+            </select>
+            <select class="img-gen-select" disabled data-tip="试用版分辨率固定为 1K">
+                <option selected>分辨率 1K (锁定)</option>
             </select>
         </div>`;
 
@@ -1559,7 +1560,7 @@ function generateCardHTML(task) {
                     <div class="img-gen-input-body">
                         <div class="img-gen-statusbar">
                             <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
-                            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `尺寸 ${task.state.size || 'custom'}`}</span>
+                            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `${(task.state.trialRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : (task.state.trialRatio || '1:1')} / 1K`}</span>
                         </div>
                         <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
                         <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
@@ -1849,7 +1850,11 @@ function buildCustomSizeByResolution(customW, customH, proResolution) {
 function resolveImgGenSize(state) {
     if (!state || typeof state !== 'object') return '1024x1024';
     if (state.version !== 'pro') {
-        if (typeof state.size === 'string') return state.size;
+        const trialRatio = state.trialRatio || '1:1';
+        if (trialRatio === 'custom') return buildCustomSizeByResolution(state.customW, state.customH, '1k');
+        const preset = IMG_GEN_PRO_SIZE_PRESETS[trialRatio];
+        if (preset && preset['1k']) return preset['1k'];
+        if (typeof state.size === 'string' && state.size.trim()) return state.size;
         return '1024x1024';
     }
     const ratio = state.proRatio || '1:1';
@@ -1874,6 +1879,17 @@ function ensureImgGenState(task) {
     const parsedN = parseInt(task.state.n, 10);
     task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
+    if (!task.state.trialRatio) {
+        if (task.state.size === '') {
+            task.state.trialRatio = 'custom';
+        } else {
+            const trialDetected = detectProPresetFromSize(task.state.size);
+            task.state.trialRatio = (trialDetected.proRatio && trialDetected.proRatio !== 'auto') ? trialDetected.proRatio : '1:1';
+        }
+    }
+    if (!['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(task.state.trialRatio)) {
+        task.state.trialRatio = '1:1';
+    }
     if (!task.state.proRatio) task.state.proRatio = '1:1';
     if (!task.state.proResolution) task.state.proResolution = '1k';
     const ratioCustomW = parseInt(task.state.customW, 10);
@@ -1891,6 +1907,8 @@ function ensureImgGenState(task) {
         const detected = detectProPresetFromSize(task.state.size);
         if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
         if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+        task.state.size = resolveImgGenSize(task.state);
+    } else {
         task.state.size = resolveImgGenSize(task.state);
     }
 }
@@ -1986,6 +2004,10 @@ async function updateImgGenState(taskId, key, val) {
         const parsed = parseInt(val, 10);
         task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
         if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+        if (task.state.version !== 'pro' && task.state.trialRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'trialRatio') {
+        task.state.trialRatio = ['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(String(val)) ? String(val) : '1:1';
+        task.state.size = resolveImgGenSize(task.state);
     } else if (key === 'version') {
         const nextVersion = val === 'pro' ? 'pro' : 'trial';
         task.state.version = nextVersion;
@@ -1994,6 +2016,8 @@ async function updateImgGenState(taskId, key, val) {
             if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
             if (detected.proResolution) task.state.proResolution = detected.proResolution;
             task.state.size = resolveImgGenSize(task.state);
+        } else {
+            task.state.size = resolveImgGenSize(task.state);
         }
     } else if (key === 'size') {
         task.state.size = val;
@@ -2001,6 +2025,13 @@ async function updateImgGenState(taskId, key, val) {
             const detected = detectProPresetFromSize(val);
             if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
             task.state.proResolution = detected.proResolution;
+        } else {
+            if (val === '') task.state.trialRatio = 'custom';
+            else {
+                const trialDetected = detectProPresetFromSize(val);
+                if (trialDetected.proRatio && trialDetected.proRatio !== 'auto') task.state.trialRatio = trialDetected.proRatio;
+            }
+            task.state.size = resolveImgGenSize(task.state);
         }
     } else {
         task.state[key] = val;
@@ -2086,13 +2117,11 @@ async function submitImgGen(taskId) {
     let finalPrompt = task.state.prompt;
     const trialCustomW = task.state.customW || 9;
     const trialCustomH = task.state.customH || 16;
-    const trialCustomRatio = (version !== 'pro' && task.state.size === '') ? `${trialCustomW}:${trialCustomH}` : '';
-    const trialSizeToSend = version === 'pro'
-        ? resolvedSize
-        : (task.state.size === '' ? 'auto' : (typeof task.state.size === 'string' && task.state.size.trim() ? task.state.size : '1024x1024'));
+    const trialCustomRatio = (version !== 'pro' && task.state.trialRatio === 'custom') ? `${trialCustomW}:${trialCustomH}` : '';
+    const trialSizeToSend = resolvedSize;
     if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
 
-    if (version === 'pro') task.state.size = resolvedSize;
+    task.state.size = resolvedSize;
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
     const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
