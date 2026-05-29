@@ -1147,6 +1147,11 @@ body.app-shell-ready .floating-console:not(.minimized) {
     width: 360px;
     max-width: min(92vw, 360px);
     overflow: visible;
+    position: relative;
+    z-index: 40;
+    content-visibility: visible;
+    contain: none;
+    contain-intrinsic-size: auto;
 }
 .img-gen-shell {
     gap: 0;
@@ -1207,9 +1212,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
     position: absolute;
     left: calc(100% + 12px);
     top: 0;
+    bottom: 0;
     width: 320px;
-    height: 100%;
-    min-height: 360px;
+    min-height: 340px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
@@ -1217,7 +1222,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
     display: flex;
     flex-direction: column;
     min-width: 320px;
-    z-index: 12;
+    z-index: 46;
     box-shadow: 0 18px 38px rgba(0,0,0,0.55);
     transition: opacity 0.22s ease, transform 0.24s ease, background 0.24s ease;
 }
