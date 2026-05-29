@@ -1152,6 +1152,11 @@ body.app-shell-ready .floating-console:not(.minimized) {
     content-visibility: visible;
     contain: none;
     contain-intrinsic-size: auto;
+    transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tool-image-gen.is-preview-open {
+    width: 679px;
+    max-width: min(92vw, 679px);
 }
 .img-gen-shell {
     gap: 0;
@@ -1175,6 +1180,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
     display: flex;
     flex-direction: column;
     gap: 0;
+    width: 340px;
+    max-width: 340px;
+    flex: 0 0 340px;
     min-width: 0;
     border: 1px solid var(--border);
     border-radius: 14px;
@@ -1240,7 +1248,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
 
 .img-gen-preview-panel {
     position: absolute;
-    left: calc(100% - 1px);
+    left: 339px;
     top: 0;
     bottom: 0;
     width: 320px;
@@ -1436,9 +1444,18 @@ body.app-shell-ready .floating-console:not(.minimized) {
         width: 94vw;
         max-width: 94vw;
     }
+    .tool-image-gen.is-preview-open {
+        width: 94vw;
+        max-width: 94vw;
+    }
     .img-gen-split {
         display: flex;
         flex-direction: column;
+    }
+    .img-gen-left {
+        width: 100%;
+        max-width: 100%;
+        flex: 1 1 auto;
     }
     .img-gen-preview-panel {
         position: relative;

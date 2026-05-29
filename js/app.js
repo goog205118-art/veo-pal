@@ -970,12 +970,21 @@ async function parseDroppedImage(e) {
 // ==========================================
 // 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
 // ==========================================
+function applyImgGenCardFrame(cardEl, task) {
+    if (!cardEl || !task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    const isOpen = task.state.previewCollapsed !== true;
+    cardEl.classList.toggle('is-preview-open', isOpen);
+    cardEl.style.width = isOpen ? '679px' : '360px';
+}
+
 async function renderCard(taskId) {
     const task = await getTaskDB(taskId); if (!task) return;
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
     // 仅重绘当前的这一张卡片
     cardEl.innerHTML = generateCardHTML(task);
+    applyImgGenCardFrame(cardEl, task);
     bindCardDrag(cardEl, task);
 
     // 同步追踪属性，防止后续被误刷
@@ -985,6 +994,7 @@ async function renderCard(taskId) {
     const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
     const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
+    const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
 
     cardEl.setAttribute('data-sync-status', task.status || 'static');
     cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
@@ -994,6 +1004,7 @@ async function renderCard(taskId) {
     cardEl.setAttribute('data-sync-crop-res', cropRes);
     cardEl.setAttribute('data-sync-channel', currentChannel);
     cardEl.setAttribute('data-sync-version', currentVersion);
+    cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
 }
@@ -1591,7 +1602,7 @@ async function renderBoard() {
 
     boardTasks.forEach(task => {
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial'; 
+        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na'; 
         
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
@@ -1608,6 +1619,7 @@ async function renderBoard() {
             else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
             
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; cardEl.innerHTML = generateCardHTML(task); board.appendChild(cardEl); 
+            applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
@@ -1620,19 +1632,20 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
             
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'); 
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'); 
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
                 cardEl.innerHTML = generateCardHTML(task); 
             }
+            applyImgGenCardFrame(cardEl, task);
         }
 
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
 
         bindCardDrag(cardEl, task);
         
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); 
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
