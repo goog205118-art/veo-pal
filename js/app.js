@@ -974,8 +974,10 @@ function applyImgGenCardFrame(cardEl, task) {
     if (!cardEl || !task || task.type !== 'tool_image_gen') return;
     ensureImgGenState(task);
     const isOpen = task.state.previewCollapsed !== true;
+    const collapsedWidth = 360;
+    const expandedWidth = 680;
     cardEl.classList.toggle('is-preview-open', isOpen);
-    cardEl.style.width = isOpen ? '679px' : '360px';
+    cardEl.style.width = `${isOpen ? expandedWidth : collapsedWidth}px`;
 }
 
 async function renderCard(taskId) {
