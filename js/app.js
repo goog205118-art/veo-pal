@@ -1757,35 +1757,25 @@ async function duplicateTask(originalTask, mouseEvent) {
         if (Array.isArray(originalTask.rawImages.references)) clone.rawImages.references = [...originalTask.rawImages.references];
     }
 
-    // 先给一个明显偏移，保证不是“重叠到看不见”
+    // 默认从原卡原位开始（不做固定偏移），后续按鼠标位移精确跟随
     const originX = Number(originalTask && originalTask.x);
     const originY = Number(originalTask && originalTask.y);
     const baseX = Number.isFinite(originX) ? originX : 0;
     const baseY = Number.isFinite(originY) ? originY : 0;
-    clone.x = baseX + 40;
-    clone.y = baseY + 40;
+    clone.x = baseX;
+    clone.y = baseY;
 
-    // 使用“抓取锚点”放置克隆：无论异步渲染耗时多久，都保持贴着鼠标
-    let grabOffsetX = 28;
-    let grabOffsetY = 20;
-    if (mouseEvent && Number.isFinite(transform.scale) && transform.scale !== 0) {
-        const vRect = viewport && typeof viewport.getBoundingClientRect === 'function'
-            ? viewport.getBoundingClientRect()
-            : { left: 0, top: 0 };
-        const pointerBoardAtStartX = ((mouseEvent.clientX - vRect.left) - transform.x) / transform.scale;
-        const pointerBoardAtStartY = ((mouseEvent.clientY - vRect.top) - transform.y) / transform.scale;
-        if (Number.isFinite(pointerBoardAtStartX) && Number.isFinite(pointerBoardAtStartY)) {
-            grabOffsetX = pointerBoardAtStartX - baseX;
-            grabOffsetY = pointerBoardAtStartY - baseY;
-        }
-        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : mouseEvent.clientX;
-        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : mouseEvent.clientY;
-        const pointerBoardNowX = ((currentClientX - vRect.left) - transform.x) / transform.scale;
-        const pointerBoardNowY = ((currentClientY - vRect.top) - transform.y) / transform.scale;
-        if (Number.isFinite(pointerBoardNowX) && Number.isFinite(pointerBoardNowY)) {
-            clone.x = pointerBoardNowX - grabOffsetX;
-            clone.y = pointerBoardNowY - grabOffsetY;
-        }
+    // 使用“鼠标位移 delta”计算克隆落点，避免坐标系换算误差导致瞬移/下坠堆叠
+    if (mouseEvent) {
+        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
+        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
+        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
+        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
+        const deltaBoardX = (currentClientX - startClientX) / scaleSafe;
+        const deltaBoardY = (currentClientY - startClientY) / scaleSafe;
+        clone.x = baseX + deltaBoardX;
+        clone.y = baseY + deltaBoardY;
     }
 
     await saveTaskDB(clone);
