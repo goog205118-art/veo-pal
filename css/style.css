@@ -1520,6 +1520,131 @@ body.app-shell-ready .floating-console:not(.minimized) {
 .img-gen-upload-note { padding: 0; }
 .img-gen-controls { padding: 0; }
 .img-gen-custom-ratio { padding: 0; }
+.img-gen-mask-block {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+}
+.img-gen-mask-block.is-active {
+    border-color: rgba(94,156,255,0.38);
+    box-shadow: 0 0 0 1px rgba(94,156,255,0.14) inset;
+}
+.img-gen-mask-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.img-gen-mask-btn {
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-sub);
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.img-gen-mask-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: rgba(94,156,255,0.42);
+    background: rgba(94,156,255,0.08);
+}
+.img-gen-mask-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.img-gen-mask-brush {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-sub);
+    margin-left: auto;
+}
+.img-gen-mask-brush input[type='range'] {
+    width: 92px;
+}
+.img-gen-mask-brush span {
+    min-width: 38px;
+    text-align: right;
+    font-family: monospace;
+    color: var(--text-main);
+}
+.img-gen-mask-pill {
+    height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    color: var(--text-sub);
+    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    letter-spacing: 0.2px;
+}
+.img-gen-mask-pill.is-ready {
+    color: var(--success);
+    border-color: rgba(50,215,75,0.28);
+    background: rgba(50,215,75,0.09);
+}
+.img-gen-mask-editor-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.img-gen-mask-stage {
+    position: relative;
+    width: 100%;
+    min-height: 160px;
+    max-height: 220px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: rgba(0,0,0,0.25);
+    user-select: none;
+}
+.img-gen-mask-base {
+    width: 100%;
+    height: auto;
+    display: block;
+    pointer-events: none;
+}
+.img-gen-mask-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    touch-action: none;
+    background: transparent;
+}
+.img-gen-mask-tip {
+    font-size: 10px;
+    color: var(--text-sub);
+    opacity: 0.88;
+}
+.img-gen-mask-empty {
+    min-height: 110px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    color: var(--text-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    text-align: center;
+    padding: 10px;
+}
 
 .img-gen-preview-panel {
     position: relative;
@@ -1814,4 +1939,17 @@ body.app-shell-ready .floating-console:not(.minimized) {
 :root[data-theme='light'] .img-gen-preview-panel.is-running::before {
     border-color: rgba(43,99,216,0.26);
     box-shadow: 0 0 0 1px rgba(43,99,216,0.08), 0 0 12px rgba(43,99,216,0.12);
+}
+:root[data-theme='light'] .img-gen-mask-block {
+    background: #f6f9ff;
+    border-color: rgba(43,99,216,0.16);
+}
+:root[data-theme='light'] .img-gen-mask-stage {
+    background: #eaf2ff;
+}
+:root[data-theme='light'] .img-gen-mask-btn {
+    background: #ffffff;
+}
+:root[data-theme='light'] .img-gen-mask-empty {
+    background: #f8fbff;
 }

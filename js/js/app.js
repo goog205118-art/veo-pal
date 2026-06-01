@@ -331,6 +331,7 @@ const imgGenPollControllers = new Map();
 const imgGenPollTimers = new Map();
 const taskShadowCache = new Map();
 const imgGenUpdateQueues = new Map();
+const imgMaskEditorInstances = new Map();
 
 function cssEscapeSafe(id) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
@@ -662,6 +663,285 @@ function queueImgGenTaskUpdate(taskId, runner) {
         if (imgGenUpdateQueues.get(taskId) === next) imgGenUpdateQueues.delete(taskId);
     });
     return next;
+}
+
+function resolveTaskIdFromCardElement(cardEl) {
+    if (!cardEl || !cardEl.id || !String(cardEl.id).startsWith('card-')) return '';
+    return String(cardEl.id).slice(5);
+}
+
+function stopMaskEditorEvent(event, needPreventDefault = false) {
+    if (!event) return;
+    if (needPreventDefault && typeof event.preventDefault === 'function') event.preventDefault();
+    if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+}
+
+class ImgMaskEditor {
+    constructor(options = {}) {
+        this.taskId = options.taskId || '';
+        this.stageEl = options.stageEl || null;
+        this.baseImgEl = options.baseImgEl || null;
+        this.canvasEl = options.canvasEl || null;
+        this.sourceRef = options.sourceRef || null;
+        this.initialMask = options.initialMask || null;
+        this.brushSize = Math.max(4, Math.min(128, toFiniteNumber(options.brushSize, 20)));
+        this.ctx = null;
+        this.isDrawing = false;
+        this.pointerId = null;
+        this.hasStroke = !!options.hasStroke;
+        this.listeners = [];
+    }
+
+    _listen(target, type, handler, options) {
+        if (!target || typeof target.addEventListener !== 'function') return;
+        target.addEventListener(type, handler, options);
+        this.listeners.push({ target, type, handler, options });
+    }
+
+    _releaseAllListeners() {
+        this.listeners.forEach((item) => {
+            if (!item || !item.target || typeof item.target.removeEventListener !== 'function') return;
+            item.target.removeEventListener(item.type, item.handler, item.options);
+        });
+        this.listeners = [];
+    }
+
+    async _waitImageReady() {
+        const imgEl = this.baseImgEl;
+        if (!imgEl) return false;
+        if (imgEl.complete && toFiniteNumber(imgEl.naturalWidth || imgEl.width, 0) > 0) return true;
+        return new Promise((resolve) => {
+            const done = (ok) => {
+                imgEl.removeEventListener('load', onLoad);
+                imgEl.removeEventListener('error', onError);
+                resolve(ok);
+            };
+            const onLoad = () => done(true);
+            const onError = () => done(false);
+            imgEl.addEventListener('load', onLoad, { once: true });
+            imgEl.addEventListener('error', onError, { once: true });
+            setTimeout(() => done(imgEl.complete && toFiniteNumber(imgEl.naturalWidth || imgEl.width, 0) > 0), 1800);
+        });
+    }
+
+    _getCanvasPoint(event) {
+        const rect = this.canvasEl && typeof this.canvasEl.getBoundingClientRect === 'function'
+            ? this.canvasEl.getBoundingClientRect()
+            : null;
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        const clientX = toFiniteNumber(event && event.clientX, NaN);
+        const clientY = toFiniteNumber(event && event.clientY, NaN);
+        if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+        const scaleX = this.canvasEl.width / rect.width;
+        const scaleY = this.canvasEl.height / rect.height;
+        return {
+            x: Math.max(0, Math.min(this.canvasEl.width, (clientX - rect.left) * scaleX)),
+            y: Math.max(0, Math.min(this.canvasEl.height, (clientY - rect.top) * scaleY))
+        };
+    }
+
+    _bindDrawEvents() {
+        if (!this.canvasEl || !this.ctx) return;
+        const sharedStop = (event) => stopMaskEditorEvent(event, true);
+
+        this._listen(this.stageEl, 'mousedown', (event) => stopMaskEditorEvent(event, true), true);
+        this._listen(this.stageEl, 'mouseup', (event) => stopMaskEditorEvent(event, false), true);
+        this._listen(this.stageEl, 'click', (event) => stopMaskEditorEvent(event, false), true);
+        this._listen(this.stageEl, 'dblclick', (event) => stopMaskEditorEvent(event, false), true);
+        this._listen(this.stageEl, 'contextmenu', (event) => stopMaskEditorEvent(event, true), true);
+        this._listen(this.stageEl, 'wheel', sharedStop, { capture: true, passive: false });
+        this._listen(this.stageEl, 'touchstart', sharedStop, { capture: true, passive: false });
+        this._listen(this.stageEl, 'touchmove', sharedStop, { capture: true, passive: false });
+        this._listen(this.stageEl, 'touchend', sharedStop, { capture: true, passive: false });
+
+        this._listen(this.canvasEl, 'pointerdown', (event) => {
+            if (event.button !== undefined && event.button !== 0) return;
+            stopMaskEditorEvent(event, true);
+            const point = this._getCanvasPoint(event);
+            if (!point) return;
+            this.isDrawing = true;
+            this.pointerId = event.pointerId;
+            try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
+            this.ctx.beginPath();
+            this.ctx.moveTo(point.x, point.y);
+            this.ctx.lineWidth = this.brushSize;
+            this.ctx.lineCap = 'round';
+            this.ctx.lineJoin = 'round';
+            this.ctx.strokeStyle = 'rgba(255, 0, 0, 1)';
+            this.ctx.globalCompositeOperation = 'source-over';
+        });
+
+        this._listen(this.canvasEl, 'pointermove', (event) => {
+            if (!this.isDrawing) return;
+            if (this.pointerId !== null && event.pointerId !== this.pointerId) return;
+            stopMaskEditorEvent(event, true);
+            const point = this._getCanvasPoint(event);
+            if (!point) return;
+            this.ctx.lineTo(point.x, point.y);
+            this.ctx.stroke();
+            this.hasStroke = true;
+        });
+
+        const stopDrawing = (event) => {
+            if (!this.isDrawing) return;
+            if (this.pointerId !== null && event.pointerId !== undefined && event.pointerId !== this.pointerId) return;
+            stopMaskEditorEvent(event, true);
+            this.isDrawing = false;
+            this.pointerId = null;
+            try { this.ctx.closePath(); } catch (err) {}
+        };
+
+        this._listen(this.canvasEl, 'pointerup', stopDrawing);
+        this._listen(this.canvasEl, 'pointercancel', stopDrawing);
+        this._listen(this.canvasEl, 'pointerleave', stopDrawing);
+    }
+
+    async _drawMaskLayer(maskBlobOrUrl) {
+        if (!maskBlobOrUrl || !this.ctx || !this.canvasEl) return;
+        let src = '';
+        let localUrl = '';
+        if (typeof maskBlobOrUrl === 'string') src = maskBlobOrUrl;
+        else {
+            localUrl = URL.createObjectURL(maskBlobOrUrl);
+            src = localUrl;
+        }
+        try {
+            await new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    this.ctx.drawImage(img, 0, 0, this.canvasEl.width, this.canvasEl.height);
+                    resolve();
+                };
+                img.onerror = () => resolve();
+                img.src = src;
+            });
+            this.hasStroke = true;
+        } finally {
+            if (localUrl) {
+                try { URL.revokeObjectURL(localUrl); } catch (err) {}
+            }
+        }
+    }
+
+    async init() {
+        if (!this.stageEl || !this.baseImgEl || !this.canvasEl) return false;
+        const imageReady = await this._waitImageReady();
+        if (!imageReady) return false;
+        const width = Math.max(1, Math.round(toFiniteNumber(this.baseImgEl.naturalWidth || this.baseImgEl.width, 1)));
+        const height = Math.max(1, Math.round(toFiniteNumber(this.baseImgEl.naturalHeight || this.baseImgEl.height, 1)));
+        this.canvasEl.width = width;
+        this.canvasEl.height = height;
+        this.ctx = this.canvasEl.getContext('2d');
+        if (!this.ctx) return false;
+        this.ctx.clearRect(0, 0, width, height);
+        this._bindDrawEvents();
+        if (this.initialMask) await this._drawMaskLayer(this.initialMask);
+        return true;
+    }
+
+    setBrushSize(size) {
+        this.brushSize = Math.max(4, Math.min(128, toFiniteNumber(size, 20)));
+    }
+
+    clear() {
+        if (!this.ctx || !this.canvasEl) return;
+        this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+        this.hasStroke = false;
+    }
+
+    async exportMaskBlob() {
+        if (!this.canvasEl || !this.ctx || !this.hasStroke) return null;
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = this.canvasEl.width;
+        exportCanvas.height = this.canvasEl.height;
+        const eCtx = exportCanvas.getContext('2d');
+        if (!eCtx) return null;
+        eCtx.fillStyle = '#000000';
+        eCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+        eCtx.globalCompositeOperation = 'destination-out';
+        eCtx.drawImage(this.canvasEl, 0, 0);
+        return new Promise((resolve) => {
+            exportCanvas.toBlob((blob) => resolve(blob || null), 'image/png');
+        });
+    }
+
+    destroy() {
+        this._releaseAllListeners();
+        this.stageEl = null;
+        this.baseImgEl = null;
+        this.canvasEl = null;
+        this.ctx = null;
+        this.isDrawing = false;
+        this.pointerId = null;
+    }
+}
+
+function destroyImgMaskEditor(taskId) {
+    if (!taskId) return;
+    const inst = imgMaskEditorInstances.get(taskId);
+    if (inst && typeof inst.destroy === 'function') inst.destroy();
+    imgMaskEditorInstances.delete(taskId);
+}
+
+async function syncImgMaskEditor(cardEl, task) {
+    if (!cardEl || !task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    const taskId = task.id;
+    const imageList = Array.isArray(task.state.images) ? task.state.images : [];
+    const hasSourceImage = imageList.length > 0 && !!imageList[0];
+    const shouldMount = task.state.maskEditMode === true && hasSourceImage;
+    if (!shouldMount) {
+        destroyImgMaskEditor(taskId);
+        return;
+    }
+
+    const stageEl = cardEl.querySelector(`#img-mask-stage-${taskId}`);
+    const baseImgEl = stageEl ? stageEl.querySelector(`#img-mask-base-${taskId}`) : null;
+    const canvasEl = stageEl ? stageEl.querySelector(`#img-mask-canvas-${taskId}`) : null;
+    if (!stageEl || !baseImgEl || !canvasEl) {
+        destroyImgMaskEditor(taskId);
+        return;
+    }
+
+    const sourceRef = imageList[0];
+    const existing = imgMaskEditorInstances.get(taskId);
+    if (existing && existing.stageEl === stageEl && existing.canvasEl === canvasEl && existing.sourceRef === sourceRef) {
+        existing.setBrushSize(task.state.maskBrushSize);
+        return;
+    }
+
+    destroyImgMaskEditor(taskId);
+    const editor = new ImgMaskEditor({
+        taskId,
+        stageEl,
+        baseImgEl,
+        canvasEl,
+        sourceRef,
+        brushSize: task.state.maskBrushSize,
+        initialMask: task.state.maskBlob || task.state.maskImage || null,
+        hasStroke: !!(task.state.maskBlob || task.state.maskImage)
+    });
+    const ok = await editor.init();
+    if (!ok) {
+        editor.destroy();
+        return;
+    }
+    imgMaskEditorInstances.set(taskId, editor);
+}
+
+async function captureImgMaskFromEditor(taskId, task, options = {}) {
+    const editor = imgMaskEditorInstances.get(taskId);
+    if (!editor || !task || !task.state) return null;
+    const maskBlob = await editor.exportMaskBlob();
+    if (maskBlob) {
+        task.state.maskBlob = maskBlob;
+        task.state.maskImage = maskBlob;
+    } else if (options.clearIfEmpty) {
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+    }
+    return maskBlob;
 }
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
@@ -1265,8 +1545,9 @@ window.addEventListener('keydown', async (e) => {
         if (selectedTasks.size > 0) {
             if (confirm(`🗑️ 确定要彻底删除选中的 ${selectedTasks.size} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) {
                 const deletePromises = Array.from(selectedTasks).map(async (id) => { 
+                    destroyImgMaskEditor(id);
                     await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
-                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
+                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
                 });
                 await Promise.all(deletePromises); showToast(`清理完成`, "success"); selectedTasks.clear(); renderMinimap();
             }
@@ -1516,6 +1797,9 @@ viewport.addEventListener('drop', async (e) => {
                 prompt: '',
                 images: [],
                 maskImage: null,
+                maskBlob: null,
+                maskEditMode: false,
+                maskBrushSize: 20,
                 resultUrl: null,
                 resultBlob: null,
                 resultBlobs: [],
@@ -1608,6 +1892,7 @@ async function renderCard(taskId, taskOverride = null) {
     // 仅重绘当前的这一张卡片
     morphCardDOM(cardEl, generateCardHTML(task));
     applyImgGenCardFrame(cardEl, task);
+    syncImgMaskEditor(cardEl, task).catch(() => {});
     bindCardDrag(cardEl, task);
 
     // 同步追踪属性，防止后续被误刷
@@ -2048,6 +2333,12 @@ function generateCardHTML(task) {
         const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
         const cooldownSec = Math.ceil(cooldownMs / 1000);
         const isBtnCooling = cooldownSec > 0;
+        const maskBaseImage = Array.isArray(task.state.images) && task.state.images.length > 0 ? task.state.images[0] : null;
+        const hasMaskSource = !!maskBaseImage;
+        const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
+        const maskEditMode = task.state.maskEditMode === true;
+        const maskBrushSize = Math.max(4, Math.min(128, parseInt(task.state.maskBrushSize, 10) || 20));
+        const maskSourceUrl = hasMaskSource ? getBlobUrl(`${task.id}_mask_base_${task.timestamp || ''}`, maskBaseImage) : '';
 
         let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
         if (task.state.images.length < 5) {
@@ -2151,6 +2442,36 @@ function generateCardHTML(task) {
             </select>
         </div>`;
 
+        const maskEditorHtml = `
+            <div class="img-gen-mask-block ${maskEditMode ? 'is-active' : ''}">
+                <div class="img-gen-mask-toolbar">
+                    <button class="img-gen-mask-btn" type="button" onclick="toggleImgGenMaskEditor(event, '${task.id}')" data-tip="开启后可在第1张垫图上涂抹蒙版">
+                        <span class="material-symbols-outlined" style="font-size:14px;">${maskEditMode ? 'close' : 'gesture'}</span>
+                        ${maskEditMode ? '退出蒙版' : '蒙版编辑'}
+                    </button>
+                    <label class="img-gen-mask-brush">
+                        笔刷
+                        <input type="range" min="4" max="128" step="1" value="${maskBrushSize}" oninput="updateImgGenMaskBrush(event, '${task.id}', this.value)" ${!maskEditMode ? 'disabled' : ''}>
+                        <span>${maskBrushSize}px</span>
+                    </label>
+                    <button class="img-gen-mask-btn" type="button" onclick="saveImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''}>应用蒙版</button>
+                    <button class="img-gen-mask-btn" type="button" onclick="clearImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''}>清空</button>
+                    <button class="img-gen-mask-btn" type="button" onclick="removeImgGenMask(event, '${task.id}')" ${!hasMaskReady ? 'disabled' : ''}>移除</button>
+                    <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? 'Mask Ready' : 'No Mask'}</span>
+                </div>
+                ${maskEditMode ? `
+                <div class="img-gen-mask-editor-shell">
+                    ${hasMaskSource ? `
+                    <div class="img-gen-mask-stage" id="img-mask-stage-${task.id}">
+                        <img class="img-gen-mask-base" id="img-mask-base-${task.id}" src="${maskSourceUrl}" alt="mask-base">
+                        <canvas class="img-gen-mask-canvas" id="img-mask-canvas-${task.id}"></canvas>
+                    </div>
+                    <div class="img-gen-mask-tip">红色区域=将被重绘区域。提交时会自动携带蒙版。</div>
+                    ` : `<div class="img-gen-mask-empty">请先添加至少1张垫图，再开启蒙版编辑。</div>`}
+                </div>` : ''}
+            </div>
+        `;
+
         const previewRenderEntries = previewEntries.slice().sort((a, b) => {
             const aPending = a && a.status === 'pending' ? 0 : 1;
             const bPending = b && b.status === 'pending' ? 0 : 1;
@@ -2203,6 +2524,7 @@ function generateCardHTML(task) {
                         </div>
                         <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
                         <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
+                        ${maskEditorHtml}
                         <div class="img-gen-controls">
                             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
                                 <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
@@ -2272,7 +2594,13 @@ function generateCardHTML(task) {
 // 🌟 初次挂载与排版专用的全局刷新函数
 async function renderBoard() {
     const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image'), boardTaskIds = new Set(boardTasks.map(t => 'card-' + t.id));
-    const existingCards = Array.from(board.children); existingCards.forEach(card => { if (!boardTaskIds.has(card.id)) card.remove(); });
+    const existingCards = Array.from(board.children); existingCards.forEach(card => {
+        if (!boardTaskIds.has(card.id)) {
+            const removedTaskId = resolveTaskIdFromCardElement(card);
+            if (removedTaskId) destroyImgMaskEditor(removedTaskId);
+            card.remove();
+        }
+    });
     
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
@@ -2298,6 +2626,7 @@ async function renderBoard() {
             
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl); 
             applyImgGenCardFrame(cardEl, task);
+            syncImgMaskEditor(cardEl, task).catch(() => {});
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
@@ -2317,6 +2646,7 @@ async function renderBoard() {
                 morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
+            syncImgMaskEditor(cardEl, task).catch(() => {});
         }
 
         if (task.type === 'tool_image_gen' && task.status === 'processing') {
@@ -2350,6 +2680,7 @@ async function removeTask(id) {
     if (!confirm('确定删除这张卡片吗？')) return;
     clearTaskPolling(id);
     clearImgGenPolling(id);
+    destroyImgMaskEditor(id);
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
     imgGenUpdateQueues.delete(id);
@@ -2398,6 +2729,8 @@ async function duplicateTask(originalTask, mouseEvent) {
             clone.state.resultBlobs = [];
             clone.state.resultUrl = null;
             clone.state.maskImage = null;
+            clone.state.maskBlob = null;
+            clone.state.maskEditMode = false;
             clone.retryCount = 0;
         }
         if (clone.type === 'tool_cropper') clone.state.resultBlob = null;
@@ -2696,7 +3029,18 @@ function ensureImgGenState(task) {
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
     if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
+    if (typeof task.state.maskBlob === 'undefined') task.state.maskBlob = null;
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
+    if (typeof task.state.maskEditMode !== 'boolean') task.state.maskEditMode = false;
+    const brushVal = parseInt(task.state.maskBrushSize, 10);
+    task.state.maskBrushSize = Number.isFinite(brushVal) && brushVal > 0 ? Math.max(4, Math.min(128, brushVal)) : 20;
+    if (!task.state.maskBlob && task.state.maskImage) task.state.maskBlob = task.state.maskImage;
+    if (!task.state.maskImage && task.state.maskBlob) task.state.maskImage = task.state.maskBlob;
+    if (!Array.isArray(task.state.images) || task.state.images.length === 0) {
+        task.state.maskEditMode = false;
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+    }
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
     normalizeImgGenPreviewHistory(task);
@@ -2714,7 +3058,7 @@ function ensureImgGenState(task) {
 function resolveImgGenMode(state) {
     const imageCount = Array.isArray(state.images) ? state.images.length : 0;
     if (imageCount === 0) return 'text2img';
-    if (state.maskImage) return 'mask_edit';
+    if (state.maskBlob || state.maskImage) return 'mask_edit';
     return 'img2img';
 }
 
@@ -3291,6 +3635,109 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     await saveTaskDB(task);
 }
 
+async function toggleImgGenMaskEditor(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        if (!Array.isArray(task.state.images) || task.state.images.length === 0) {
+            showToast('请先添加垫图，再开启蒙版编辑', 'warning');
+            return;
+        }
+        task.state.maskEditMode = !task.state.maskEditMode;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('蒙版编辑器切换失败', 'error');
+    });
+}
+
+async function updateImgGenMaskBrush(e, taskId, val) {
+    stopMaskEditorEvent(e, false);
+    const nextSize = Math.max(4, Math.min(128, parseInt(val, 10) || 20));
+    const editor = imgMaskEditorInstances.get(taskId);
+    if (editor) editor.setBrushSize(nextSize);
+    const holder = e && e.target && e.target.parentElement ? e.target.parentElement.querySelector('span') : null;
+    if (holder) holder.innerText = `${nextSize}px`;
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskBrushSize = nextSize;
+        setTaskShadow(task);
+        await saveTaskDB(task);
+    }).catch(() => {});
+}
+
+async function saveImgGenMask(e, taskId, options = {}) {
+    stopMaskEditorEvent(e, true);
+    const silent = !!(options && options.silent);
+    return queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return false;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        const maskBlob = await captureImgMaskFromEditor(taskId, task, { clearIfEmpty: true });
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+        if (!silent) showToast(maskBlob ? '蒙版已应用' : '蒙版为空，已清空', maskBlob ? 'success' : 'info');
+        return !!maskBlob;
+    }).catch(() => {
+        if (!silent) showToast('应用蒙版失败', 'error');
+        return false;
+    });
+}
+
+async function clearImgGenMask(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    const editor = imgMaskEditorInstances.get(taskId);
+    if (editor) editor.clear();
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('清空蒙版失败', 'error');
+    });
+}
+
+async function removeImgGenMask(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    const editor = imgMaskEditorInstances.get(taskId);
+    if (editor) editor.clear();
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        task.state.maskEditMode = false;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).then(() => {
+        showToast('已移除蒙版', 'success');
+    }).catch(() => {
+        showToast('移除蒙版失败', 'error');
+    });
+}
+
 async function updateImgGenState(taskId, key, val) {
     await queueImgGenTaskUpdate(taskId, async () => {
         const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
@@ -3401,7 +3848,20 @@ async function handleGenImageDrop(e, taskId) {
 async function removeGenImage(e, taskId, index) {
     e.stopPropagation(); const task = await getTaskDB(taskId); if (!task) return;
     ensureImgGenState(task);
+    const removedBase = index === 0;
     task.state.images.splice(index, 1); 
+    if (removedBase) {
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        if (task.state.images.length === 0) task.state.maskEditMode = false;
+        destroyImgMaskEditor(taskId);
+    }
+    if (task.state.images.length === 0) {
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        task.state.maskEditMode = false;
+        destroyImgMaskEditor(taskId);
+    }
     task.timestamp = Date.now();
     renderCard(taskId, task);
     await saveTaskDB(task);
@@ -3424,6 +3884,9 @@ async function submitImgGen(taskId) {
         return;
     }
     if (task.state.previewCollapsed) task.state.previewCollapsed = false;
+    try {
+        await captureImgMaskFromEditor(taskId, task, { clearIfEmpty: true });
+    } catch (err) {}
 
     task.state.nextSubmitAt = now + IMG_GEN_CLICK_COOLDOWN_MS;
     task.retryCount = 0;
@@ -3469,7 +3932,8 @@ async function submitImgGen(taskId) {
     const sizeToSend = resolvedSize;
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await blobsToBase64Sequential(task.state.images, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 });
-    const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
+    const maskSource = task.state.maskBlob || task.state.maskImage || null;
+    const maskBase64 = maskSource ? await blobToBase64(maskSource, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
     const nValue = 1;
 
     const unifiedPayloadCore = {
