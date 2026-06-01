@@ -519,6 +519,57 @@ async function buildBlobSignature(blob) {
     return `${type}|${size}|${headArr}|${tailArr}`;
 }
 
+async function readImageMeta(imageLike) {
+    if (!imageLike) return null;
+    try {
+        if (typeof imageLike !== 'string' && typeof createImageBitmap === 'function') {
+            const bitmap = await createImageBitmap(imageLike);
+            const width = toFiniteNumber(bitmap.width, 0);
+            const height = toFiniteNumber(bitmap.height, 0);
+            try { bitmap.close(); } catch (err) {}
+            if (width > 0 && height > 0) {
+                const ratio = width / height;
+                return {
+                    width,
+                    height,
+                    ratio,
+                    layout: ratio >= 1.2 ? 'landscape' : (ratio <= 0.85 ? 'portrait' : 'square')
+                };
+            }
+        }
+    } catch (err) {}
+
+    try {
+        const src = typeof imageLike === 'string' ? imageLike : URL.createObjectURL(imageLike);
+        const meta = await new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const width = toFiniteNumber(img.naturalWidth || img.width, 0);
+                const height = toFiniteNumber(img.naturalHeight || img.height, 0);
+                if (width > 0 && height > 0) {
+                    const ratio = width / height;
+                    resolve({
+                        width,
+                        height,
+                        ratio,
+                        layout: ratio >= 1.2 ? 'landscape' : (ratio <= 0.85 ? 'portrait' : 'square')
+                    });
+                } else {
+                    resolve(null);
+                }
+            };
+            img.onerror = () => resolve(null);
+            img.src = src;
+        });
+        if (typeof imageLike !== 'string') {
+            try { URL.revokeObjectURL(src); } catch (err) {}
+        }
+        return meta;
+    } catch (err) {
+        return null;
+    }
+}
+
 function clearTaskPolling(taskId, removeActive = true) {
     const controller = taskPollControllers.get(taskId);
     if (controller) {
@@ -2121,7 +2172,9 @@ function generateCardHTML(task) {
                     if (item.status === 'success' && item.image) {
                         successDragIndex++;
                         const imgKey = `${task.id}_feed_${item.id}_${task.timestamp || ''}`;
-                        return `<div class="img-gen-preview-item"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
+                        const safeRatio = Number.isFinite(Number(item.ratio)) && Number(item.ratio) > 0 ? Number(item.ratio) : 1;
+                        const layoutClass = item.layout === 'landscape' ? 'is-landscape' : (item.layout === 'portrait' ? 'is-portrait' : 'is-square');
+                        return `<div class="img-gen-preview-item ${layoutClass}" style="--preview-aspect:${safeRatio};"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
                     }
                     return '';
                 }).join('')
@@ -2698,7 +2751,12 @@ function normalizeImgGenPreviewHistory(task) {
             status: item.status || 'success',
             image: item.image || null,
             createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
-            costTime: Number.isFinite(item.costTime) ? item.costTime : null
+            costTime: Number.isFinite(item.costTime) ? item.costTime : null,
+            remoteTaskId: item.remoteTaskId ? String(item.remoteTaskId) : '',
+            width: toFiniteNumber(item.width, 0),
+            height: toFiniteNumber(item.height, 0),
+            ratio: toFiniteNumber(item.ratio, 0),
+            layout: item.layout || ''
         }))
         .sort((a, b) => a.createdAt - b.createdAt);
 
@@ -2763,26 +2821,41 @@ function pushImgGenPendingItem(task) {
         status: 'pending',
         image: null,
         createdAt: Date.now(),
-        costTime: null
+        costTime: null,
+        remoteTaskId: '',
+        width: 0,
+        height: 0,
+        ratio: 0,
+        layout: ''
     });
     recalcImgGenTaskStatus(task);
     return itemId;
 }
 
-function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = null) {
+function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = null, meta = null) {
     normalizeImgGenPreviewHistory(task);
     const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
     if (item) {
         item.status = 'success';
         item.image = imageBlobOrUrl || null;
         item.costTime = Number.isFinite(costTimeSec) ? costTimeSec : null;
+        item.remoteTaskId = '';
+        item.width = meta && Number.isFinite(meta.width) ? meta.width : item.width;
+        item.height = meta && Number.isFinite(meta.height) ? meta.height : item.height;
+        item.ratio = meta && Number.isFinite(meta.ratio) ? meta.ratio : item.ratio;
+        item.layout = meta && meta.layout ? meta.layout : item.layout;
     } else {
         task.state.previewHistory.push({
             id: itemId || createImgGenPreviewId(),
             status: 'success',
             image: imageBlobOrUrl || null,
             createdAt: Date.now(),
-            costTime: Number.isFinite(costTimeSec) ? costTimeSec : null
+            costTime: Number.isFinite(costTimeSec) ? costTimeSec : null,
+            remoteTaskId: '',
+            width: meta && Number.isFinite(meta.width) ? meta.width : 0,
+            height: meta && Number.isFinite(meta.height) ? meta.height : 0,
+            ratio: meta && Number.isFinite(meta.ratio) ? meta.ratio : 0,
+            layout: meta && meta.layout ? meta.layout : ''
         });
     }
     recalcImgGenTaskStatus(task);
@@ -2791,14 +2864,22 @@ function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = nu
 function markImgGenPreviewFailed(task, itemId) {
     normalizeImgGenPreviewHistory(task);
     const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
-    if (item) item.status = 'failed';
+    if (item) {
+        item.status = 'failed';
+        item.remoteTaskId = '';
+    }
     else {
         task.state.previewHistory.push({
             id: itemId || createImgGenPreviewId(),
             status: 'failed',
             image: null,
             createdAt: Date.now(),
-            costTime: null
+            costTime: null,
+            remoteTaskId: '',
+            width: 0,
+            height: 0,
+            ratio: 0,
+            layout: ''
         });
     }
     recalcImgGenTaskStatus(task);
@@ -3130,7 +3211,8 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             } catch (fetchErr) {}
 
             const costTime = Math.floor((Date.now() - (targetItem.createdAt || Date.now())) / 1000);
-            markImgGenPreviewSuccess(task, itemId, output, costTime);
+            const imageMeta = await readImageMeta(output);
+            markImgGenPreviewSuccess(task, itemId, output, costTime, imageMeta);
             task.state.costTime = costTime;
             task.timestamp = Date.now();
             task.genTaskId = null;
@@ -3508,7 +3590,8 @@ async function submitImgGen(taskId) {
                     if (r.ok) output = await r.blob();
                 } catch (fetchErr) {}
                 const costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
-                markImgGenPreviewSuccess(task, previewItemId, output, costTime);
+                const imageMeta = await readImageMeta(output);
+                markImgGenPreviewSuccess(task, previewItemId, output, costTime, imageMeta);
                 task.state.costTime = costTime;
                 task.timestamp = Date.now();
                 task.genTaskId = null;
