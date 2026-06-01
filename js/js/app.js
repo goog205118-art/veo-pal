@@ -579,6 +579,19 @@ let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
 
+function clientToBoard(clientX, clientY) {
+    const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+    const rect = (viewport && typeof viewport.getBoundingClientRect === 'function')
+        ? viewport.getBoundingClientRect()
+        : { left: 0, top: 0 };
+    const localX = (Number.isFinite(clientX) ? clientX : 0) - rect.left;
+    const localY = (Number.isFinite(clientY) ? clientY : 0) - rect.top;
+    return {
+        x: (localX - transform.x) / scaleSafe,
+        y: (localY - transform.y) / scaleSafe
+    };
+}
+
 window.addEventListener('mousedown', (e) => {
     if (e.button === 0) isPrimaryPointerDown = true;
     if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
@@ -876,7 +889,12 @@ async function createStickyNote(spawnX, spawnY) {
     if (spawnX === undefined) spawnX = (-transform.x + window.innerWidth/2 - 120) / transform.scale; if (spawnY === undefined) spawnY = (-transform.y + window.innerHeight/2 - 80) / transform.scale;
     await saveTaskDB({ id: 'note_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'note', text: '', x: spawnX, y: spawnY, width: 260, height: 200, timestamp: Date.now() }); renderBoard();
 }
-viewport.addEventListener('dblclick', (e) => { if (e.target === viewport || e.target === board) createStickyNote((e.clientX - transform.x) / transform.scale, (e.clientY - transform.y) / transform.scale); });
+viewport.addEventListener('dblclick', (e) => {
+    if (e.target === viewport || e.target === board) {
+        const p = clientToBoard(e.clientX, e.clientY);
+        createStickyNote(p.x, p.y);
+    }
+});
 
 let noteTimeout;
 async function updateNoteText(id, text) { clearTimeout(noteTimeout); noteTimeout = setTimeout(async () => { const note = await getTaskDB(id); if (note) { note.text = text; await saveTaskDB(note); } }, 500); }
@@ -933,7 +951,9 @@ window.addEventListener("dragover", function(e){ e.preventDefault(); }, false); 
 viewport.addEventListener('drop', async (e) => {
     e.preventDefault(); const pluginType = e.dataTransfer.getData('plugin');
     if (pluginType) {
-        const spawnX = (e.clientX - transform.x) / transform.scale, spawnY = (e.clientY - transform.y) / transform.scale; let newTool = null;
+        const spawnPoint = clientToBoard(e.clientX, e.clientY);
+        const spawnX = spawnPoint.x, spawnY = spawnPoint.y;
+        let newTool = null;
         if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
         else if (pluginType === 'image_gen') newTool = {
             id: 'tool_img_' + Date.now(),
@@ -1765,17 +1785,18 @@ async function duplicateTask(originalTask, mouseEvent) {
     clone.x = baseX;
     clone.y = baseY;
 
-    // 使用“鼠标位移 delta”计算克隆落点，避免坐标系换算误差导致瞬移/下坠堆叠
+    // 使用统一坐标系 + 抓取锚点计算克隆落点，避免任何 Y 轴偏移漂移
     if (mouseEvent) {
-        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
         const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
         const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
         const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
         const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
-        const deltaBoardX = (currentClientX - startClientX) / scaleSafe;
-        const deltaBoardY = (currentClientY - startClientY) / scaleSafe;
-        clone.x = baseX + deltaBoardX;
-        clone.y = baseY + deltaBoardY;
+        const startBoard = clientToBoard(startClientX, startClientY);
+        const currentBoard = clientToBoard(currentClientX, currentClientY);
+        const grabOffsetX = startBoard.x - baseX;
+        const grabOffsetY = startBoard.y - baseY;
+        clone.x = currentBoard.x - grabOffsetX;
+        clone.y = currentBoard.y - grabOffsetY;
     }
 
     await saveTaskDB(clone);
@@ -1790,13 +1811,16 @@ async function duplicateTask(originalTask, mouseEvent) {
 
     // 渲染若有延迟，按“当前鼠标位置”二次校正克隆坐标，避免视觉上落后或下坠
     if (mouseEvent) {
-        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
         const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
         const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
         const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
         const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
-        const correctedX = baseX + ((currentClientX - startClientX) / scaleSafe);
-        const correctedY = baseY + ((currentClientY - startClientY) / scaleSafe);
+        const startBoard = clientToBoard(startClientX, startClientY);
+        const currentBoard = clientToBoard(currentClientX, currentClientY);
+        const grabOffsetX = startBoard.x - baseX;
+        const grabOffsetY = startBoard.y - baseY;
+        const correctedX = currentBoard.x - grabOffsetX;
+        const correctedY = currentBoard.y - grabOffsetY;
 
         clone.x = correctedX;
         clone.y = correctedY;
