@@ -1788,6 +1788,24 @@ async function duplicateTask(originalTask, mouseEvent) {
         return;
     }
 
+    // 渲染若有延迟，按“当前鼠标位置”二次校正克隆坐标，避免视觉上落后或下坠
+    if (mouseEvent) {
+        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
+        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
+        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
+        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
+        const correctedX = baseX + ((currentClientX - startClientX) / scaleSafe);
+        const correctedY = baseY + ((currentClientY - startClientY) / scaleSafe);
+
+        clone.x = correctedX;
+        clone.y = correctedY;
+        if (newCardEl.__veoTask) {
+            newCardEl.__veoTask.x = correctedX;
+            newCardEl.__veoTask.y = correctedY;
+        }
+    }
+
     highestZIndex++;
     newCardEl.style.zIndex = highestZIndex;
     newCardEl.style.willChange = 'transform';
@@ -1812,6 +1830,8 @@ async function duplicateTask(originalTask, mouseEvent) {
         };
     } else {
         newCardEl.style.willChange = 'auto';
+        // 若用户已松手，立即落库校正后坐标，避免刷新后回弹到旧位置
+        try { await saveTaskDB(newCardEl.__veoTask || clone); } catch(err) { console.warn('clone settle save failed:', err); }
     }
 
     showToast("🪄 已克隆组件及参数", "success");

@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // 🟢 核心应用逻辑与安全拦截 (Veo Studio Infinity Flow)
 // ==========================================
 let loginAnimationId = null;
@@ -62,10 +62,127 @@ async function hashPassword(password) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+const THEME_MODE_KEY = 'veo_theme_mode';
+const THEME_DARK = 'dark';
+const THEME_LIGHT = 'light';
+const ROUTE_TRANSITION_MS = 460;
+
+function isReducedMotion() {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (err) {
+        console.error(err);
+        return false;
+    }
+}
+
+function ensureRouteTransitionLayer() {
+    let layer = document.getElementById('route-transition');
+    if (layer) return layer;
+    layer = document.createElement('div');
+    layer.id = 'route-transition';
+    layer.className = 'route-transition';
+    layer.setAttribute('aria-hidden', 'true');
+    layer.innerHTML = '<div class="route-transition-ring"></div><div class="route-transition-label">ROUTE HANDSHAKE</div>';
+    document.body.appendChild(layer);
+    return layer;
+}
+
+function startRouteTransition(labelText) {
+    const layer = ensureRouteTransitionLayer();
+    if (!layer) return;
+    const label = layer.querySelector('.route-transition-label');
+    if (label && labelText) label.textContent = labelText;
+    layer.classList.add('is-active');
+}
+
+function markAppShellReady() {
+    document.body.classList.remove('app-shell-init');
+    document.body.classList.add('app-shell-ready');
+}
+
+window.navigateWithTransition = function(url, options = {}) {
+    if (!url || typeof url !== 'string') return;
+    const replace = !!options.replace;
+    const label = options.label || 'ROUTE HANDSHAKE';
+    if (isReducedMotion()) {
+        if (replace) window.location.replace(url);
+        else window.location.href = url;
+        return;
+    }
+    startRouteTransition(label);
+    window.setTimeout(() => {
+        if (replace) window.location.replace(url);
+        else window.location.href = url;
+    }, ROUTE_TRANSITION_MS);
+};
+
+window.openFlowWorkspace = function(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    window.navigateWithTransition('flow.html', { label: 'OPEN NODE FLOW' });
+};
+
+function normalizeThemeMode(rawMode) {
+    if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
+    return THEME_DARK;
+}
+
+function applyThemeMode(mode) {
+    const nextMode = normalizeThemeMode(mode);
+    const isLight = nextMode === THEME_LIGHT;
+    document.documentElement.setAttribute('data-theme', nextMode);
+
+    const iconEl = document.getElementById('theme-toggle-icon');
+    const btnEl = document.getElementById('theme-toggle-btn');
+    if (iconEl) iconEl.innerText = isLight ? 'light_mode' : 'dark_mode';
+    if (btnEl) btnEl.setAttribute('data-tip', isLight ? '切换到夜间模式' : '切换到日间模式');
+}
+
+function initThemeMode() {
+    const saved = localStorage.getItem(THEME_MODE_KEY);
+    const nextMode = normalizeThemeMode(saved);
+    localStorage.setItem(THEME_MODE_KEY, nextMode);
+    applyThemeMode(nextMode);
+}
+
+function activateLoginPanel(focusDelay = 360) {
+    const panel = document.getElementById('gate-step-2');
+    if (!panel) return;
+    panel.classList.remove('step-passed');
+    panel.classList.remove('step-active');
+    requestAnimationFrame(() => {
+        panel.classList.add('step-active');
+    });
+    setTimeout(() => {
+        const input = document.getElementById('studio-pwd-input');
+        if (input) input.focus();
+    }, focusDelay);
+}
+
+window.toggleThemeMode = function() {
+    const current = normalizeThemeMode(localStorage.getItem(THEME_MODE_KEY));
+    const next = current === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+    localStorage.setItem(THEME_MODE_KEY, next);
+    applyThemeMode(next);
+    if (typeof showToast === 'function') {
+        showToast(next === THEME_LIGHT ? '已切换至日间模式' : '已切换至夜间模式', 'info');
+    }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
+    ensureRouteTransitionLayer();
+    initThemeMode();
     const gate = document.getElementById('login-gate');
     const savedSessionPwd = sessionStorage.getItem('veo_admin_pwd');
-    if (savedSessionPwd) { gate.style.display = 'none'; }
+    if (savedSessionPwd) {
+        if (gate) gate.style.display = 'none';
+        window.requestAnimationFrame(() => markAppShellReady());
+    } else if (gate) {
+        activateLoginPanel(420);
+    }
 
     const rememberedPwd = localStorage.getItem('veo_admin_pwd_saved');
     if (rememberedPwd) {
@@ -73,14 +190,48 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pwdInput) pwdInput.value = rememberedPwd; if (rememberCheckbox) rememberCheckbox.checked = true; 
     }
 
+    const loginScene = document.getElementById('login-scene');
+    const loginFormCard = loginScene ? loginScene.querySelector('.login-form-box') : null;
+    const loginIntroCard = loginScene ? loginScene.querySelector('.login-intro') : null;
+    const resetLoginTilt = () => {
+        if (!loginScene) return;
+        loginScene.style.setProperty('--login-tilt-x', '0deg');
+        loginScene.style.setProperty('--login-tilt-y', '0deg');
+        if (loginFormCard) loginFormCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
+        if (loginIntroCard) loginIntroCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
+    };
+
     const canvas = document.getElementById('login-canvas');
     if (canvas && gate && gate.style.display !== 'none') {
         const ctx = canvas.getContext('2d');
         let width, height, particles = [], mouse = { x: null, y: null };
         function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
         window.addEventListener('resize', resize); resize();
-        gate.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
-        gate.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+        gate.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            if (!loginScene || isReducedMotion()) return;
+            try {
+                const rect = loginScene.getBoundingClientRect();
+                if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                const px = (e.clientX - rect.left) / rect.width;
+                const py = (e.clientY - rect.top) / rect.height;
+                const tiltY = ((px - 0.5) * 3.2).toFixed(2);
+                const tiltX = ((0.5 - py) * 2.8).toFixed(2);
+                loginScene.style.setProperty('--login-tilt-x', `${tiltX}deg`);
+                loginScene.style.setProperty('--login-tilt-y', `${tiltY}deg`);
+                if (loginFormCard) loginFormCard.style.transform = `translateZ(0) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+                if (loginIntroCard) loginIntroCard.style.transform = `translateZ(0) rotateX(${(tiltX * 0.35).toFixed(2)}deg) rotateY(${(tiltY * 0.35).toFixed(2)}deg)`;
+            } catch (err) {
+                console.warn('[login-tilt] update failed:', err);
+            }
+        });
+        gate.addEventListener('mouseleave', () => {
+            mouse.x = null;
+            mouse.y = null;
+            resetLoginTilt();
+        });
+        resetLoginTilt();
 
         class Particle {
             constructor() {
@@ -131,8 +282,7 @@ window.toggleMinimap = function(e) {
 };
 
 function startLoginTransition() {
-    document.getElementById('gate-step-1').classList.remove('step-active'); document.getElementById('gate-step-1').classList.add('step-passed'); 
-    setTimeout(() => { document.getElementById('gate-step-2').classList.add('step-active'); document.getElementById('studio-pwd-input').focus(); }, 200); 
+    activateLoginPanel(180);
 }
 
 async function handleLoginSubmit(e) {
@@ -160,6 +310,7 @@ async function handleLoginSubmit(e) {
             setTimeout(() => {
                 if (typeof loginAnimationId !== 'undefined' && loginAnimationId) cancelAnimationFrame(loginAnimationId);
                 gate.remove(); showToast("欢迎回来", "success");
+                markAppShellReady();
                 setTimeout(showAnnouncement, 500); 
             }, 800);
         }, 400);
@@ -168,7 +319,9 @@ async function handleLoginSubmit(e) {
 
 const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit'; 
 const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll'; 
-const API_IMAGE_GEN = 'https://api.wallyai.top/webhook/proxy-image-gen'; 
+const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
+const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
+const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
 let activeTasks = [], activeRetries = new Set(); 
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
@@ -179,7 +332,14 @@ function handleAuthError() {
     if (!sessionStorage.getItem('veo_admin_pwd')) return; 
     sessionStorage.removeItem('veo_admin_pwd'); 
     showToast("密钥验证失败或已过期，即将退回登录舱", "error"); 
-    setTimeout(() => location.reload(), 1500); 
+    setTimeout(() => {
+        if (isReducedMotion()) {
+            location.reload();
+            return;
+        }
+        startRouteTransition('SESSION EXPIRED');
+        setTimeout(() => location.reload(), ROUTE_TRANSITION_MS);
+    }, 1500); 
 }
 
 // ==========================================
@@ -415,10 +575,21 @@ let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = fals
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout; 
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let activeCrop = null, activeFrameResize = null; 
+let isPrimaryPointerDown = false;
+let lastPointerClientX = 0;
+let lastPointerClientY = 0;
+
+window.addEventListener('mousedown', (e) => {
+    if (e.button === 0) isPrimaryPointerDown = true;
+    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
+    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
+}, true);
 
 function clearSelection() { selectedTasks.clear(); document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected')); }
 
 window.addEventListener('mousemove', (e) => {
+    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
+    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
     if (!ticking) {
         requestAnimationFrame(() => {
             if (isPanning) {
@@ -470,6 +641,7 @@ viewport.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mouseup', async () => { 
+    isPrimaryPointerDown = false;
     isPanning = false; board.classList.remove('is-moving'); 
     if (isSelecting) { isSelecting = false; if(marquee) marquee.style.display = 'none'; }
     
@@ -556,7 +728,9 @@ function bindCardDrag(cardEl, task) {
 
             // 🌟🌟🌟 新增：侦测到按住 Alt 键，直接执行克隆并阻断原卡片的拖拽
             if (e.altKey) {
+                e.preventDefault();
                 e.stopPropagation();
+                if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
                 await duplicateTask(task, e);
                 return;
             }
@@ -714,7 +888,12 @@ async function exportWorkspace() {
         const tasks = await getAllTasksDB(); const exportData = [];
         for (let t of tasks) {
             let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src);
-            if (clone.state) { if(clone.state.images) clone.state.images = await Promise.all(clone.state.images.map(b => blobToBase64(b))); if(clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob); if(clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob); }
+            if (clone.state) {
+                if (clone.state.images) clone.state.images = await Promise.all(clone.state.images.map(b => blobToBase64(b)));
+                if (Array.isArray(clone.state.resultBlobs)) clone.state.resultBlobs = await Promise.all(clone.state.resultBlobs.map(b => blobToBase64(b)));
+                if (clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob);
+                if (clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob);
+            }
             if (clone.rawImages) { if (clone.rawImages.firstFrame) clone.rawImages.firstFrame = await blobToBase64(clone.rawImages.firstFrame); if (clone.rawImages.lastFrame) clone.rawImages.lastFrame = await blobToBase64(clone.rawImages.lastFrame); if (clone.rawImages.references) clone.rawImages.references = await Promise.all(clone.rawImages.references.map(b => blobToBase64(b))); }
             exportData.push(clone);
         }
@@ -731,7 +910,14 @@ async function importWorkspace(input) {
             if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
                 for (let t of data) {
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
-                    if (t.state) { if(t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); if(t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob()); if(t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob()); }
+                    if (t.state) {
+                        if (t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
+                        if (Array.isArray(t.state.resultBlobs)) {
+                            t.state.resultBlobs = await Promise.all(t.state.resultBlobs.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
+                        }
+                        if (t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob());
+                        if (t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob());
+                    }
                     if (t.rawImages) { if (typeof t.rawImages.firstFrame === 'string') t.rawImages.firstFrame = await fetch(t.rawImages.firstFrame).then(r => r.blob()); if (typeof t.rawImages.lastFrame === 'string') t.rawImages.lastFrame = await fetch(t.rawImages.lastFrame).then(r => r.blob()); if (t.rawImages.references) t.rawImages.references = await Promise.all(t.rawImages.references.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); }
                     await saveTaskDB(t);
                 }
@@ -749,7 +935,39 @@ viewport.addEventListener('drop', async (e) => {
     if (pluginType) {
         const spawnX = (e.clientX - transform.x) / transform.scale, spawnY = (e.clientY - transform.y) / transform.scale; let newTool = null;
         if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
-        else if (pluginType === 'image_gen') newTool = { id: 'tool_img_' + Date.now(), type: 'tool_image_gen', x: spawnX, y: spawnY, timestamp: Date.now(), status: 'idle', state: { size: '1024x1024', prompt: '', images: [], resultUrl: null, resultBlob: null, channel: 'channel_1', autoRetry: false }, retryCount: 0 };
+        else if (pluginType === 'image_gen') newTool = {
+            id: 'tool_img_' + Date.now(),
+            type: 'tool_image_gen',
+            x: spawnX,
+            y: spawnY,
+            timestamp: Date.now(),
+            status: 'idle',
+            state: {
+                version: 'trial',
+                providerSort: 'quality',
+                quality: 'auto',
+                format: 'png',
+                n: 1,
+                size: '1024x1024',
+                trialRatio: '1:1',
+                proRatio: '1:1',
+                proResolution: '1k',
+                customW: 9,
+                customH: 16,
+                background: 'auto',
+                moderation: 'auto',
+                prompt: '',
+                images: [],
+                maskImage: null,
+                resultUrl: null,
+                resultBlob: null,
+                resultBlobs: [],
+                previewCollapsed: false,
+                channel: 'channel_1',
+                autoRetry: false
+            },
+            retryCount: 0
+        };
         else if (pluginType === 'cropper') newTool = { id: 'tool_crop_' + Date.now(), type: 'tool_cropper', x: spawnX, y: spawnY, timestamp: Date.now(), state: { sourceBlob: null, resultBlob: null, cropParams: { left: 10, top: 10, width: 80, height: 80 } } };
         if (newTool) { await saveTaskDB(newTool); renderBoard(); document.getElementById('tool-drawer').classList.remove('open'); return; }
     }
@@ -771,7 +989,11 @@ async function parseDroppedImage(e) {
             if (t) {
                 if (meta.type === 'local') srcToUse = t.src;
                 else if (meta.type === 'thumb') srcToUse = t.rawImages?.firstFrame || (t.rawImages?.references && t.rawImages.references[0]);
-                else if (meta.type === 'gen_result') srcToUse = t.state?.resultBlob;
+                else if (meta.type === 'gen_result') {
+                    const idx = Number.isFinite(Number(meta.index)) ? Number(meta.index) : 0;
+                    if (Array.isArray(t.state?.resultBlobs) && t.state.resultBlobs[idx]) srcToUse = t.state.resultBlobs[idx];
+                    else srcToUse = t.state?.resultBlob;
+                }
                 else if (meta.type === 'crop_result') srcToUse = t.state?.resultBlob;
             }
         }
@@ -797,12 +1019,23 @@ async function parseDroppedImage(e) {
 // ==========================================
 // 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
 // ==========================================
+function applyImgGenCardFrame(cardEl, task) {
+    if (!cardEl || !task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    const isOpen = task.state.previewCollapsed !== true;
+    const collapsedWidth = 360;
+    const expandedWidth = 680;
+    cardEl.classList.toggle('is-preview-open', isOpen);
+    cardEl.style.width = `${isOpen ? expandedWidth : collapsedWidth}px`;
+}
+
 async function renderCard(taskId) {
     const task = await getTaskDB(taskId); if (!task) return;
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
     // 仅重绘当前的这一张卡片
     cardEl.innerHTML = generateCardHTML(task);
+    applyImgGenCardFrame(cardEl, task);
     bindCardDrag(cardEl, task);
 
     // 同步追踪属性，防止后续被误刷
@@ -811,6 +1044,8 @@ async function renderCard(taskId) {
     const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
     const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
     const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
+    const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
+    const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
 
     cardEl.setAttribute('data-sync-status', task.status || 'static');
     cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
@@ -819,6 +1054,8 @@ async function renderCard(taskId) {
     cardEl.setAttribute('data-sync-crop-src', cropSrc);
     cardEl.setAttribute('data-sync-crop-res', cropRes);
     cardEl.setAttribute('data-sync-channel', currentChannel);
+    cardEl.setAttribute('data-sync-version', currentVersion);
+    cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
 }
@@ -1086,10 +1323,16 @@ async function retryTask(taskId, btnElement) {
 // 🌟 轮询引擎 (高容错状态解析版)
 function startTaskPolling(taskId) {
     let attempts = 0;
+    let errorCount = 0;
+    const maxAttempts = 240;
+    const maxConsecutiveErrors = 20;
     const poll = async () => {
         attempts++;
         try {
             const task = await getTaskDB(taskId); if (!task) { removeActiveTask(taskId); return; }
+            // 仅视频任务使用该轮询器，防止生图/工具卡在刷新后被误判失败。
+            if (task.type) { removeActiveTask(taskId); return; }
+            if (!task.modelVal) { removeActiveTask(taskId); return; }
             const currentPwd = sessionStorage.getItem('veo_admin_pwd');
             if (!currentPwd) { setTimeout(poll, 2000); return; } 
 
@@ -1097,6 +1340,7 @@ function startTaskPolling(taskId) {
             if (response.status === 401 || response.status === 403) { removeActiveTask(taskId); handleAuthError(); return; }
             if (!response.ok) throw new Error("API 异常");
             const data = await response.json();
+            errorCount = 0;
             
             // 🌟 强力兼容各种 n8n 的字段名与状态名
             const currentStatus = (data.status || data.state || 'processing').toLowerCase();
@@ -1127,8 +1371,19 @@ function startTaskPolling(taskId) {
                 task.progress = data.progress; await saveTaskDB(task); renderCard(taskId); 
             }
             
-            if (attempts < 240) setTimeout(poll, 15000); else { removeActiveTask(taskId); if (task.autoRetry) retryTask(task.id, null); else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } }
-        } catch (error) { setTimeout(poll, 15000); }
+            if (attempts < maxAttempts) setTimeout(poll, 15000); else { removeActiveTask(taskId); if (task.autoRetry) retryTask(task.id, null); else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } }
+        } catch (error) {
+            errorCount++;
+            const task = await getTaskDB(taskId);
+            if (!task) { removeActiveTask(taskId); return; }
+            if (errorCount >= maxConsecutiveErrors || attempts >= maxAttempts) {
+                removeActiveTask(taskId);
+                if (task.autoRetry) retryTask(task.id, null);
+                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
+                return;
+            }
+            setTimeout(poll, 15000);
+        }
     };
     poll();
 }
@@ -1165,72 +1420,206 @@ function generateCardHTML(task) {
     if (task.type === 'tool_generator') return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')" data-tip="摇骰子：随机抽取一套爆款剧本组合"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)" data-tip="一键将结构化剧本反填至底部 Prompt 框"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用至控制台</button></div>`;
 
     if (task.type === 'tool_image_gen') {
-        const isProcessing = task.status === 'processing', isFailed = task.status === 'failed', resultHtml = task.status === 'success' && task.state.resultBlob ? `<div class="img-gen-result"><img src="${getBlobUrl(task.id+'_res_'+(task.timestamp||''), task.state.resultBlob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>` : '';
-        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot" style="border:none;"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
-        if (task.state.images.length < 5) slotsHtml += `<div class="img-gen-slot" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined" style="color:var(--text-sub);font-size:20px;">add</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
-        
-        const isChannel2 = task.state.channel === 'channel_2', currentCost = isChannel2 ? '0.06' : '0.084';
-        // 🌟 1. 正常/成功状态下的按钮 (显示历史耗时)
-        let costTxt = task.state.costTime ? `<span style="font-family:monospace; opacity:0.8; margin-left:auto;">⏱️ ${task.state.costTime}s</span>` : '';
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> 生成图像 <span style="font-family:monospace; opacity:0.8; margin-left:4px;">￥${currentCost}</span> ${costTxt}`;
-        
+        ensureImgGenState(task);
+        const isProcessing = task.status === 'processing';
+        const isFailed = task.status === 'failed';
+        const isPro = task.state.version === 'pro';
+        const isChannel2 = task.state.channel === 'channel_2';
+        const previewCollapsed = task.state.previewCollapsed === true;
+        const resolvedSize = resolveImgGenSize(task.state);
+        const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
+        const resultBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
+            ? task.state.resultBlobs
+            : (task.state.resultBlob ? [task.state.resultBlob] : []);
+        const hasResult = task.status === 'success' && resultBlobs.length > 0;
+
+        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
+        if (task.state.images.length < 5) {
+            slotsHtml += `<div class="img-gen-slot img-gen-slot-add" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
+        }
+
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span> ${task.state.costTime ? `<span class="img-gen-runtime">⏱ ${task.state.costTime}s</span>` : ''}`;
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
-        
-        // 🌟 2. 生成中：展示跳动的秒表与进度条
         if (isProcessing) {
             btnContent = `
-                <div style="display:flex; flex-direction:column; width:100%; gap:6px; align-items:center;">
-                    <div style="display:flex; justify-content:space-between; width:100%; font-size:13px;">
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg> 
+                <div class="img-gen-processing-wrap">
+                    <div class="img-gen-processing-head">
+                        <div class="img-gen-processing-left">
+                            <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg>
                             生成中...${retryTxt}
                         </div>
-                        <div class="veo-dynamic-timer" data-start-time="${task.state.startTime || Date.now()}" style="font-family:monospace; color:var(--accent); font-weight:bold; letter-spacing:1px;">00:00</div>
+                        <div class="veo-dynamic-timer img-gen-timer" data-start-time="${task.state.startTime || Date.now()}">00:00</div>
                     </div>
-                    <div style="width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
-                        <div style="height: 100%; background: var(--accent); width: 0%; animation: fakeImgProgress 60s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;"></div>
-                    </div>
+                    <div class="img-gen-progress"><div class="img-gen-progress-bar"></div></div>
                 </div>
             `;
         }
-        
-        // 🌟 3. 失败状态
-        if (isFailed) {
-            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
-        }
-        
-        // 🌟 核心修改 1：处理自定义比例 UI
+        if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
+
         let customRatioHtml = '';
-        if (task.state.size === '') {
-            const w = task.state.customW || 9; 
-            const h = task.state.customH || 21;
+        const showCustomRatio = (!isPro && task.state.trialRatio === 'custom') || (isPro && task.state.proRatio === 'custom');
+        if (showCustomRatio) {
+            const w = task.state.customW || 9;
+            const h = task.state.customH || 16;
             customRatioHtml = `
-            <div style="display:flex; align-items:center; gap:6px; padding: 0 12px; margin-top:-4px; margin-bottom:8px;">
+            <div class="img-gen-custom-ratio">
                 <span class="material-symbols-outlined" style="font-size:14px; color:var(--accent);">aspect_ratio</span>
-                <span style="font-size:11px; color:var(--text-sub);">画幅:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
+                <span class="img-gen-custom-label">比例</span>
+                <input type="number" class="img-gen-select img-gen-ratio-input" value="${w}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
                 <span style="color:var(--text-sub);">:</span>
-                <input type="number" class="img-gen-select" style="width:40px; text-align:center; padding:4px;" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
-                <span style="font-size:10px; color:rgba(255,255,255,0.3); margin-left:auto;">提交时将自动隐式拼接</span>
+                <input type="number" class="img-gen-select img-gen-ratio-input" value="${h}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
+                <span class="img-gen-size-hint">输出尺寸: ${resolvedSize}</span>
             </div>`;
         }
-        
-        // 🌟 核心修改 2：打散原本超长的 return，加入自定义选项和动态框
-        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
-        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
-        <div class="img-gen-controls">
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'size', this.value)" data-tip="选择图像生成比例">
-                <option value="1024x1024" ${task.state.size==='1024x1024'?'selected':''}>1:1</option>
-                <option value="1536x1024" ${task.state.size==='1536x1024'?'selected':''}>3:2</option>
-                <option value="1024x1536" ${task.state.size==='1024x1536'?'selected':''}>2:3</option>
-                <option value="" ${task.state.size===''?'selected':''}>自定义</option>
+
+        const proControlsHtml = isPro
+            ? `<div class="img-gen-controls img-gen-controls-pro">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proRatio', this.value)" data-tip="专业版：先选构图比例">
+                <option value="1:1" ${task.state.proRatio==='1:1'?'selected':''}>比例 1:1</option>
+                <option value="3:2" ${task.state.proRatio==='3:2'?'selected':''}>比例 3:2</option>
+                <option value="2:3" ${task.state.proRatio==='2:3'?'selected':''}>比例 2:3</option>
+                <option value="16:9" ${task.state.proRatio==='16:9'?'selected':''}>比例 16:9</option>
+                <option value="9:16" ${task.state.proRatio==='9:16'?'selected':''}>比例 9:16</option>
+                <option value="custom" ${task.state.proRatio==='custom'?'selected':''}>自定义比例</option>
+                <option value="auto" ${task.state.proRatio==='auto'?'selected':''}>Auto 比例</option>
             </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5;" data-tip="若生成失败，可尝试切换备用 API 节点"><option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>节点 1 (主)</option><option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>节点 2 (备)</option></select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)"><option value="false" ${!task.state.autoRetry?'selected':''}>单次</option><option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option></select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：再选分辨率档位">
+                <option value="1k" ${task.state.proResolution==='1k'?'selected':''}>1K</option>
+                <option value="2k" ${task.state.proResolution==='2k'?'selected':''}>2K</option>
+                <option value="4k" ${task.state.proResolution==='4k'?'selected':''}>4K</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版：质量优先或速度优先">
+                <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
+                <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" data-tip="专业版：输出质量">
+                <option value="auto" ${task.state.quality==='auto'?'selected':''}>自动质量</option>
+                <option value="high" ${task.state.quality==='high'?'selected':''}>高质量</option>
+                <option value="medium" ${task.state.quality==='medium'?'selected':''}>中质量</option>
+                <option value="low" ${task.state.quality==='low'?'selected':''}>低质量</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'format', this.value)" data-tip="专业版：输出格式">
+                <option value="png" ${task.state.format==='png'?'selected':''}>PNG</option>
+                <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
+                <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" data-tip="专业版：目标张数">
+                <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
+                <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
+                <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
+                <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
+                <option value="5" ${String(task.state.n)==='5'?'selected':''}>5张</option>
+                <option value="6" ${String(task.state.n)==='6'?'selected':''}>6张</option>
+                <option value="7" ${String(task.state.n)==='7'?'selected':''}>7张</option>
+                <option value="8" ${String(task.state.n)==='8'?'selected':''}>8张</option>
+                <option value="9" ${String(task.state.n)==='9'?'selected':''}>9张</option>
+                <option value="10" ${String(task.state.n)==='10'?'selected':''}>10张</option>
+            </select>
         </div>
-        ${customRatioHtml}
-        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
-        <button class="img-gen-btn" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>${resultHtml}`;
+        <div class="img-gen-controls img-gen-controls-pro">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)" data-tip="专业版：背景模式">
+                <option value="auto" ${task.state.background==='auto'?'selected':''}>背景 auto</option>
+                <option value="transparent" ${task.state.background==='transparent'?'selected':''}>背景 transparent</option>
+                <option value="opaque" ${task.state.background==='opaque'?'selected':''}>背景 opaque</option>
+            </select>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'moderation', this.value)" data-tip="专业版：审核级别">
+                <option value="auto" ${task.state.moderation==='auto'?'selected':''}>审核 auto</option>
+                <option value="low" ${task.state.moderation==='low'?'selected':''}>审核 low</option>
+            </select>
+            <div class="img-gen-size-chip">输出尺寸: ${resolvedSize}</div>
+        </div>`
+            : `<div class="img-gen-controls">
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'trialRatio', this.value)" data-tip="试用版：分辨率固定 1K，仅按比例调整构图">
+                <option value="1:1" ${task.state.trialRatio==='1:1'?'selected':''}>比例 1:1</option>
+                <option value="3:2" ${task.state.trialRatio==='3:2'?'selected':''}>比例 3:2</option>
+                <option value="2:3" ${task.state.trialRatio==='2:3'?'selected':''}>比例 2:3</option>
+                <option value="16:9" ${task.state.trialRatio==='16:9'?'selected':''}>比例 16:9</option>
+                <option value="9:16" ${task.state.trialRatio==='9:16'?'selected':''}>比例 9:16</option>
+                <option value="custom" ${task.state.trialRatio==='custom'?'selected':''}>自定义比例</option>
+            </select>
+            <select class="img-gen-select" disabled data-tip="试用版分辨率固定为 1K">
+                <option selected>分辨率 1K (锁定)</option>
+            </select>
+        </div>`;
+
+        const previewGridHtml = hasResult
+            ? `<div class="img-gen-preview-grid">${
+                resultBlobs.map((blob, idx) => `<div class="img-gen-preview-item"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
+            }</div>`
+            : '';
+
+        let previewPlaceholderHtml = '';
+        if (!hasResult) {
+            if (isProcessing) {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-processing"><svg class="spinner" viewBox="0 0 50 50" style="width:30px;height:30px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg><div class="img-gen-preview-placeholder-title">正在生成图像...</div><div class="img-gen-preview-placeholder-sub">生成动效已绑定预览框</div></div>`;
+            } else if (isFailed) {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-failed"><span class="material-symbols-outlined" style="font-size:28px;">warning</span><div class="img-gen-preview-placeholder-title">本次生成失败</div><div class="img-gen-preview-placeholder-sub">请调整提示词或参数后重试</div></div>`;
+            } else {
+                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">play_circle</span><div class="img-gen-preview-placeholder-title">点击生成开始预览</div><div class="img-gen-preview-placeholder-sub">输出结果将在此实时展示</div></div>`;
+            }
+        }
+
+        const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
+        const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
+        const panelToggleIcon = 'keyboard_arrow_right';
+        const panelToggleTip = '收纳预览面板';
+
+        return `<div class="card-header"><span style="color:var(--accent); display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">brush</span> AI 多模生图</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div>
+        <div class="img-gen-shell">
+            <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
+                <div class="img-gen-left">
+                    <div class="img-gen-panel-head">
+                        <span class="img-gen-panel-title">INPUT</span>
+                        <button class="img-gen-dock-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${dockToggleTip}">
+                            <span class="material-symbols-outlined" style="font-size:16px;">${dockToggleIcon}</span>
+                        </button>
+                    </div>
+                    <div class="img-gen-input-body">
+                        <div class="img-gen-statusbar">
+                            <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
+                            <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `${(task.state.trialRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : (task.state.trialRatio || '1:1')} / 1K`}</span>
+                        </div>
+                        <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
+                        <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
+                        <div class="img-gen-controls">
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                                <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
+                                <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
+                            </select>
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
+                                <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
+                                <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
+                            </select>
+                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
+                                <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
+                                <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
+                            </select>
+                        </div>
+                        ${proControlsHtml}
+                        ${customRatioHtml}
+                        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
+                        <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
+                    </div>
+                </div>
+                <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${isProcessing ? 'is-running' : ''}">
+                    <div class="img-gen-preview-head">
+                        <div class="img-gen-preview-head-main">
+                            <span class="img-gen-preview-title">OUTPUT</span>
+                            <div class="img-gen-preview-tabs">
+                                <button class="img-gen-preview-tab is-active" type="button">Preview</button>
+                                <button class="img-gen-preview-tab" type="button" disabled>JSON</button>
+                            </div>
+                        </div>
+                        <button class="img-gen-preview-toggle" onclick="toggleImgGenPreviewPanel(event, '${task.id}')" data-tip="${panelToggleTip}">
+                            <span class="material-symbols-outlined" style="font-size:16px;">${panelToggleIcon}</span>
+                        </button>
+                    </div>
+                    <div class="img-gen-preview-body">
+                        ${previewGridHtml || previewPlaceholderHtml}
+                    </div>
+                </aside>
+            </div>
+        </div>`;
     }
 
     if (task.type === 'tool_cropper') {
@@ -1267,7 +1656,7 @@ async function renderBoard() {
 
     boardTasks.forEach(task => {
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1'; 
+        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na'; 
         
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
@@ -1284,8 +1673,9 @@ async function renderBoard() {
             else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
             
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; cardEl.innerHTML = generateCardHTML(task); board.appendChild(cardEl); 
+            applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
-            if (task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
+            if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`;
             
@@ -1296,19 +1686,20 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
             
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'); 
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'); 
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
                 cardEl.innerHTML = generateCardHTML(task); 
             }
+            applyImgGenCardFrame(cardEl, task);
         }
 
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
 
         bindCardDrag(cardEl, task);
         
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); 
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -1319,95 +1710,509 @@ async function removeTask(id) { if(confirm('确定删除这张卡片吗？')) { 
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    await initDB(); 
-    board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`; 
-    document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`; 
-    await renderBoard(); await renderMaterialLibrary();
-    bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
-    await updateBillingUI(); updateEstimatedCost();
+    try {
+        await initDB();
+        board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+        document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
+        await renderBoard(); await renderMaterialLibrary();
+        bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
+        await updateBillingUI(); updateEstimatedCost();
+    } catch (err) {
+        console.error('主工作台初始化失败:', err);
+        showToast('初始化失败，请刷新重试', 'error');
+    }
 });
 
 // ==========================================
 // 🌟 智能克隆引擎 (Alt + Drag 专用)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    // 1. 生成新 ID 与基础浅克隆
-    const newId = originalTask.type + '_copy_' + Date.now();
-    let clone = { ...originalTask, id: newId, timestamp: Date.now() };
+    const baseType = originalTask && originalTask.type ? originalTask.type : 'task';
+    const newId = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const clone = { ...originalTask, id: newId, timestamp: Date.now() };
 
     // 解除从属关系，让克隆出的卡片自由散落
-    delete clone.parentId; 
+    delete clone.parentId;
 
-    // 2. 深度克隆内部状态 (保护提示词、尺寸等，防止引用污染)
-    if (originalTask.state) {
+    // 深拷贝内部状态，避免引用串联污染
+    if (originalTask && originalTask.state) {
         clone.state = { ...originalTask.state };
-        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images]; // 继承多模态垫图
+        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images];
         if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
 
-        // ⚠️ 生图组件特判：继承参数，但必须清空之前的生成结果和状态！
         if (clone.type === 'tool_image_gen') {
+            ensureImgGenState(clone);
             clone.status = 'idle';
             clone.state.resultBlob = null;
+            clone.state.resultBlobs = [];
             clone.state.resultUrl = null;
+            clone.state.maskImage = null;
             clone.retryCount = 0;
         }
-        
-        // ⚠️ 裁切器特判：继承原图和选区，清空裁切结果
-        if (clone.type === 'tool_cropper') {
-            clone.state.resultBlob = null;
-        }
+        if (clone.type === 'tool_cropper') clone.state.resultBlob = null;
     }
 
-    // 3. 针对视频记录卡片，深拷贝参考图
-    if (originalTask.rawImages) {
+    if (originalTask && originalTask.rawImages) {
         clone.rawImages = { ...originalTask.rawImages };
-        if (Array.isArray(originalTask.rawImages.references)) {
-            clone.rawImages.references = [...originalTask.rawImages.references];
+        if (Array.isArray(originalTask.rawImages.references)) clone.rawImages.references = [...originalTask.rawImages.references];
+    }
+
+    // 默认从原卡原位开始（不做固定偏移），后续按鼠标位移精确跟随
+    const originX = Number(originalTask && originalTask.x);
+    const originY = Number(originalTask && originalTask.y);
+    const baseX = Number.isFinite(originX) ? originX : 0;
+    const baseY = Number.isFinite(originY) ? originY : 0;
+    clone.x = baseX;
+    clone.y = baseY;
+
+    // 使用“鼠标位移 delta”计算克隆落点，避免坐标系换算误差导致瞬移/下坠堆叠
+    if (mouseEvent) {
+        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
+        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
+        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
+        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
+        const deltaBoardX = (currentClientX - startClientX) / scaleSafe;
+        const deltaBoardY = (currentClientY - startClientY) / scaleSafe;
+        clone.x = baseX + deltaBoardX;
+        clone.y = baseY + deltaBoardY;
+    }
+
+    await saveTaskDB(clone);
+    await renderBoard();
+    await renderCard(newId);
+
+    const newCardEl = document.getElementById('card-' + newId);
+    if (!newCardEl) {
+        showToast("已克隆，但渲染节点未挂载，请重试一次", "error");
+        return;
+    }
+
+    // 渲染若有延迟，按“当前鼠标位置”二次校正克隆坐标，避免视觉上落后或下坠
+    if (mouseEvent) {
+        const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
+        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
+        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
+        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
+        const correctedX = baseX + ((currentClientX - startClientX) / scaleSafe);
+        const correctedY = baseY + ((currentClientY - startClientY) / scaleSafe);
+
+        clone.x = correctedX;
+        clone.y = correctedY;
+        if (newCardEl.__veoTask) {
+            newCardEl.__veoTask.x = correctedX;
+            newCardEl.__veoTask.y = correctedY;
         }
     }
 
-    // 4. 将新卡片位置错开一点点
-    clone.x += 20;
-    clone.y += 20;
+    highestZIndex++;
+    newCardEl.style.zIndex = highestZIndex;
+    newCardEl.style.willChange = 'transform';
+    newCardEl.style.transform = `translate(${clone.x}px, ${clone.y}px)`;
+    newCardEl.classList.remove('hidden-in-frame');
 
-    // 5. 入库并触发局部重绘挂载
-    await saveTaskDB(clone);
-    await renderBoard(); 
+    clearSelection();
+    selectedTasks.add(newId);
+    newCardEl.classList.add('selected');
 
-    // 6. 🌟 核心：瞬间劫持鼠标焦点，让克隆出来的卡片直接跟着鼠标走！
-    const newCardEl = document.getElementById('card-' + newId);
-    if (newCardEl) {
-        highestZIndex++;
-        newCardEl.style.zIndex = highestZIndex;
-        newCardEl.style.willChange = 'transform';
-
-        clearSelection();
-        selectedTasks.add(newId);
-        newCardEl.classList.add('selected');
-
-        // 将系统的拖拽控制权移交给新卡片
-            draggingCardInfo = {
-                el: newCardEl,
-                // 🌟 核心修复：抛弃局部变量 clone，直接指向 DOM 身上绑定的真实内存地址
-                task: newCardEl.__veoTask, 
-                startMouseX: mouseEvent.clientX,
-                startMouseY: mouseEvent.clientY,
-                initialX: newCardEl.__veoTask.x,
-                initialY: newCardEl.__veoTask.y
-            };
-        
-        showToast("🪄 已克隆组件及参数", "success");
+    // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
+    if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
+        const dragStartX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : mouseEvent.clientX;
+        const dragStartY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : mouseEvent.clientY;
+        draggingCardInfo = {
+            el: newCardEl,
+            task: newCardEl.__veoTask,
+            startMouseX: dragStartX,
+            startMouseY: dragStartY,
+            initialX: Number(newCardEl.__veoTask.x) || clone.x || 0,
+            initialY: Number(newCardEl.__veoTask.y) || clone.y || 0
+        };
+    } else {
+        newCardEl.style.willChange = 'auto';
+        // 若用户已松手，立即落库校正后坐标，避免刷新后回弹到旧位置
+        try { await saveTaskDB(newCardEl.__veoTask || clone); } catch(err) { console.warn('clone settle save failed:', err); }
     }
+
+    showToast("🪄 已克隆组件及参数", "success");
 }
 
 // ==========================================
 // 🎨 AI 多模生图核心控制模块 (局部渲染完全体)
 // ==========================================
-async function updateImgGenState(taskId, key, val) { const task = await getTaskDB(taskId); if (task) { task.state[key] = val; await saveTaskDB(task); renderCard(taskId); } }
+const IMG_GEN_PRO_SIZE_PRESETS = Object.freeze({
+    '1:1': Object.freeze({ '1k': '1024x1024', '2k': '2048x2048', '4k': '4096x4096' }),
+    '3:2': Object.freeze({ '1k': '1536x1024', '2k': '3072x2048', '4k': '3840x2560' }),
+    '2:3': Object.freeze({ '1k': '1024x1536', '2k': '2048x3072', '4k': '2560x3840' }),
+    '16:9': Object.freeze({ '1k': '1024x576', '2k': '2048x1152', '4k': '3840x2160' }),
+    '9:16': Object.freeze({ '1k': '576x1024', '2k': '1152x2048', '4k': '2160x3840' })
+});
+
+const IMG_GEN_PRO_RULES = Object.freeze({
+    MAX_SIDE: 3840,
+    GRID: 16,
+    MAX_RATIO: 3,
+    MIN_PIXELS: 655360,
+    MAX_PIXELS: 8294400
+});
+
+function clampNumber(v, min, max) {
+    return Math.min(max, Math.max(min, v));
+}
+
+function snapToGrid(v, grid) {
+    const g = Math.max(1, parseInt(grid, 10) || 1);
+    return Math.max(g, Math.round(v / g) * g);
+}
+
+function parseImgSizeValue(sizeStr) {
+    if (typeof sizeStr !== 'string') return null;
+    const m = sizeStr.trim().match(/^(\d+)\s*x\s*(\d+)$/i);
+    if (!m) return null;
+    const w = parseInt(m[1], 10);
+    const h = parseInt(m[2], 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    return { width: w, height: h };
+}
+
+function detectProPresetFromSize(sizeValue) {
+    if (sizeValue === '') return { proRatio: 'custom', proResolution: '1k' };
+    if (!sizeValue || sizeValue === 'auto') return { proRatio: 'auto', proResolution: '1k' };
+    const value = String(sizeValue).trim().toLowerCase();
+    for (const ratioKey of Object.keys(IMG_GEN_PRO_SIZE_PRESETS)) {
+        const perRes = IMG_GEN_PRO_SIZE_PRESETS[ratioKey];
+        for (const resKey of Object.keys(perRes)) {
+            if (perRes[resKey].toLowerCase() === value) return { proRatio: ratioKey, proResolution: resKey };
+        }
+    }
+    const parsed = parseImgSizeValue(value);
+    if (!parsed) return { proRatio: '1:1', proResolution: '1k' };
+    const ratioNum = parsed.width / parsed.height;
+    const ratioCandidates = [
+        { key: '1:1', num: 1 },
+        { key: '3:2', num: 3 / 2 },
+        { key: '2:3', num: 2 / 3 },
+        { key: '16:9', num: 16 / 9 },
+        { key: '9:16', num: 9 / 16 }
+    ];
+    let best = ratioCandidates[0];
+    let bestDiff = Infinity;
+    for (const item of ratioCandidates) {
+        const diff = Math.abs(item.num - ratioNum);
+        if (diff < bestDiff) {
+            bestDiff = diff;
+            best = item;
+        }
+    }
+    const maxSide = Math.max(parsed.width, parsed.height);
+    const proResolution = maxSide >= 3200 ? '4k' : (maxSide >= 1900 ? '2k' : '1k');
+    return { proRatio: best.key, proResolution };
+}
+
+function buildCustomSizeByResolution(customW, customH, proResolution) {
+    const ratioW = Math.max(1, parseInt(customW, 10) || 1);
+    const ratioH = Math.max(1, parseInt(customH, 10) || 1);
+    const longSideBase = proResolution === '4k' ? 3840 : (proResolution === '2k' ? 2048 : 1024);
+    const scale = longSideBase / Math.max(ratioW, ratioH);
+    const snappedW = Math.max(64, Math.round((ratioW * scale) / 64) * 64);
+    const snappedH = Math.max(64, Math.round((ratioH * scale) / 64) * 64);
+    return `${snappedW}x${snappedH}`;
+}
+
+function enforceProSizeRules(sizeValue) {
+    const rules = IMG_GEN_PRO_RULES;
+    const fallback = { width: 1024, height: 1024 };
+    const parsed = parseImgSizeValue(sizeValue) || fallback;
+    let w = parsed.width;
+    let h = parsed.height;
+    const original = `${w}x${h}`;
+
+    for (let i = 0; i < 8; i++) {
+        w = Math.max(rules.GRID, w);
+        h = Math.max(rules.GRID, h);
+
+        const ratio = w / h;
+        if (ratio > rules.MAX_RATIO) w = h * rules.MAX_RATIO;
+        else if (ratio < (1 / rules.MAX_RATIO)) h = w * rules.MAX_RATIO;
+
+        let maxSide = Math.max(w, h);
+        if (maxSide > rules.MAX_SIDE) {
+            const scaleDown = rules.MAX_SIDE / maxSide;
+            w *= scaleDown;
+            h *= scaleDown;
+        }
+
+        let pixels = w * h;
+        if (pixels > rules.MAX_PIXELS) {
+            const scaleDownPixels = Math.sqrt(rules.MAX_PIXELS / pixels);
+            w *= scaleDownPixels;
+            h *= scaleDownPixels;
+        }
+
+        pixels = w * h;
+        if (pixels < rules.MIN_PIXELS) {
+            const scaleUpPixels = Math.sqrt(rules.MIN_PIXELS / Math.max(1, pixels));
+            w *= scaleUpPixels;
+            h *= scaleUpPixels;
+        }
+
+        maxSide = Math.max(w, h);
+        if (maxSide > rules.MAX_SIDE) {
+            const scaleDownAgain = rules.MAX_SIDE / maxSide;
+            w *= scaleDownAgain;
+            h *= scaleDownAgain;
+        }
+
+        w = snapToGrid(w, rules.GRID);
+        h = snapToGrid(h, rules.GRID);
+    }
+
+    w = clampNumber(snapToGrid(w, rules.GRID), rules.GRID, rules.MAX_SIDE);
+    h = clampNumber(snapToGrid(h, rules.GRID), rules.GRID, rules.MAX_SIDE);
+
+    if (w / h > rules.MAX_RATIO) w = snapToGrid(h * rules.MAX_RATIO, rules.GRID);
+    if (h / w > rules.MAX_RATIO) h = snapToGrid(w * rules.MAX_RATIO, rules.GRID);
+
+    w = clampNumber(w, rules.GRID, rules.MAX_SIDE);
+    h = clampNumber(h, rules.GRID, rules.MAX_SIDE);
+
+    let area = w * h;
+    if (area > rules.MAX_PIXELS) {
+        const scale = Math.sqrt(rules.MAX_PIXELS / area);
+        w = clampNumber(snapToGrid(w * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        h = clampNumber(snapToGrid(h * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        area = w * h;
+    }
+    if (area < rules.MIN_PIXELS) {
+        const scale = Math.sqrt(rules.MIN_PIXELS / Math.max(1, area));
+        w = clampNumber(snapToGrid(w * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        h = clampNumber(snapToGrid(h * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
+        area = w * h;
+    }
+
+    // 兜底：若经过缩放后仍未满足最小像素，优先抬升较短边，保持比例不超过 3:1。
+    if (area < rules.MIN_PIXELS) {
+        if (w >= h) {
+            h = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, w / h)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+            w = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, h * (w / h)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+        } else {
+            w = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, h / w)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+            h = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, w * (h / w)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+        }
+        area = w * h;
+    }
+
+    const normalized = `${w}x${h}`;
+    return {
+        size: normalized,
+        changed: normalized !== original,
+        isValid:
+            Math.max(w, h) <= rules.MAX_SIDE &&
+            (w % rules.GRID === 0) &&
+            (h % rules.GRID === 0) &&
+            (Math.max(w / h, h / w) <= rules.MAX_RATIO) &&
+            (area >= rules.MIN_PIXELS && area <= rules.MAX_PIXELS)
+    };
+}
+
+function resolveImgGenSize(state) {
+    if (!state || typeof state !== 'object') return '1024x1024';
+    if (state.version !== 'pro') {
+        const trialRatio = state.trialRatio || '1:1';
+        if (trialRatio === 'custom') return buildCustomSizeByResolution(state.customW, state.customH, '1k');
+        const preset = IMG_GEN_PRO_SIZE_PRESETS[trialRatio];
+        if (preset && preset['1k']) return preset['1k'];
+        if (typeof state.size === 'string' && state.size.trim()) return state.size;
+        return '1024x1024';
+    }
+    const ratio = state.proRatio || '1:1';
+    const res = state.proResolution || '1k';
+    if (ratio === 'auto') return 'auto';
+    if (ratio === 'custom') return enforceProSizeRules(buildCustomSizeByResolution(state.customW, state.customH, res)).size;
+    const preset = IMG_GEN_PRO_SIZE_PRESETS[ratio];
+    if (preset && preset[res]) return enforceProSizeRules(preset[res]).size;
+    return enforceProSizeRules('1024x1024').size;
+}
+
+function ensureImgGenState(task) {
+    if (!task || task.type !== 'tool_image_gen') return;
+    if (!task.state || typeof task.state !== 'object') task.state = {};
+    if (!Array.isArray(task.state.images)) task.state.images = [];
+    if (!task.state.version) task.state.version = 'trial';
+    if (!task.state.providerSort) task.state.providerSort = 'quality';
+    if (!task.state.quality) task.state.quality = 'auto';
+    if (!task.state.format) task.state.format = 'png';
+    if (!task.state.background) task.state.background = 'auto';
+    if (!task.state.moderation) task.state.moderation = 'auto';
+    const parsedN = parseInt(task.state.n, 10);
+    task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
+    if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
+    if (!task.state.trialRatio) {
+        if (task.state.size === '') {
+            task.state.trialRatio = 'custom';
+        } else {
+            const trialDetected = detectProPresetFromSize(task.state.size);
+            task.state.trialRatio = (trialDetected.proRatio && trialDetected.proRatio !== 'auto') ? trialDetected.proRatio : '1:1';
+        }
+    }
+    if (!['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(task.state.trialRatio)) {
+        task.state.trialRatio = '1:1';
+    }
+    if (!task.state.proRatio) task.state.proRatio = '1:1';
+    if (!task.state.proResolution) task.state.proResolution = '1k';
+    const ratioCustomW = parseInt(task.state.customW, 10);
+    const ratioCustomH = parseInt(task.state.customH, 10);
+    if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
+    if (!Number.isFinite(ratioCustomH) || ratioCustomH < 1) task.state.customH = 16;
+    if (!task.state.prompt) task.state.prompt = '';
+    if (!task.state.channel) task.state.channel = 'channel_1';
+    if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
+    if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
+    if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
+    if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
+    if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
+    if (task.state.version === 'pro') {
+        const detected = detectProPresetFromSize(task.state.size);
+        if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
+        if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+        task.state.size = resolveImgGenSize(task.state);
+    } else {
+        task.state.size = resolveImgGenSize(task.state);
+    }
+}
+
+function resolveImgGenMode(state) {
+    const imageCount = Array.isArray(state.images) ? state.images.length : 0;
+    if (imageCount === 0) return 'text2img';
+    if (state.maskImage) return 'mask_edit';
+    return 'img2img';
+}
+
+function buildImgGenHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    const pwd = sessionStorage.getItem('veo_admin_pwd');
+    if (pwd) headers['wally123'] = pwd;
+    if (API_IMAGE_AUTH) headers['Authorization'] = API_IMAGE_AUTH;
+    return headers;
+}
+
+function extractImageUrlsFromResponse(rawData) {
+    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (!resData) return [];
+    const urls = [];
+    const pushIf = (u) => {
+        if (!u || typeof u !== 'string') return;
+        const v = u.trim();
+        if (!v) return;
+        if (!urls.includes(v)) urls.push(v);
+    };
+    const fmt = (resData.output_format || resData.format || 'png').toString().toLowerCase();
+    const toDataUrl = (b64) => `data:image/${fmt};base64,${b64}`;
+
+    if (typeof resData === 'string' && (resData.startsWith('http://') || resData.startsWith('https://') || resData.startsWith('data:image'))) pushIf(resData);
+    if (resData.imageUrl) pushIf(resData.imageUrl);
+    if (resData.url) pushIf(resData.url);
+    if (resData.output && Array.isArray(resData.output) && resData.output[0]) {
+        for (const outItem of resData.output) {
+            if (typeof outItem === 'string') pushIf(outItem);
+            else if (outItem && outItem.url) pushIf(outItem.url);
+        }
+    }
+    if (resData.images && Array.isArray(resData.images) && resData.images[0]) {
+        for (const imgItem of resData.images) {
+            if (typeof imgItem === 'string') pushIf(imgItem);
+            else if (imgItem && imgItem.url) pushIf(imgItem.url);
+        }
+    }
+    if (resData.data && Array.isArray(resData.data) && resData.data[0]) {
+        for (const d of resData.data) {
+            if (typeof d === 'string') pushIf(d);
+            else if (d && d.url) pushIf(d.url);
+            else if (d && d.b64_json) pushIf(toDataUrl(d.b64_json));
+        }
+    }
+    if (resData.result && resData.result.url) pushIf(resData.result.url);
+    if (resData.body && resData.body.imageUrl) pushIf(resData.body.imageUrl);
+    return urls;
+}
+
+function extractImageUrlFromResponse(rawData) {
+    const list = extractImageUrlsFromResponse(rawData);
+    return list.length > 0 ? list[0] : null;
+}
+
+async function toggleImgGenPreviewPanel(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const task = await getTaskDB(taskId);
+    if (!task) return;
+    ensureImgGenState(task);
+    task.state.previewCollapsed = !task.state.previewCollapsed;
+    task.timestamp = Date.now();
+    await saveTaskDB(task);
+    renderCard(taskId);
+}
+
+async function updateImgGenState(taskId, key, val) {
+    const task = await getTaskDB(taskId);
+    if (!task) return;
+    ensureImgGenState(task);
+    if (key === 'n') {
+        const n = parseInt(val, 10);
+        task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
+    } else if (key === 'proResolution') {
+        task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
+        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'proRatio') {
+        task.state.proRatio = String(val || '1:1');
+        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'customW' || key === 'customH') {
+        const parsed = parseInt(val, 10);
+        task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
+        if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+        if (task.state.version !== 'pro' && task.state.trialRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'trialRatio') {
+        task.state.trialRatio = ['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(String(val)) ? String(val) : '1:1';
+        task.state.size = resolveImgGenSize(task.state);
+    } else if (key === 'version') {
+        const nextVersion = val === 'pro' ? 'pro' : 'trial';
+        task.state.version = nextVersion;
+        if (nextVersion === 'pro') {
+            const detected = detectProPresetFromSize(task.state.size);
+            if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+            if (detected.proResolution) task.state.proResolution = detected.proResolution;
+            task.state.size = resolveImgGenSize(task.state);
+        } else {
+            task.state.size = resolveImgGenSize(task.state);
+        }
+    } else if (key === 'size') {
+        task.state.size = val;
+        if (task.state.version === 'pro') {
+            const detected = detectProPresetFromSize(val);
+            if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+            task.state.proResolution = detected.proResolution;
+        } else {
+            if (val === '') task.state.trialRatio = 'custom';
+            else {
+                const trialDetected = detectProPresetFromSize(val);
+                if (trialDetected.proRatio && trialDetected.proRatio !== 'auto') task.state.trialRatio = trialDetected.proRatio;
+            }
+            task.state.size = resolveImgGenSize(task.state);
+        }
+    } else {
+        task.state[key] = val;
+        if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
+    }
+    await saveTaskDB(task);
+    renderCard(taskId);
+}
 
 async function handleGenImageUpload(input, taskId) {
     if (!input.files || input.files.length === 0) return;
     const task = await getTaskDB(taskId); if (!task) return;
+    ensureImgGenState(task);
     for (let file of Array.from(input.files)) {
         if (task.state.images.length >= 5) break;
         task.state.images.push(await compressImageToBlob(file, 1024));
@@ -1433,6 +2238,7 @@ async function handleGenImageDrop(e, taskId) {
     // 数据落袋为安后，再从容地去查库和校验
     const task = await getTaskDB(taskId); 
     if (!task) return;
+    ensureImgGenState(task);
     
     if (task.state.images.length >= 5) {
         return showToast("最多只能垫入 5 张图", "error");
@@ -1449,6 +2255,7 @@ async function handleGenImageDrop(e, taskId) {
 
 async function removeGenImage(e, taskId, index) {
     e.stopPropagation(); const task = await getTaskDB(taskId); if (!task) return;
+    ensureImgGenState(task);
     task.state.images.splice(index, 1); 
     task.timestamp = Date.now();
     await saveTaskDB(task); renderCard(taskId);
@@ -1458,105 +2265,262 @@ async function removeGenImage(e, taskId, index) {
 // 🎨 AI 多模生图核心控制模块 (完全融合版)
 // ==========================================
 async function submitImgGen(taskId) {
-    const task = await getTaskDB(taskId); 
+    const task = await getTaskDB(taskId);
     if (!task) return;
+    ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
+    if (task.state.previewCollapsed) task.state.previewCollapsed = false;
 
-    // 1. 初始化生图状态
-    task.status = 'processing'; 
-    task.retryCount = 0; 
-    task.isBilled = false; 
+    task.status = 'processing';
+    task.retryCount = 0;
+    task.isBilled = false;
+    task.state.resultBlob = null;
+    task.state.resultBlobs = [];
     task.state.startTime = Date.now();
-    await saveTaskDB(task); 
-    renderCard(taskId); // 🌟 严格遵守局部渲染法则
-    
-    // 🌟 拦截处理：如果 size 是空值，进行比例提示词的隐式无感拼接
-    let finalPrompt = task.state.prompt;
-    if (task.state.size === '') {
-        const w = task.state.customW || 9;
-        const h = task.state.customH || 21;
-        // 在发给服务器前，悄悄在用户提示词末尾加上比例要求
-        finalPrompt = finalPrompt + ` 画面比例${w}:${h}`; 
-    }
+    await saveTaskDB(task);
+    renderCard(taskId);
 
-    // 2. 构造 Payload，融合旧版丢失的 channel 参数
-    const apiPayload = { 
-        prompt: finalPrompt,  // 🌟 使用拼接后的新 Prompt
-        size: task.state.size, // 照样传空字符串给 n8n
-        channel: task.state.channel || 'channel_1', 
-        images: await Promise.all(task.state.images.map(b => blobToBase64(b))) 
+    const version = task.state.version === 'pro' ? 'pro' : 'trial';
+    let resolvedSize = resolveImgGenSize(task.state);
+    let finalPrompt = task.state.prompt;
+    const trialCustomW = task.state.customW || 9;
+    const trialCustomH = task.state.customH || 16;
+    const trialCustomRatio = (version !== 'pro' && task.state.trialRatio === 'custom') ? `${trialCustomW}:${trialCustomH}` : '';
+    if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
+
+    if (version === 'pro' && resolvedSize !== 'auto') {
+        const strict = enforceProSizeRules(resolvedSize);
+        if (!strict.isValid) {
+            task.status = 'failed';
+            await saveTaskDB(task);
+            renderCard(taskId);
+            return showToast('Pro 尺寸不符合规则，请调整比例后重试', 'error');
+        }
+        if (strict.changed) {
+            resolvedSize = strict.size;
+            showToast(`Pro 尺寸已按规则校正为 ${strict.size}`, 'info');
+        }
+    }
+    task.state.size = resolvedSize;
+    const sizeToSend = resolvedSize;
+    const mode = resolveImgGenMode(task.state);
+    const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
+    const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
+    const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 10) : 1;
+
+    const unifiedPayloadCore = {
+        version: version,
+        channel: task.state.channel || 'channel_1',
+        mode: mode,
+        prompt: finalPrompt,
+        size: sizeToSend,
+        providerSort: task.state.providerSort || 'quality',
+        provider: { sort: task.state.providerSort || 'quality' },
+        quality: task.state.quality || 'auto',
+        format: task.state.format || 'png',
+        output_format: task.state.format || 'png',
+        background: task.state.background || 'auto',
+        moderation: task.state.moderation || 'auto',
+        n: nValue,
+        images: imagesBase64,
+        mask: maskBase64,
+        custom_ratio: trialCustomRatio || undefined,
+        custom_w: trialCustomRatio ? trialCustomW : undefined,
+        custom_h: trialCustomRatio ? trialCustomH : undefined
+    };
+
+    const unifiedPayload = {
+        body: { ...unifiedPayloadCore },
+        ...unifiedPayloadCore,
+        inputImages: imagesBase64,
+        maskImage: maskBase64
+    };
+
+    const legacyPayload = {
+        prompt: finalPrompt,
+        size: sizeToSend,
+        channel: task.state.channel || 'channel_1',
+        n: nValue,
+        quality: task.state.quality || 'auto',
+        format: task.state.format || 'png',
+        output_format: task.state.format || 'png',
+        background: task.state.background || 'auto',
+        moderation: task.state.moderation || 'auto',
+        providerSort: task.state.providerSort || 'quality',
+        images: imagesBase64,
+        custom_ratio: trialCustomRatio || undefined,
+        custom_w: trialCustomRatio ? trialCustomW : undefined,
+        custom_h: trialCustomRatio ? trialCustomH : undefined
+    };
+
+    const requestImgGenOnce = async (payloadForUnified, payloadForLegacy) => {
+        const headers = buildImgGenHeaders();
+        const useTrialLegacyFirst = version !== 'pro';
+        let response = null;
+
+        if (useTrialLegacyFirst) {
+            const legacyUrl = API_IMAGE_GEN_LEGACY || API_IMAGE_GEN;
+            response = await fetch(legacyUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payloadForLegacy)
+            });
+            if ((response.status === 404 || response.status === 405) && legacyUrl !== API_IMAGE_GEN) {
+                response = await fetch(API_IMAGE_GEN, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payloadForUnified)
+                });
+            }
+        } else {
+            response = await fetch(API_IMAGE_GEN, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payloadForUnified)
+            });
+            if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
+                response = await fetch(API_IMAGE_GEN_LEGACY, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(payloadForLegacy)
+                });
+            }
+        }
+
+        if (response.status === 401 || response.status === 403) {
+            handleAuthError();
+            throw new Error("密钥校验失败");
+        }
+        if (!response.ok) throw new Error("API 异常: " + response.status);
+
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        let rawData = null;
+        if (contentType.includes('application/json')) {
+            rawData = await response.json();
+        } else {
+            const rawText = await response.text();
+            try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
+        }
+
+        const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+        const returnedUrls = extractImageUrlsFromResponse(rawData);
+        return { rawData, resData, returnedUrls };
+    };
+
+    const collectRequestedUrls = async () => {
+        const targetCount = Math.min(Math.max(nValue, 1), 10);
+        const aggregatedUrls = [];
+
+        const firstResult = await requestImgGenOnce(unifiedPayload, legacyPayload);
+        if (Array.isArray(firstResult.returnedUrls) && firstResult.returnedUrls.length > 0) {
+            aggregatedUrls.push(...firstResult.returnedUrls);
+        }
+
+        let latestResData = firstResult.resData;
+        if (aggregatedUrls.length === 0 && firstResult.resData && firstResult.resData.taskId) {
+            return { returnedUrls: [], resData: firstResult.resData };
+        }
+
+        if (targetCount > aggregatedUrls.length) {
+            const missingCount = targetCount - aggregatedUrls.length;
+            for (let i = 0; i < missingCount; i++) {
+                const extraCore = { ...unifiedPayloadCore, n: 1 };
+                const extraUnifiedPayload = {
+                    body: { ...extraCore },
+                    ...extraCore,
+                    inputImages: imagesBase64,
+                    maskImage: maskBase64
+                };
+                const extraLegacyPayload = { ...legacyPayload, n: 1 };
+                try {
+                    const extraResult = await requestImgGenOnce(extraUnifiedPayload, extraLegacyPayload);
+                    latestResData = extraResult.resData || latestResData;
+                    if (Array.isArray(extraResult.returnedUrls) && extraResult.returnedUrls.length > 0) {
+                        aggregatedUrls.push(...extraResult.returnedUrls);
+                    }
+                    if (aggregatedUrls.length >= targetCount) break;
+                } catch (extraErr) {
+                    console.warn('[submitImgGen] extra image request failed:', extraErr);
+                }
+            }
+        }
+
+        return { returnedUrls: aggregatedUrls.slice(0, targetCount), resData: latestResData };
     };
 
     let success = false;
     let attempts = 0;
-    // 恢复旧版的智能重试机制
-    const maxAttempts = task.state.autoRetry ? 3 : 1; 
+    const maxAttempts = task.state.autoRetry ? 3 : 1;
+    let lastError = null;
 
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const response = await fetch(API_IMAGE_GEN, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, 
-                body: JSON.stringify(apiPayload) 
-            });
+            const resultPack = await collectRequestedUrls();
+            const resData = resultPack.resData;
+            const returnedUrls = resultPack.returnedUrls;
 
-            if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
-            if (!response.ok) throw new Error("API 异常: " + response.status);
-            
-            // 3. 🌟 n8n 高容错解析：剥离外层数组
-            const rawData = await response.json();
-            const resData = Array.isArray(rawData) ? rawData[0] : rawData;
-            
-            // 精准向下匹配你提供的结构: resData.data[0].url
-            let returnedUrl = resData.imageUrl || resData.url;
-            if (!returnedUrl && resData.data && Array.isArray(resData.data) && resData.data.length > 0) {
-                returnedUrl = resData.data[0].url;
-            }
-
-            if (returnedUrl) {
-                // 4. 成功提取图片
-                const imgBlob = await fetch(returnedUrl).then(r => r.blob());
-                task.status = 'success'; 
-                task.state.resultBlob = imgBlob; 
+            if (returnedUrls.length > 0) {
+                const resultBlobs = [];
+                for (const u of returnedUrls) {
+                    try {
+                        const r = await fetch(u);
+                        if (!r.ok) throw new Error('fetch image failed');
+                        resultBlobs.push(await r.blob());
+                    } catch (fetchErr) {
+                        // CORS/临时 URL 失败时回退成原始 URL 字符串，仍可预览与复用
+                        resultBlobs.push(u);
+                    }
+                }
+                task.status = 'success';
+                task.state.resultBlobs = resultBlobs;
+                task.state.resultBlob = resultBlobs[0] || null;
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
-                task.timestamp = Date.now(); // 🌟 核心：强行刷新时间戳，打穿幽灵缓存
+                task.timestamp = Date.now();
                 success = true;
+                if (nValue > 1 && resultBlobs.length < nValue) {
+                    showToast(`当前通道只返回 ${resultBlobs.length}/${nValue} 张，已自动补发并完成聚合`, "warning");
+                }
 
-                // 账单记录
                 if (!task.isBilled) {
-                    let cost = task.state.channel === 'channel_2' ? 0.06 : 0.084;
-                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: `AI生图 (${task.state.channel || '主通道'})` });
+                    let cost = 0.084;
+                    let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
+                    if (version === 'pro') {
+                        cost = 0.12;
+                        detail = "AI生图 专业版 GPT Image 2";
+                    } else if (task.state.channel === 'channel_2') {
+                        cost = 0.06;
+                    }
+                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
                     task.isBilled = true;
                     updateBillingUI();
                 }
             } else if (resData && resData.taskId) {
-                // 兜底：如果你的 API 变成了异步排队模式，交还给轮询引擎
-                task.genTaskId = resData.taskId; 
-                await saveTaskDB(task); 
-                startTaskPolling(taskId); 
-                return; 
+                task.genTaskId = resData.taskId;
+                await saveTaskDB(task);
+                startTaskPolling(taskId);
+                return;
             } else {
                 throw new Error("无返回有效图片结构");
             }
-        } catch (err) { 
-            // 失败重试逻辑
+        } catch (err) {
+            lastError = err;
             if (attempts >= maxAttempts) {
-                task.status = 'failed'; 
+                task.status = 'failed';
             } else {
                 task.retryCount = attempts;
-                await saveTaskDB(task); 
+                await saveTaskDB(task);
                 renderCard(taskId);
-                await new Promise(r => setTimeout(r, 2000)); // 缓冲 2 秒后重试
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
 
-    // 5. 循环结束，统一渲染最终状态
-    await saveTaskDB(task); 
-    renderCard(taskId); 
+    await saveTaskDB(task);
+    renderCard(taskId);
     if (!success && task.status === 'failed') {
-        showToast("生图请求失败，请检查通道余额或网络", "error"); 
+        showToast("生图请求失败，请检查 webhook、密钥或网络", "error");
+        if (lastError) console.warn('[submitImgGen] failed:', lastError);
     }
 }
 
