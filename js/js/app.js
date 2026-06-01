@@ -595,6 +595,28 @@ function clientToBoard(clientX, clientY) {
     };
 }
 
+function computeCardAnchorFromClient(taskType, clientX, clientY, dragOriginRect) {
+    const base = clientToBoard(clientX, clientY);
+    const defaultAnchor = { x: 24, y: 18 };
+    let anchor = { ...defaultAnchor };
+
+    if (dragOriginRect && Number.isFinite(dragOriginRect.hotX) && Number.isFinite(dragOriginRect.hotY)) {
+        anchor.x = Math.max(0, dragOriginRect.hotX);
+        anchor.y = Math.max(0, dragOriginRect.hotY);
+    } else if (dragOriginRect && Number.isFinite(dragOriginRect.left) && Number.isFinite(dragOriginRect.top)) {
+        anchor.x = Math.max(0, (Number(clientX) || 0) - dragOriginRect.left);
+        anchor.y = Math.max(0, (Number(clientY) || 0) - dragOriginRect.top);
+    } else if (taskType === 'tool_image_gen') {
+        // 生图卡高且顶部交互区更密，使用更贴近头部的锚点可避免“视觉下沉”。
+        anchor = { x: 28, y: 16 };
+    }
+
+    return {
+        x: base.x - (anchor.x / ((Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1)),
+        y: base.y - (anchor.y / ((Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1))
+    };
+}
+
 function getEventClientPoint(e) {
     if (!e) return null;
     const hasPage = Number.isFinite(e.pageX) && Number.isFinite(e.pageY);
@@ -986,7 +1008,9 @@ document.addEventListener('dragstart', (e) => {
         startClientX: point.x,
         startClientY: point.y,
         startBoardX: startBoard.x,
-        startBoardY: startBoard.y
+        startBoardY: startBoard.y,
+        hotX: NaN,
+        hotY: NaN
     };
 
     if (plugin && e.dataTransfer) e.dataTransfer.setData('plugin', plugin);
@@ -994,6 +1018,8 @@ document.addEventListener('dragstart', (e) => {
         const rect = toolEl.getBoundingClientRect();
         const hotX = Math.max(0, Math.min(rect.width, point.x - rect.left));
         const hotY = Math.max(0, Math.min(rect.height, point.y - rect.top));
+        toolDragSession.hotX = hotX;
+        toolDragSession.hotY = hotY;
         e.dataTransfer.setDragImage(toolEl, hotX, hotY);
     }
 }, true);
@@ -1030,6 +1056,20 @@ viewport.addEventListener('drop', async (e) => {
             const dy = (dropPoint.y - toolDragSession.startClientY) / scaleSafe;
             spawnX = toolDragSession.startBoardX + dx;
             spawnY = toolDragSession.startBoardY + dy;
+        }
+
+        // 对生图组件使用“头部锚点落位”，规避其复杂 UI 导致的感知下移
+        if (pluginType === 'image_gen') {
+            const anchored = computeCardAnchorFromClient(
+                'tool_image_gen',
+                dropPoint.x,
+                dropPoint.y,
+                (toolDragSession && Number.isFinite(toolDragSession.hotX) && Number.isFinite(toolDragSession.hotY))
+                    ? { hotX: toolDragSession.hotX, hotY: toolDragSession.hotY }
+                    : null
+            );
+            spawnX = anchored.x;
+            spawnY = anchored.y;
         }
 
         let newTool = null;
@@ -1884,6 +1924,23 @@ async function duplicateTask(originalTask, mouseEvent) {
         const grabOffsetY = startBoard.y - baseY;
         clone.x = currentBoard.x - grabOffsetX;
         clone.y = currentBoard.y - grabOffsetY;
+
+        // 生图组件专门兜底：按当前鼠标与卡片头部锚点直接落位，避免历史偏移累积
+        if (clone.type === 'tool_image_gen') {
+            const originCard = document.getElementById('card-' + originalTask.id);
+            const anchorInfo = originCard ? {
+                hotX: Math.max(0, currentClientX - originCard.getBoundingClientRect().left),
+                hotY: Math.max(0, currentClientY - originCard.getBoundingClientRect().top)
+            } : null;
+            const anchored = computeCardAnchorFromClient(
+                'tool_image_gen',
+                currentClientX,
+                currentClientY,
+                anchorInfo
+            );
+            clone.x = anchored.x;
+            clone.y = anchored.y;
+        }
     }
 
     await saveTaskDB(clone);
