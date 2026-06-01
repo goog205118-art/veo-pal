@@ -325,6 +325,8 @@ const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUT
 let activeTasks = [], activeRetries = new Set(); 
 const taskPollControllers = new Map();
 const taskPollTimers = new Map();
+const imgGenPollControllers = new Map();
+const imgGenPollTimers = new Map();
 const taskShadowCache = new Map();
 const imgGenUpdateQueues = new Map();
 
@@ -527,6 +529,19 @@ function clearTaskPolling(taskId, removeActive = true) {
         taskPollTimers.delete(taskId);
     }
     if (removeActive) removeActiveTask(taskId);
+}
+
+function clearImgGenPolling(taskId) {
+    const controller = imgGenPollControllers.get(taskId);
+    if (controller) {
+        try { controller.abort(); } catch (err) {}
+        imgGenPollControllers.delete(taskId);
+    }
+    const timerId = imgGenPollTimers.get(taskId);
+    if (timerId) {
+        clearTimeout(timerId);
+        imgGenPollTimers.delete(taskId);
+    }
 }
 
 function setTaskShadow(task) {
@@ -2188,6 +2203,9 @@ async function renderBoard() {
             applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
+            if (task.type === 'tool_image_gen' && task.status === 'processing' && task.genTaskId && !imgGenPollTimers.has(task.id) && !imgGenPollControllers.has(task.id)) {
+                startImgGenTaskPolling(task.id, task.genTaskId);
+            }
         } else {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`;
             
@@ -2205,6 +2223,9 @@ async function renderBoard() {
                 morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
+            if (task.type === 'tool_image_gen' && task.status === 'processing' && task.genTaskId && !imgGenPollTimers.has(task.id) && !imgGenPollControllers.has(task.id)) {
+                startImgGenTaskPolling(task.id, task.genTaskId);
+            }
         }
 
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
@@ -2221,6 +2242,7 @@ async function renderBoard() {
 async function removeTask(id) {
     if (!confirm('确定删除这张卡片吗？')) return;
     clearTaskPolling(id);
+    clearImgGenPolling(id);
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
     imgGenUpdateQueues.delete(id);
@@ -2628,17 +2650,339 @@ function extractImageUrlsFromResponse(rawData) {
         for (const d of resData.data) {
             if (typeof d === 'string') pushIf(d);
             else if (d && d.url) pushIf(d.url);
+            else if (d && d.imageUrl) pushIf(d.imageUrl);
+            else if (d && d.image_url) pushIf(d.image_url);
             else if (d && d.b64_json) pushIf(toDataUrl(d.b64_json));
         }
     }
-    if (resData.result && resData.result.url) pushIf(resData.result.url);
-    if (resData.body && resData.body.imageUrl) pushIf(resData.body.imageUrl);
+    if (resData.result && typeof resData.result === 'object') {
+        if (resData.result.url) pushIf(resData.result.url);
+        if (resData.result.imageUrl) pushIf(resData.result.imageUrl);
+        if (resData.result.image_url) pushIf(resData.result.image_url);
+        if (Array.isArray(resData.result.images)) {
+            resData.result.images.forEach((item) => {
+                if (typeof item === 'string') pushIf(item);
+                else if (item && item.url) pushIf(item.url);
+                else if (item && item.imageUrl) pushIf(item.imageUrl);
+                else if (item && item.image_url) pushIf(item.image_url);
+            });
+        }
+    }
+    if (resData.body && typeof resData.body === 'object') {
+        if (resData.body.imageUrl) pushIf(resData.body.imageUrl);
+        if (resData.body.image_url) pushIf(resData.body.image_url);
+        if (resData.body.url) pushIf(resData.body.url);
+        if (Array.isArray(resData.body.output)) {
+            resData.body.output.forEach((item) => {
+                if (typeof item === 'string') pushIf(item);
+                else if (item && item.url) pushIf(item.url);
+                else if (item && item.imageUrl) pushIf(item.imageUrl);
+                else if (item && item.image_url) pushIf(item.image_url);
+            });
+        }
+        if (Array.isArray(resData.body.images)) {
+            resData.body.images.forEach((item) => {
+                if (typeof item === 'string') pushIf(item);
+                else if (item && item.url) pushIf(item.url);
+                else if (item && item.imageUrl) pushIf(item.imageUrl);
+                else if (item && item.image_url) pushIf(item.image_url);
+            });
+        }
+    }
     return urls;
 }
 
 function extractImageUrlFromResponse(rawData) {
     const list = extractImageUrlsFromResponse(rawData);
     return list.length > 0 ? list[0] : null;
+}
+
+function extractImgGenTaskId(rawData) {
+    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (!resData || typeof resData !== 'object') return '';
+    const picks = [
+        resData.taskId, resData.task_id, resData.jobId, resData.job_id, resData.requestId, resData.request_id, resData.id,
+        resData.body && resData.body.taskId,
+        resData.body && resData.body.task_id,
+        resData.body && resData.body.jobId,
+        resData.body && resData.body.job_id,
+        resData.result && resData.result.taskId,
+        resData.result && resData.result.task_id,
+        resData.result && resData.result.jobId,
+        resData.result && resData.result.job_id,
+        resData.data && resData.data.taskId,
+        resData.data && resData.data.task_id
+    ];
+
+    if (Array.isArray(resData.data) && resData.data.length > 0) {
+        const head = resData.data[0];
+        if (head && typeof head === 'object') {
+            picks.push(head.taskId, head.task_id, head.jobId, head.job_id, head.id);
+        }
+    }
+
+    for (const item of picks) {
+        if (item === undefined || item === null) continue;
+        const v = String(item).trim();
+        if (v) return v;
+    }
+    return '';
+}
+
+function extractImgGenStatus(rawData) {
+    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (!resData) return '';
+    const candidates = [
+        resData.status, resData.state, resData.phase,
+        resData.body && resData.body.status,
+        resData.body && resData.body.state,
+        resData.result && resData.result.status,
+        resData.result && resData.result.state,
+        resData.data && resData.data.status
+    ];
+
+    if (Array.isArray(resData.data) && resData.data.length > 0) {
+        const head = resData.data[0];
+        if (head && typeof head === 'object') {
+            candidates.push(head.status, head.state, head.phase);
+        }
+    }
+
+    for (const c of candidates) {
+        if (c === undefined || c === null) continue;
+        const s = String(c).trim().toLowerCase();
+        if (s) return s;
+    }
+    return '';
+}
+
+function isImgGenSuccessStatus(status) {
+    return ['success', 'succeeded', 'completed', 'done', 'finished', 'ok'].includes(status);
+}
+
+function isImgGenFailedStatus(status) {
+    return ['failed', 'error', 'rejected', 'cancelled', 'canceled', 'timeout', 'aborted'].includes(status);
+}
+
+function isImgGenPendingStatus(status) {
+    return ['processing', 'pending', 'queued', 'in_progress', 'running', 'submitted', 'accepted', 'created'].includes(status);
+}
+
+function resolveImgGenPollDelayMs(rawData, fallback = 3500) {
+    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    const retryAfterSec = toFiniteNumber(resData && (resData.retry_after || (resData.body && resData.body.retry_after)), NaN);
+    const candidateMs = toFiniteNumber(
+        resData && (
+            resData.pollIntervalMs ||
+            resData.poll_interval_ms ||
+            resData.retryAfterMs ||
+            (resData.body && (resData.body.pollIntervalMs || resData.body.poll_interval_ms || resData.body.retryAfterMs))
+        ),
+        NaN
+    );
+    if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) return Math.max(1000, Math.min(15000, Math.round(retryAfterSec * 1000)));
+    if (Number.isFinite(candidateMs) && candidateMs > 0) return Math.max(1000, Math.min(15000, Math.round(candidateMs)));
+    return Math.max(1000, fallback);
+}
+
+function buildImgGenPollPayload(task, remoteTaskId) {
+    const version = (task && task.state && task.state.version === 'pro') ? 'pro' : 'trial';
+    const channel = (task && task.state && task.state.channel) ? task.state.channel : 'channel_1';
+    const mode = task && task.state ? resolveImgGenMode(task.state) : 'text2img';
+    const core = {
+        action: 'poll',
+        poll: true,
+        version,
+        channel,
+        mode,
+        taskId: remoteTaskId,
+        task_id: remoteTaskId,
+        request_id: remoteTaskId
+    };
+    return {
+        unified: { body: { ...core }, ...core },
+        legacy: {
+            action: 'poll',
+            poll: true,
+            channel,
+            taskId: remoteTaskId,
+            task_id: remoteTaskId,
+            request_id: remoteTaskId
+        },
+        fallback: {
+            taskId: remoteTaskId,
+            task_id: remoteTaskId,
+            model: 'image'
+        }
+    };
+}
+
+function startImgGenTaskPolling(taskId, remoteTaskId) {
+    clearImgGenPolling(taskId);
+    let attempts = 0;
+    let errorCount = 0;
+    const maxAttempts = 180;
+    const maxErrors = 24;
+
+    const scheduleNext = (delayMs = 3500) => {
+        const timer = setTimeout(() => {
+            poll().catch(() => {});
+        }, Math.max(1000, toFiniteNumber(delayMs, 3500)));
+        imgGenPollTimers.set(taskId, timer);
+    };
+
+    const poll = async () => {
+        imgGenPollTimers.delete(taskId);
+        attempts++;
+
+        const task = await getTaskDB(taskId);
+        if (!task) { clearImgGenPolling(taskId); return; }
+        ensureImgGenState(task);
+        if (task.status !== 'processing') { clearImgGenPolling(taskId); return; }
+
+        const remoteId = String(remoteTaskId || task.genTaskId || task.state.genTaskId || '').trim();
+        if (!remoteId) {
+            clearImgGenPolling(taskId);
+            task.status = 'failed';
+            await saveTaskDB(task);
+            renderCard(taskId, task);
+            showToast('轮询缺少任务ID，已终止', 'error');
+            return;
+        }
+
+        const pollPayload = buildImgGenPollPayload(task, remoteId);
+        const headers = buildImgGenHeaders();
+        const attemptsList = [];
+        const useTrialLegacyFirst = task.state.version !== 'pro';
+
+        if (useTrialLegacyFirst) {
+            if (API_IMAGE_GEN_LEGACY) attemptsList.push({ url: API_IMAGE_GEN_LEGACY, body: pollPayload.legacy });
+            if (API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN, body: pollPayload.unified });
+        } else {
+            if (API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN, body: pollPayload.unified });
+            if (API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN_LEGACY, body: pollPayload.legacy });
+        }
+        attemptsList.push({ url: API_POLL, body: pollPayload.fallback });
+
+        let rawData = null;
+        let lastHttpError = null;
+        for (const target of attemptsList) {
+            if (!target || !target.url) continue;
+            try {
+                const controller = new AbortController();
+                imgGenPollControllers.set(taskId, controller);
+                const response = await fetch(target.url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(target.body),
+                    signal: controller.signal
+                });
+                imgGenPollControllers.delete(taskId);
+                if (response.status === 401 || response.status === 403) {
+                    clearImgGenPolling(taskId);
+                    handleAuthError();
+                    return;
+                }
+                if (!response.ok) {
+                    lastHttpError = new Error(`poll http ${response.status}`);
+                    continue;
+                }
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                if (contentType.includes('application/json')) rawData = await response.json();
+                else {
+                    const txt = await response.text();
+                    try { rawData = JSON.parse(txt); } catch (err) { rawData = txt; }
+                }
+                if (rawData !== null && rawData !== undefined) break;
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                lastHttpError = err;
+            } finally {
+                imgGenPollControllers.delete(taskId);
+            }
+        }
+
+        if (rawData === null || rawData === undefined) {
+            errorCount++;
+            if (errorCount >= maxErrors || attempts >= maxAttempts) {
+                clearImgGenPolling(taskId);
+                task.status = 'failed';
+                await saveTaskDB(task);
+                renderCard(taskId, task);
+                showToast('生图轮询超时，请稍后重试', 'error');
+                if (lastHttpError) console.warn('[img-poll] no valid response:', lastHttpError);
+                return;
+            }
+            scheduleNext(3500);
+            return;
+        }
+
+        const returnedUrls = extractImageUrlsFromResponse(rawData);
+        if (Array.isArray(returnedUrls) && returnedUrls.length > 0) {
+            const resultBlobs = [];
+            for (const u of returnedUrls) {
+                try {
+                    const r = await fetch(u);
+                    if (!r.ok) throw new Error('fetch image failed');
+                    resultBlobs.push(await r.blob());
+                } catch (fetchErr) {
+                    resultBlobs.push(u);
+                }
+            }
+            task.status = 'success';
+            task.state.resultBlobs = resultBlobs;
+            task.state.resultBlob = resultBlobs[0] || null;
+            task.state.costTime = Math.floor((Date.now() - (task.state.startTime || Date.now())) / 1000);
+            task.timestamp = Date.now();
+            task.genTaskId = null;
+            clearImgGenPolling(taskId);
+            await saveTaskDB(task);
+            renderCard(taskId, task);
+            return;
+        }
+
+        const status = extractImgGenStatus(rawData);
+        if (isImgGenSuccessStatus(status)) {
+            // 有些后端先回 success，再异步写图片链接，短暂等待一轮
+            scheduleNext(resolveImgGenPollDelayMs(rawData, 1800));
+            return;
+        }
+        if (isImgGenFailedStatus(status)) {
+            clearImgGenPolling(taskId);
+            task.status = 'failed';
+            task.timestamp = Date.now();
+            await saveTaskDB(task);
+            renderCard(taskId, task);
+            showToast('生图任务失败，请调整参数后重试', 'error');
+            return;
+        }
+
+        const nextTaskId = extractImgGenTaskId(rawData);
+        if (nextTaskId && nextTaskId !== remoteId) {
+            task.genTaskId = nextTaskId;
+            await saveTaskDB(task);
+            remoteTaskId = nextTaskId;
+        }
+
+        if (!status || isImgGenPendingStatus(status)) {
+            if (attempts >= maxAttempts) {
+                clearImgGenPolling(taskId);
+                task.status = 'failed';
+                task.timestamp = Date.now();
+                await saveTaskDB(task);
+                renderCard(taskId, task);
+                showToast('生图轮询超时，请稍后重试', 'error');
+                return;
+            }
+            scheduleNext(resolveImgGenPollDelayMs(rawData, 3500));
+            return;
+        }
+
+        // 未知状态，保守继续下一轮
+        scheduleNext(resolveImgGenPollDelayMs(rawData, 3500));
+    };
+
+    scheduleNext(800);
 }
 
 async function toggleImgGenPreviewPanel(e, taskId) {
@@ -2782,10 +3126,12 @@ async function submitImgGen(taskId) {
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
     if (task.state.previewCollapsed) task.state.previewCollapsed = false;
+    clearImgGenPolling(taskId);
 
     task.status = 'processing';
     task.retryCount = 0;
     task.isBilled = false;
+    task.genTaskId = null;
     task.state.resultBlob = null;
     task.state.resultBlobs = [];
     task.state.startTime = Date.now();
@@ -2989,6 +3335,7 @@ async function submitImgGen(taskId) {
                 task.state.resultBlob = resultBlobs[0] || null;
                 task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
                 task.timestamp = Date.now();
+                task.genTaskId = null;
                 success = true;
                 if (nValue > 1 && resultBlobs.length < nValue) {
                     showToast(`当前通道只返回 ${resultBlobs.length}/${nValue} 张，已自动补发并完成聚合`, "warning");
@@ -3007,12 +3354,21 @@ async function submitImgGen(taskId) {
                     task.isBilled = true;
                     updateBillingUI();
                 }
-            } else if (resData && resData.taskId) {
-                task.genTaskId = resData.taskId;
-                await saveTaskDB(task);
-                startTaskPolling(taskId);
-                return;
             } else {
+                const asyncTaskId = extractImgGenTaskId(resData);
+                const status = extractImgGenStatus(resData);
+                if (asyncTaskId) {
+                    task.genTaskId = asyncTaskId;
+                    task.timestamp = Date.now();
+                    await saveTaskDB(task);
+                    renderCard(taskId, task);
+                    startImgGenTaskPolling(taskId, asyncTaskId);
+                    return;
+                }
+                if (isImgGenPendingStatus(status) || !status) throw new Error("后端进入异步态但未返回 taskId");
+                if (isImgGenFailedStatus(status)) {
+                    throw new Error(`后端返回失败状态: ${status}`);
+                }
                 throw new Error("无返回有效图片结构");
             }
         } catch (err) {
@@ -3031,6 +3387,7 @@ async function submitImgGen(taskId) {
     await saveTaskDB(task);
     renderCard(taskId);
     if (!success && task.status === 'failed') {
+        clearImgGenPolling(taskId);
         showToast("生图请求失败，请检查 webhook、密钥或网络", "error");
         if (lastError) console.warn('[submitImgGen] failed:', lastError);
     }
