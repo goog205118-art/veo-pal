@@ -1375,11 +1375,16 @@ body.app-shell-ready .floating-console:not(.minimized) {
     --img-gen-left-width: 360px;
     --img-gen-preview-width: 320px;
     --img-gen-total-width: calc(var(--img-gen-left-width) + var(--img-gen-preview-width));
+    --img-gen-card-height: 520px;
+    --img-gen-header-height: 44px;
     position: absolute;
     top: 0;
     left: 0;
     margin: 0;
     width: var(--img-gen-left-width);
+    height: var(--img-gen-card-height);
+    min-height: var(--img-gen-card-height);
+    max-height: var(--img-gen-card-height);
     max-width: min(94vw, var(--img-gen-left-width));
     padding: 0;
     gap: 0;
@@ -1411,20 +1416,29 @@ body.app-shell-ready .floating-console:not(.minimized) {
     margin: 0;
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
+    height: var(--img-gen-header-height);
+    min-height: var(--img-gen-header-height);
+    max-height: var(--img-gen-header-height);
+    box-sizing: border-box;
 }
 
 .img-gen-shell {
     gap: 0;
     padding: 0;
     overflow: hidden;
+    height: calc(var(--img-gen-card-height) - var(--img-gen-header-height));
+    min-height: calc(var(--img-gen-card-height) - var(--img-gen-header-height));
+    max-height: calc(var(--img-gen-card-height) - var(--img-gen-header-height));
 }
 .img-gen-split {
     display: grid;
     grid-template-columns: minmax(0, 1fr) var(--img-gen-preview-width);
     width: 100%;
+    height: 100%;
     min-height: 100%;
     align-items: stretch;
     transition: grid-template-columns 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    overflow: hidden;
 }
 .img-gen-split.preview-collapsed {
     grid-template-columns: minmax(0, 1fr) 0;
@@ -1435,6 +1449,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
     flex-direction: column;
     gap: 0;
     min-width: 0;
+    min-height: 0;
     border: 0;
     border-radius: 0;
     background: var(--surface);
@@ -1484,6 +1499,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .img-gen-statusbar,
@@ -1511,6 +1529,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
     width: var(--img-gen-preview-width);
     min-width: 0;
     min-height: 0;
+    max-height: 100%;
     border: 0;
     border-left: 1px solid var(--border);
     border-radius: 0;
@@ -1594,6 +1613,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
 .img-gen-preview-body {
     flex: 1;
     min-height: 0;
+    max-height: 100%;
     padding: 10px;
     display: flex;
     flex-direction: column;
