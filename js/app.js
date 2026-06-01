@@ -1091,6 +1091,8 @@ window.addEventListener('mouseup', async () => {
 });
 
 viewport.addEventListener('wheel', (e) => {
+    const wheelTarget = e.target && typeof e.target.closest === 'function' ? e.target : null;
+    if (wheelTarget && wheelTarget.closest('.img-gen-preview-panel')) return;
     if (e.target.tagName === 'TEXTAREA' || e.target.closest('textarea')) return;
     if (draggingCardInfo) return; 
     e.preventDefault(); if (ticking) return; 
@@ -1502,9 +1504,15 @@ async function parseDroppedImage(e) {
                 if (meta.type === 'local') srcToUse = t.src;
                 else if (meta.type === 'thumb') srcToUse = t.rawImages?.firstFrame || (t.rawImages?.references && t.rawImages.references[0]);
                 else if (meta.type === 'gen_result') {
-                    const idx = Number.isFinite(Number(meta.index)) ? Number(meta.index) : 0;
-                    if (Array.isArray(t.state?.resultBlobs) && t.state.resultBlobs[idx]) srcToUse = t.state.resultBlobs[idx];
-                    else srcToUse = t.state?.resultBlob;
+                    if (meta.previewId && Array.isArray(t.state?.previewHistory)) {
+                        const hit = t.state.previewHistory.find((entry) => entry && entry.id === meta.previewId && entry.status === 'success' && entry.image);
+                        if (hit) srcToUse = hit.image;
+                    }
+                    if (!srcToUse) {
+                        const idx = Number.isFinite(Number(meta.index)) ? Number(meta.index) : 0;
+                        if (Array.isArray(t.state?.resultBlobs) && t.state.resultBlobs[idx]) srcToUse = t.state.resultBlobs[idx];
+                        else srcToUse = t.state?.resultBlob;
+                    }
                 }
                 else if (meta.type === 'crop_result') srcToUse = t.state?.resultBlob;
             }
@@ -2092,10 +2100,17 @@ function generateCardHTML(task) {
             </select>
         </div>`;
 
+        const previewRenderEntries = previewEntries.slice().sort((a, b) => {
+            const aPending = a && a.status === 'pending' ? 0 : 1;
+            const bPending = b && b.status === 'pending' ? 0 : 1;
+            if (aPending !== bPending) return aPending - bPending;
+            return toFiniteNumber(b && b.createdAt, 0) - toFiniteNumber(a && a.createdAt, 0);
+        });
+
         let successDragIndex = -1;
         const previewFeedHtml = previewEntries.length > 0
             ? `<div class="img-gen-preview-feed">${
-                previewEntries.map((item) => {
+                previewRenderEntries.map((item) => {
                     if (!item) return '';
                     if (item.status === 'pending') {
                         return `<div class="img-gen-preview-item img-gen-preview-pending"><div class="img-gen-preview-pending-inner"><svg class="spinner" viewBox="0 0 50 50" style="width:22px;height:22px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg><div class="img-gen-preview-placeholder-title">生成中...</div><div class="img-gen-preview-placeholder-sub">等待返回图像</div></div></div>`;
@@ -2106,7 +2121,7 @@ function generateCardHTML(task) {
                     if (item.status === 'success' && item.image) {
                         successDragIndex++;
                         const imgKey = `${task.id}_feed_${item.id}_${task.timestamp || ''}`;
-                        return `<div class="img-gen-preview-item"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
+                        return `<div class="img-gen-preview-item"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
                     }
                     return '';
                 }).join('')

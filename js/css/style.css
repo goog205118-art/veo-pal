@@ -1608,10 +1608,13 @@ body.app-shell-ready .floating-console:not(.minimized) {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(120px, auto);
     gap: 8px;
     padding-right: 2px;
+    align-content: start;
+    overscroll-behavior: contain;
 }
 .img-gen-preview-item {
     border: 1px solid var(--border);
@@ -1619,7 +1622,6 @@ body.app-shell-ready .floating-console:not(.minimized) {
     background: var(--surface-hover);
     overflow: hidden;
     min-height: 120px;
-    flex: 0 0 auto;
 }
 .img-gen-preview-item img {
     width: 100%;
