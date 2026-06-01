@@ -1375,12 +1375,15 @@ body.app-shell-ready .floating-console:not(.minimized) {
     --img-gen-left-width: 360px;
     --img-gen-preview-width: 320px;
     --img-gen-total-width: calc(var(--img-gen-left-width) + var(--img-gen-preview-width));
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 0;
     width: var(--img-gen-left-width);
     max-width: min(94vw, var(--img-gen-left-width));
     padding: 0;
     gap: 0;
     overflow: hidden;
-    position: relative;
     z-index: 40;
     content-visibility: visible;
     contain: none;
@@ -1388,6 +1391,12 @@ body.app-shell-ready .floating-console:not(.minimized) {
     border-radius: 14px;
     box-sizing: border-box;
     transition: width 0.3s cubic-bezier(0.22, 1, 0.36, 1), max-width 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.canvas-board > .video-card.tool-image-gen {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    margin: 0 !important;
 }
 .tool-image-gen *,
 .tool-image-gen *::before,

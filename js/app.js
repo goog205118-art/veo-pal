@@ -471,12 +471,47 @@ async function alignSelectedCards() {
     let cardsToAlign = tasks.filter(t => targetIds.includes(t.id) && t.type !== 'local_image' && t.type !== 'frame' && !t.parentId);
     
     if(cardsToAlign.length === 0) return showToast("没有可排版的散落卡片", "info");
-    
+
+    cardsToAlign.forEach(normalizeTaskPosition);
     cardsToAlign.sort((a, b) => (Math.abs(a.y) + Math.abs(a.x)) - (Math.abs(b.y) + Math.abs(b.x)));
-    let minX = Math.min(...cardsToAlign.map(c => c.x)), minY = Math.min(...cardsToAlign.map(c => c.y)), currentX = minX, currentY = minY, xGap = 340, yGap = 420, col = 0;
-    const maxCols = Math.max(3, Math.floor((window.innerWidth / transform.scale) / xGap));
-    const promises = cardsToAlign.map(async (task) => { task.x = minX + (col * xGap); task.y = currentY; col++; if (col >= maxCols) { col = 0; currentY += yGap; } await saveTaskDB(task); });
-    await Promise.all(promises); renderBoard(); showToast(`🪄 空间清理完成：已自动对齐散落节点`, "success");
+
+    // 先确保 DOM 已挂载，再使用真实包围盒做排版，避免固定宽高引发重叠与穿模
+    await renderBoard();
+
+    const minX = Math.min(...cardsToAlign.map(c => toFiniteNumber(c.x, 0)));
+    const minY = Math.min(...cardsToAlign.map(c => toFiniteNumber(c.y, 0)));
+    const gapX = 28;
+    const gapY = 30;
+    const viewportWidthBoard = Math.max(600, Math.floor(window.innerWidth / Math.max(0.1, toFiniteNumber(transform.scale, 1))));
+
+    const sizeCache = new Map();
+    cardsToAlign.forEach((task) => sizeCache.set(task.id, measureTaskAABB(task)));
+    const widest = Math.max(...cardsToAlign.map(task => (sizeCache.get(task.id) || { width: 340 }).width), 340);
+    const usableWidth = Math.max(widest + gapX, viewportWidthBoard - 120);
+
+    let cursorX = minX;
+    let cursorY = minY;
+    let rowMaxHeight = 0;
+
+    for (const task of cardsToAlign) {
+        const size = sizeCache.get(task.id) || { width: 340, height: 400 };
+        const nextRight = (cursorX - minX) + size.width;
+        const shouldWrap = (cursorX !== minX) && (nextRight > usableWidth);
+        if (shouldWrap) {
+            cursorX = minX;
+            cursorY += rowMaxHeight + gapY;
+            rowMaxHeight = 0;
+        }
+
+        task.x = cursorX;
+        task.y = cursorY;
+        cursorX += size.width + gapX;
+        rowMaxHeight = Math.max(rowMaxHeight, size.height);
+    }
+
+    await Promise.all(cardsToAlign.map(saveTaskDB));
+    await renderBoard();
+    showToast(`🪄 空间清理完成：已按真实尺寸自动排版`, "success");
 }
 
 function showToast(message, type = 'info') {
@@ -510,8 +545,16 @@ async function createFrame() {
     const tasks = await getAllTasksDB();
     const selected = tasks.filter(t => selectedTasks.has(t.id) && t.type !== 'frame' && t.type !== 'local_image' && !t.parentId);
     if (selected.length === 0) return showToast("选中的卡片已被打组或无效", "error");
-
-    let minX = Math.min(...selected.map(t => t.x)), minY = Math.min(...selected.map(t => t.y)), maxX = Math.max(...selected.map(t => t.x + (t.width || 340))), maxY = Math.max(...selected.map(t => t.y + (t.height || 400)));
+    await renderBoard();
+    const selectedBounds = selected.map((t) => {
+        normalizeTaskPosition(t);
+        const size = measureTaskAABB(t);
+        return { x: t.x, y: t.y, width: size.width, height: size.height };
+    });
+    let minX = Math.min(...selectedBounds.map(t => t.x));
+    let minY = Math.min(...selectedBounds.map(t => t.y));
+    let maxX = Math.max(...selectedBounds.map(t => t.x + t.width));
+    let maxY = Math.max(...selectedBounds.map(t => t.y + t.height));
     const frameId = 'frame_' + Date.now(), padding = 60;
     const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '未命名项目组', isCollapsed: false, timestamp: Date.now() };
 
@@ -617,6 +660,44 @@ function normalizeTaskPosition(task) {
     if (!task || typeof task !== 'object') return;
     task.x = toFiniteNumber(task.x, 0);
     task.y = toFiniteNumber(task.y, 0);
+}
+
+function getTaskFallbackSize(task) {
+    if (!task || typeof task !== 'object') return { width: 340, height: 400 };
+    if (task.type === 'note') {
+        return {
+            width: Math.max(200, toFiniteNumber(task.width, 260)),
+            height: Math.max(140, toFiniteNumber(task.height, 180))
+        };
+    }
+    if (task.type === 'tool_generator') return { width: 380, height: 420 };
+    if (task.type === 'tool_image_gen') {
+        const isCollapsed = !!(task.state && task.state.previewCollapsed === true);
+        return { width: isCollapsed ? 360 : 680, height: 520 };
+    }
+    if (task.type === 'tool_cropper') return { width: 340, height: 420 };
+    if (task.type === 'frame') {
+        return {
+            width: Math.max(340, toFiniteNumber(task.width, 340)),
+            height: Math.max(140, toFiniteNumber(task.height, 140))
+        };
+    }
+    return {
+        width: Math.max(280, toFiniteNumber(task.width, 340)),
+        height: Math.max(220, toFiniteNumber(task.height, 400))
+    };
+}
+
+function measureTaskAABB(task) {
+    const fallback = getTaskFallbackSize(task);
+    const cardEl = task && task.id ? document.getElementById('card-' + task.id) : null;
+    if (!cardEl) return fallback;
+    const w = Math.round(toFiniteNumber(cardEl.offsetWidth, 0) || toFiniteNumber(cardEl.getBoundingClientRect && cardEl.getBoundingClientRect().width, 0));
+    const h = Math.round(toFiniteNumber(cardEl.offsetHeight, 0) || toFiniteNumber(cardEl.getBoundingClientRect && cardEl.getBoundingClientRect().height, 0));
+    return {
+        width: Math.max(1, w || fallback.width),
+        height: Math.max(1, h || fallback.height)
+    };
 }
 
 function detectToolPluginType(el) {
@@ -1892,6 +1973,11 @@ async function duplicateTask(originalTask, mouseEvent) {
     }
 
     normalizeTaskPosition(clone);
+    if (!mouseEvent || !isPrimaryPointerDown) {
+        const cascadeOffset = 40;
+        clone.x += cascadeOffset;
+        clone.y += cascadeOffset;
+    }
 
     await saveTaskDB(clone);
     await renderBoard();
