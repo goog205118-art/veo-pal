@@ -258,7 +258,17 @@ async function getAllTasksDB() {
     return new Promise((resolve) => {
         const tx = db.transaction('tasks', 'readonly');
         const request = tx.objectStore('tasks').getAll();
-        request.onsuccess = () => resolve(request.result.sort((a,b) => b.timestamp - a.timestamp));
+        request.onsuccess = () => {
+            const dbRows = Array.isArray(request.result) ? request.result : [];
+            const merged = new Map();
+            dbRows.forEach((row) => {
+                if (row && row.id) merged.set(row.id, row);
+            });
+            taskSaveBuffer.forEach((pendingTask, taskId) => {
+                if (pendingTask && taskId) merged.set(taskId, pendingTask);
+            });
+            resolve(Array.from(merged.values()).sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0)));
+        };
     });
 }
 
@@ -272,6 +282,7 @@ async function saveTaskBatchDB(tasks) {
 }
 
 async function getTaskDB(id) {
+    if (id && taskSaveBuffer.has(id)) return taskSaveBuffer.get(id);
     return new Promise((resolve) => {
         const tx = db.transaction('tasks', 'readonly');
         const request = tx.objectStore('tasks').get(id);

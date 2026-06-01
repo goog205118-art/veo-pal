@@ -355,7 +355,15 @@
         return runTx(STORE_TASKS, 'readonly', function (store, tx, resolve) {
             var request = store.getAll();
             request.onsuccess = function () {
-                resolve(safeSortByTimestampDesc(request.result));
+                var dbRows = Array.isArray(request.result) ? request.result : [];
+                var merged = new Map();
+                dbRows.forEach(function (row) {
+                    if (row && row.id) merged.set(row.id, row);
+                });
+                taskSaveBuffer.forEach(function (pendingTask, taskId) {
+                    if (pendingTask && taskId) merged.set(taskId, pendingTask);
+                });
+                resolve(safeSortByTimestampDesc(Array.from(merged.values())));
             };
             tx.oncomplete = function () {
                 // handled above
@@ -373,6 +381,7 @@
     }
 
     async function getTaskDB(id) {
+        if (id && taskSaveBuffer.has(id)) return taskSaveBuffer.get(id);
         return runTx(STORE_TASKS, 'readonly', function (store, tx, resolve) {
             var request = store.get(id);
             request.onsuccess = function () {

@@ -1423,8 +1423,8 @@ function applyImgGenCardFrame(cardEl, task) {
     cardEl.style.width = `${isOpen ? expandedWidth : collapsedWidth}px`;
 }
 
-async function renderCard(taskId) {
-    const task = await getTaskDB(taskId); if (!task) return;
+async function renderCard(taskId, taskOverride = null) {
+    const task = taskOverride || await getTaskDB(taskId); if (!task) return;
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
     // 仅重绘当前的这一张卡片
@@ -2575,8 +2575,8 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     ensureImgGenState(task);
     task.state.previewCollapsed = !task.state.previewCollapsed;
     task.timestamp = Date.now();
+    renderCard(taskId, task);
     await saveTaskDB(task);
-    renderCard(taskId);
 }
 
 async function updateImgGenState(taskId, key, val) {
@@ -2629,8 +2629,8 @@ async function updateImgGenState(taskId, key, val) {
         task.state[key] = val;
         if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
     }
+    renderCard(taskId, task);
     await saveTaskDB(task);
-    renderCard(taskId);
 }
 
 async function handleGenImageUpload(input, taskId) {
@@ -2642,7 +2642,9 @@ async function handleGenImageUpload(input, taskId) {
         task.state.images.push(await compressImageToBlob(file, 1024));
     }
     task.timestamp = Date.now();
-    await saveTaskDB(task); renderCard(taskId); input.value = '';
+    renderCard(taskId, task);
+    await saveTaskDB(task);
+    input.value = '';
 }
 
 // ==========================================
@@ -2671,10 +2673,8 @@ async function handleGenImageDrop(e, taskId) {
     // 赋值并击穿缓存
     task.state.images.push(srcToUse);
     task.timestamp = Date.now();
+    renderCard(taskId, task);
     await saveTaskDB(task); 
-    
-    // 局部重绘
-    renderCard(taskId);
 }
 
 async function removeGenImage(e, taskId, index) {
@@ -2682,7 +2682,8 @@ async function removeGenImage(e, taskId, index) {
     ensureImgGenState(task);
     task.state.images.splice(index, 1); 
     task.timestamp = Date.now();
-    await saveTaskDB(task); renderCard(taskId);
+    renderCard(taskId, task);
+    await saveTaskDB(task);
 }
 
 // ==========================================
