@@ -597,15 +597,26 @@ function clientToBoard(clientX, clientY) {
 
 function getEventClientPoint(e) {
     if (!e) return null;
-    const hasPage = Number.isFinite(e.pageX) && Number.isFinite(e.pageY);
     const hasClient = Number.isFinite(e.clientX) && Number.isFinite(e.clientY);
-    if (hasPage) {
-        return { x: e.pageX - window.scrollX, y: e.pageY - window.scrollY };
-    }
     if (hasClient) {
         return { x: e.clientX, y: e.clientY };
     }
+    const hasPage = Number.isFinite(e.pageX) && Number.isFinite(e.pageY);
+    if (hasPage) {
+        return { x: e.pageX - window.scrollX, y: e.pageY - window.scrollY };
+    }
     return null;
+}
+
+function toFiniteNumber(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeTaskPosition(task) {
+    if (!task || typeof task !== 'object') return;
+    task.x = toFiniteNumber(task.x, 0);
+    task.y = toFiniteNumber(task.y, 0);
 }
 
 function detectToolPluginType(el) {
@@ -649,11 +660,15 @@ window.addEventListener('mousemove', (e) => {
             } 
             else if (draggingCardInfo) {
                 const dx = (e.clientX - draggingCardInfo.startMouseX) / transform.scale, dy = (e.clientY - draggingCardInfo.startMouseY) / transform.scale;
-                draggingCardInfo.task.x = draggingCardInfo.initialX + dx; draggingCardInfo.task.y = draggingCardInfo.initialY + dy;
+                const dragBaseX = toFiniteNumber(draggingCardInfo.initialX, 0);
+                const dragBaseY = toFiniteNumber(draggingCardInfo.initialY, 0);
+                draggingCardInfo.task.x = dragBaseX + dx; draggingCardInfo.task.y = dragBaseY + dy;
                 draggingCardInfo.el.style.transform = `translate(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px)`;
                 if (draggingCardInfo.children) {
                     draggingCardInfo.children.forEach(child => {
-                        child.task.x = child.initialX + dx; child.task.y = child.initialY + dy;
+                        const childBaseX = toFiniteNumber(child.initialX, 0);
+                        const childBaseY = toFiniteNumber(child.initialY, 0);
+                        child.task.x = childBaseX + dx; child.task.y = childBaseY + dy;
                         child.el.style.transform = `translate(${child.task.x}px, ${child.task.y}px)`;
                     });
                 }
@@ -779,14 +794,26 @@ function bindCardDrag(cardEl, task) {
             } else {
                 if (!selectedTasks.has(task.id)) { clearSelection(); selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             }
-            draggingCardInfo = { el: cardEl, task: cardEl.__veoTask, startMouseX: e.clientX, startMouseY: e.clientY, initialX: cardEl.__veoTask.x || 0, initialY: cardEl.__veoTask.y || 0 }; 
+            draggingCardInfo = {
+                el: cardEl,
+                task: cardEl.__veoTask,
+                startMouseX: e.clientX,
+                startMouseY: e.clientY,
+                initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
+                initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0)
+            }; 
             
             if (task.type === 'frame') {
                 draggingCardInfo.children = [];
                 document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
                     if (childEl.__veoTask && childEl.__veoTask.parentId === task.id) {
                         childEl.style.willChange = 'transform';
-                        draggingCardInfo.children.push({ el: childEl, task: childEl.__veoTask, initialX: childEl.__veoTask.x || 0, initialY: childEl.__veoTask.y || 0 });
+                        draggingCardInfo.children.push({
+                            el: childEl,
+                            task: childEl.__veoTask,
+                            initialX: toFiniteNumber(childEl.__veoTask && childEl.__veoTask.x, 0),
+                            initialY: toFiniteNumber(childEl.__veoTask && childEl.__veoTask.y, 0)
+                        });
                     }
                 });
             }
@@ -1020,21 +1047,15 @@ viewport.addEventListener('drop', async (e) => {
     e.preventDefault();
     const pluginType = e.dataTransfer.getData('plugin') || (toolDragSession && toolDragSession.plugin) || '';
     if (pluginType) {
-        const dropPoint = (Number.isFinite(lastViewportDragClientX) && Number.isFinite(lastViewportDragClientY))
-            ? { x: lastViewportDragClientX, y: lastViewportDragClientY }
-            : (getEventClientPoint(e) || { x: 0, y: 0 });
+        const dropPoint = getEventClientPoint(e) || (
+            Number.isFinite(lastViewportDragClientX) && Number.isFinite(lastViewportDragClientY)
+                ? { x: lastViewportDragClientX, y: lastViewportDragClientY }
+                : null
+        );
+        if (!dropPoint) return;
         const dropBoard = clientToBoard(dropPoint.x, dropPoint.y);
-
-        // 规避浏览器原生 DnD 坐标漂移：优先使用 dragStart->drop 的位移增量
-        let spawnX = dropBoard.x;
-        let spawnY = dropBoard.y;
-        if (toolDragSession && Number.isFinite(toolDragSession.startClientX) && Number.isFinite(toolDragSession.startClientY)) {
-            const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
-            const dx = (dropPoint.x - toolDragSession.startClientX) / scaleSafe;
-            const dy = (dropPoint.y - toolDragSession.startClientY) / scaleSafe;
-            spawnX = toolDragSession.startBoardX + dx;
-            spawnY = toolDragSession.startBoardY + dy;
-        }
+        const spawnX = toFiniteNumber(dropBoard.x, 0);
+        const spawnY = toFiniteNumber(dropBoard.y, 0);
 
         let newTool = null;
         if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
@@ -1766,6 +1787,7 @@ async function renderBoard() {
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
     boardTasks.forEach(task => {
+        normalizeTaskPosition(task);
         let cardEl = document.getElementById('card-' + task.id);
         const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na'; 
         
@@ -1838,7 +1860,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 🌟 智能克隆引擎 (Alt + Drag 专用)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    const baseType = originalTask && originalTask.type ? originalTask.type : 'task';
+    if (!originalTask || typeof originalTask !== 'object') return;
+    const baseType = originalTask.type ? originalTask.type : 'task';
     const newId = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const clone = { ...originalTask, id: newId, timestamp: Date.now() };
 
@@ -1868,28 +1891,7 @@ async function duplicateTask(originalTask, mouseEvent) {
         if (Array.isArray(originalTask.rawImages.references)) clone.rawImages.references = [...originalTask.rawImages.references];
     }
 
-    // 默认从原卡原位开始（不做固定偏移），后续按鼠标位移精确跟随
-    const originX = Number(originalTask && originalTask.x);
-    const originY = Number(originalTask && originalTask.y);
-    const baseX = Number.isFinite(originX) ? originX : 0;
-    const baseY = Number.isFinite(originY) ? originY : 0;
-    clone.x = baseX;
-    clone.y = baseY;
-
-    // 使用统一坐标系 + 抓取锚点计算克隆落点，避免任何 Y 轴偏移漂移
-    if (mouseEvent) {
-        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
-        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
-        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
-        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
-        const startBoard = clientToBoard(startClientX, startClientY);
-        const currentBoard = clientToBoard(currentClientX, currentClientY);
-        const grabOffsetX = startBoard.x - baseX;
-        const grabOffsetY = startBoard.y - baseY;
-        clone.x = currentBoard.x - grabOffsetX;
-        clone.y = currentBoard.y - grabOffsetY;
-
-    }
+    normalizeTaskPosition(clone);
 
     await saveTaskDB(clone);
     await renderBoard();
@@ -1900,26 +1902,15 @@ async function duplicateTask(originalTask, mouseEvent) {
         showToast("已克隆，但渲染节点未挂载，请重试一次", "error");
         return;
     }
-
-    // 渲染若有延迟，按“当前鼠标位置”二次校正克隆坐标，避免视觉上落后或下坠
-    if (mouseEvent) {
-        const startClientX = Number.isFinite(mouseEvent.clientX) ? mouseEvent.clientX : lastPointerClientX;
-        const startClientY = Number.isFinite(mouseEvent.clientY) ? mouseEvent.clientY : lastPointerClientY;
-        const currentClientX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : startClientX;
-        const currentClientY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : startClientY;
-        const startBoard = clientToBoard(startClientX, startClientY);
-        const currentBoard = clientToBoard(currentClientX, currentClientY);
-        const grabOffsetX = startBoard.x - baseX;
-        const grabOffsetY = startBoard.y - baseY;
-        const correctedX = currentBoard.x - grabOffsetX;
-        const correctedY = currentBoard.y - grabOffsetY;
-
-        clone.x = correctedX;
-        clone.y = correctedY;
-        if (newCardEl.__veoTask) {
-            newCardEl.__veoTask.x = correctedX;
-            newCardEl.__veoTask.y = correctedY;
-        }
+    if (newCardEl.__veoTask) normalizeTaskPosition(newCardEl.__veoTask);
+    normalizeTaskPosition(clone);
+    const settledX = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.x, clone.x) : clone.x;
+    const settledY = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.y, clone.y) : clone.y;
+    clone.x = settledX;
+    clone.y = settledY;
+    if (newCardEl.__veoTask) {
+        newCardEl.__veoTask.x = settledX;
+        newCardEl.__veoTask.y = settledY;
     }
 
     highestZIndex++;
@@ -1934,15 +1925,15 @@ async function duplicateTask(originalTask, mouseEvent) {
 
     // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
     if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
-        const dragStartX = Number.isFinite(lastPointerClientX) ? lastPointerClientX : mouseEvent.clientX;
-        const dragStartY = Number.isFinite(lastPointerClientY) ? lastPointerClientY : mouseEvent.clientY;
+        const dragStartX = toFiniteNumber(mouseEvent.clientX, lastPointerClientX);
+        const dragStartY = toFiniteNumber(mouseEvent.clientY, lastPointerClientY);
         draggingCardInfo = {
             el: newCardEl,
             task: newCardEl.__veoTask,
             startMouseX: dragStartX,
             startMouseY: dragStartY,
-            initialX: Number(newCardEl.__veoTask.x) || clone.x || 0,
-            initialY: Number(newCardEl.__veoTask.y) || clone.y || 0
+            initialX: toFiniteNumber(newCardEl.__veoTask.x, clone.x),
+            initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y)
         };
     } else {
         newCardEl.style.willChange = 'auto';

@@ -993,7 +993,6 @@ body.app-shell-ready .floating-console:not(.minimized) {
     box-shadow: var(--panel-shadow);
 }
 
-.video-card,
 .floating-console,
 .tool-drawer,
 .material-drawer,
