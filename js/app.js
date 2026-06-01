@@ -395,6 +395,37 @@ function patchElementAttributes(fromEl, toEl) {
     });
 }
 
+function syncFormControlState(fromEl, toEl) {
+    if (!fromEl || !toEl || fromEl.nodeType !== Node.ELEMENT_NODE || toEl.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = fromEl.tagName;
+    if (tag === 'INPUT') {
+        const type = (fromEl.getAttribute('type') || '').toLowerCase();
+        if (type === 'checkbox' || type === 'radio') {
+            if (fromEl.checked !== toEl.checked) fromEl.checked = toEl.checked;
+        } else if (fromEl.value !== toEl.value) {
+            fromEl.value = toEl.value;
+        }
+        if (fromEl.disabled !== toEl.disabled) fromEl.disabled = toEl.disabled;
+        return;
+    }
+    if (tag === 'TEXTAREA') {
+        if (fromEl.value !== toEl.value) fromEl.value = toEl.value;
+        if (fromEl.disabled !== toEl.disabled) fromEl.disabled = toEl.disabled;
+        return;
+    }
+    if (tag === 'SELECT') {
+        if (fromEl.disabled !== toEl.disabled) fromEl.disabled = toEl.disabled;
+        const nextValue = toEl.value;
+        if (fromEl.value !== nextValue) fromEl.value = nextValue;
+        if (fromEl.selectedIndex !== toEl.selectedIndex) fromEl.selectedIndex = toEl.selectedIndex;
+        return;
+    }
+    if (tag === 'OPTION') {
+        if (fromEl.selected !== toEl.selected) fromEl.selected = toEl.selected;
+        if (fromEl.defaultSelected !== toEl.defaultSelected) fromEl.defaultSelected = toEl.defaultSelected;
+    }
+}
+
 function canReuseNode(fromNode, toNode) {
     if (!fromNode || !toNode) return false;
     if (fromNode.nodeType !== toNode.nodeType) return false;
@@ -414,6 +445,7 @@ function morphNodeLite(fromNode, toNode) {
     }
     patchElementAttributes(fromNode, toNode);
     morphChildrenLite(fromNode, toNode);
+    syncFormControlState(fromNode, toNode);
 }
 
 function morphChildrenLite(fromParent, toParent) {
