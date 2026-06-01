@@ -322,6 +322,8 @@ const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll';
 const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
 const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
 const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
+const IMG_GEN_PREVIEW_LIMIT = 6;
+const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 let activeTasks = [], activeRetries = new Set(); 
 const taskPollControllers = new Map();
 const taskPollTimers = new Map();
@@ -531,17 +533,46 @@ function clearTaskPolling(taskId, removeActive = true) {
     if (removeActive) removeActiveTask(taskId);
 }
 
-function clearImgGenPolling(taskId) {
-    const controller = imgGenPollControllers.get(taskId);
-    if (controller) {
-        try { controller.abort(); } catch (err) {}
-        imgGenPollControllers.delete(taskId);
+function buildImgGenPollKey(taskId, previewItemId = '') {
+    return `${taskId}::${previewItemId || 'default'}`;
+}
+
+function clearImgGenPolling(taskId, previewItemId = null) {
+    const keys = [];
+    if (previewItemId) keys.push(buildImgGenPollKey(taskId, previewItemId));
+    else {
+        imgGenPollControllers.forEach((_, key) => {
+            if (String(key).startsWith(`${taskId}::`)) keys.push(key);
+        });
+        imgGenPollTimers.forEach((_, key) => {
+            if (String(key).startsWith(`${taskId}::`) && !keys.includes(key)) keys.push(key);
+        });
+        if (keys.length === 0) keys.push(buildImgGenPollKey(taskId, 'default'));
     }
-    const timerId = imgGenPollTimers.get(taskId);
-    if (timerId) {
-        clearTimeout(timerId);
-        imgGenPollTimers.delete(taskId);
+
+    keys.forEach((pollKey) => {
+        const controller = imgGenPollControllers.get(pollKey);
+        if (controller) {
+            try { controller.abort(); } catch (err) {}
+            imgGenPollControllers.delete(pollKey);
+        }
+        const timerId = imgGenPollTimers.get(pollKey);
+        if (timerId) {
+            clearTimeout(timerId);
+            imgGenPollTimers.delete(pollKey);
+        }
+    });
+}
+
+function hasImgGenPolling(taskId) {
+    const prefix = `${taskId}::`;
+    for (const key of imgGenPollControllers.keys()) {
+        if (String(key).startsWith(prefix)) return true;
     }
+    for (const key of imgGenPollTimers.keys()) {
+        if (String(key).startsWith(prefix)) return true;
+    }
+    return false;
 }
 
 function setTaskShadow(task) {
@@ -1953,33 +1984,36 @@ function generateCardHTML(task) {
         const previewCollapsed = task.state.previewCollapsed === true;
         const resolvedSize = resolveImgGenSize(task.state);
         const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
-        const resultBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
-            ? task.state.resultBlobs
-            : (task.state.resultBlob ? [task.state.resultBlob] : []);
-        const hasResult = task.status === 'success' && resultBlobs.length > 0;
+        const previewEntries = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+        const pendingCount = previewEntries.filter((item) => item && item.status === 'pending').length;
+        const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
+        const cooldownSec = Math.ceil(cooldownMs / 1000);
+        const isBtnCooling = cooldownSec > 0;
 
         let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
         if (task.state.images.length < 5) {
             slotsHtml += `<div class="img-gen-slot img-gen-slot-add" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
         }
 
-        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span> ${task.state.costTime ? `<span class="img-gen-runtime">⏱ ${task.state.costTime}s</span>` : ''}`;
+        let btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span>`;
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
-        if (isProcessing) {
+        if (pendingCount > 0) {
             btnContent = `
                 <div class="img-gen-processing-wrap">
                     <div class="img-gen-processing-head">
                         <div class="img-gen-processing-left">
                             <svg class="spinner" viewBox="0 0 50 50" style="width:14px;height:14px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg>
-                            生成中...${retryTxt}
+                            生成中 ${pendingCount} 项${retryTxt}
                         </div>
-                        <div class="veo-dynamic-timer img-gen-timer" data-start-time="${task.state.startTime || Date.now()}">00:00</div>
+                        <div class="img-gen-runtime">${cooldownSec > 0 ? `冷却 ${cooldownSec}s` : '可再次生成'}</div>
                     </div>
                     <div class="img-gen-progress"><div class="img-gen-progress-bar"></div></div>
                 </div>
             `;
+        } else if (cooldownSec > 0) {
+            btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">schedule</span> 冷却中 ${cooldownSec}s`;
         }
-        if (isFailed) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试 ${task.state.costTime ? `(在 ${task.state.costTime}s 处断开)` : ''}`;
+        if (isFailed && pendingCount === 0 && cooldownSec === 0) btnContent = `<span class="material-symbols-outlined" style="font-size:18px;">refresh</span> 失败，点击重试`;
 
         let customRatioHtml = '';
         const showCustomRatio = (!isPro && task.state.trialRatio === 'custom') || (isPro && task.state.proRatio === 'custom');
@@ -2028,17 +2062,8 @@ function generateCardHTML(task) {
                 <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
                 <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
             </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'n', this.value)" data-tip="专业版：目标张数">
-                <option value="1" ${String(task.state.n)==='1'?'selected':''}>1张</option>
-                <option value="2" ${String(task.state.n)==='2'?'selected':''}>2张</option>
-                <option value="3" ${String(task.state.n)==='3'?'selected':''}>3张</option>
-                <option value="4" ${String(task.state.n)==='4'?'selected':''}>4张</option>
-                <option value="5" ${String(task.state.n)==='5'?'selected':''}>5张</option>
-                <option value="6" ${String(task.state.n)==='6'?'selected':''}>6张</option>
-                <option value="7" ${String(task.state.n)==='7'?'selected':''}>7张</option>
-                <option value="8" ${String(task.state.n)==='8'?'selected':''}>8张</option>
-                <option value="9" ${String(task.state.n)==='9'?'selected':''}>9张</option>
-                <option value="10" ${String(task.state.n)==='10'?'selected':''}>10张</option>
+            <select class="img-gen-select" disabled data-tip="单次生成已锁定，每次只生成1张">
+                <option selected>单次 1 张（锁定）</option>
             </select>
         </div>
         <div class="img-gen-controls img-gen-controls-pro">
@@ -2067,22 +2092,26 @@ function generateCardHTML(task) {
             </select>
         </div>`;
 
-        const previewGridHtml = hasResult
-            ? `<div class="img-gen-preview-grid">${
-                resultBlobs.map((blob, idx) => `<div class="img-gen-preview-item"><img src="${getBlobUrl(task.id+'_res_'+idx+'_'+(task.timestamp||''), blob)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${idx}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`).join('')
+        let successDragIndex = -1;
+        const previewFeedHtml = previewEntries.length > 0
+            ? `<div class="img-gen-preview-feed">${
+                previewEntries.map((item) => {
+                    if (!item) return '';
+                    if (item.status === 'pending') {
+                        return `<div class="img-gen-preview-item img-gen-preview-pending"><div class="img-gen-preview-pending-inner"><svg class="spinner" viewBox="0 0 50 50" style="width:22px;height:22px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg><div class="img-gen-preview-placeholder-title">生成中...</div><div class="img-gen-preview-placeholder-sub">等待返回图像</div></div></div>`;
+                    }
+                    if (item.status === 'failed') {
+                        return `<div class="img-gen-preview-item img-gen-preview-failed"><div class="img-gen-preview-pending-inner"><span class="material-symbols-outlined" style="font-size:20px;">warning</span><div class="img-gen-preview-placeholder-title">本次失败</div><div class="img-gen-preview-placeholder-sub">可继续点击生成</div></div></div>`;
+                    }
+                    if (item.status === 'success' && item.image) {
+                        successDragIndex++;
+                        const imgKey = `${task.id}_feed_${item.id}_${task.timestamp || ''}`;
+                        return `<div class="img-gen-preview-item"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
+                    }
+                    return '';
+                }).join('')
             }</div>`
-            : '';
-
-        let previewPlaceholderHtml = '';
-        if (!hasResult) {
-            if (isProcessing) {
-                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-processing"><svg class="spinner" viewBox="0 0 50 50" style="width:30px;height:30px;stroke:currentColor;"><circle cx="25" cy="25" r="20"></circle></svg><div class="img-gen-preview-placeholder-title">正在生成图像...</div><div class="img-gen-preview-placeholder-sub">生成动效已绑定预览框</div></div>`;
-            } else if (isFailed) {
-                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder is-failed"><span class="material-symbols-outlined" style="font-size:28px;">warning</span><div class="img-gen-preview-placeholder-title">本次生成失败</div><div class="img-gen-preview-placeholder-sub">请调整提示词或参数后重试</div></div>`;
-            } else {
-                previewPlaceholderHtml = `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">play_circle</span><div class="img-gen-preview-placeholder-title">点击生成开始预览</div><div class="img-gen-preview-placeholder-sub">输出结果将在此实时展示</div></div>`;
-            }
-        }
+            : `<div class="img-gen-preview-placeholder"><span class="material-symbols-outlined" style="font-size:30px;">play_circle</span><div class="img-gen-preview-placeholder-title">点击生成开始预览</div><div class="img-gen-preview-placeholder-sub">结果将按时间顺序向下堆叠，最多保留 6 张</div></div>`;
 
         const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
         const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
@@ -2123,10 +2152,10 @@ function generateCardHTML(task) {
                         ${proControlsHtml}
                         ${customRatioHtml}
                         <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
-                        <button class="img-gen-btn ${isProcessing ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isProcessing?'disabled':''} style="${isFailed ? 'background: var(--danger);' : ''}">${btnContent}</button>
+                        <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''} style="${isFailed && pendingCount === 0 ? 'background: var(--danger);' : ''}">${btnContent}</button>
                     </div>
                 </div>
-                <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${isProcessing ? 'is-running' : ''}">
+                <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${pendingCount > 0 ? 'is-running' : ''}">
                     <div class="img-gen-preview-head">
                         <div class="img-gen-preview-head-main">
                             <span class="img-gen-preview-title">OUTPUT</span>
@@ -2140,7 +2169,7 @@ function generateCardHTML(task) {
                         </button>
                     </div>
                     <div class="img-gen-preview-body">
-                        ${previewGridHtml || previewPlaceholderHtml}
+                        ${previewFeedHtml}
                     </div>
                 </aside>
             </div>
@@ -2203,9 +2232,6 @@ async function renderBoard() {
             applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
-            if (task.type === 'tool_image_gen' && task.status === 'processing' && task.genTaskId && !imgGenPollTimers.has(task.id) && !imgGenPollControllers.has(task.id)) {
-                startImgGenTaskPolling(task.id, task.genTaskId);
-            }
         } else {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`;
             
@@ -2223,8 +2249,21 @@ async function renderBoard() {
                 morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
-            if (task.type === 'tool_image_gen' && task.status === 'processing' && task.genTaskId && !imgGenPollTimers.has(task.id) && !imgGenPollControllers.has(task.id)) {
-                startImgGenTaskPolling(task.id, task.genTaskId);
+        }
+
+        if (task.type === 'tool_image_gen' && task.status === 'processing') {
+            const pendingItems = Array.isArray(task.state && task.state.previewHistory)
+                ? task.state.previewHistory.filter((entry) => entry && entry.status === 'pending' && entry.remoteTaskId)
+                : [];
+            if (pendingItems.length > 0) {
+                pendingItems.forEach((entry) => {
+                    const pollKey = buildImgGenPollKey(task.id, entry.id);
+                    if (!imgGenPollTimers.has(pollKey) && !imgGenPollControllers.has(pollKey)) {
+                        startImgGenTaskPolling(task.id, entry.remoteTaskId, entry.id);
+                    }
+                });
+            } else if (task.genTaskId && !hasImgGenPolling(task.id)) {
+                startImgGenTaskPolling(task.id, task.genTaskId, task.genTaskId);
             }
         }
 
@@ -2566,8 +2605,7 @@ function ensureImgGenState(task) {
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
     if (!task.state.moderation) task.state.moderation = 'auto';
-    const parsedN = parseInt(task.state.n, 10);
-    task.state.n = Number.isFinite(parsedN) && parsedN > 0 ? Math.min(parsedN, 10) : 1;
+    task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.trialRatio) {
         if (task.state.size === '') {
@@ -2593,6 +2631,7 @@ function ensureImgGenState(task) {
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
+    normalizeImgGenPreviewHistory(task);
     if (task.state.version === 'pro') {
         const detected = detectProPresetFromSize(task.state.size);
         if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
@@ -2601,6 +2640,7 @@ function ensureImgGenState(task) {
     } else {
         task.state.size = resolveImgGenSize(task.state);
     }
+    recalcImgGenTaskStatus(task);
 }
 
 function resolveImgGenMode(state) {
@@ -2608,6 +2648,145 @@ function resolveImgGenMode(state) {
     if (imageCount === 0) return 'text2img';
     if (state.maskImage) return 'mask_edit';
     return 'img2img';
+}
+
+function createImgGenPreviewId() {
+    return `img_item_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function normalizeImgGenPreviewHistory(task) {
+    if (!task || task.type !== 'tool_image_gen') return;
+    if (!task.state || typeof task.state !== 'object') task.state = {};
+
+    let list = Array.isArray(task.state.previewHistory) ? task.state.previewHistory.slice() : [];
+    if (list.length === 0) {
+        const seeded = [];
+        const seededBlobs = Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length > 0
+            ? task.state.resultBlobs
+            : (task.state.resultBlob ? [task.state.resultBlob] : []);
+        seededBlobs.forEach((img) => {
+            if (!img) return;
+            seeded.push({
+                id: createImgGenPreviewId(),
+                status: 'success',
+                image: img,
+                createdAt: Date.now()
+            });
+        });
+        list = seeded;
+    }
+
+    list = list
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({
+            id: item.id || createImgGenPreviewId(),
+            status: item.status || 'success',
+            image: item.image || null,
+            createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+            costTime: Number.isFinite(item.costTime) ? item.costTime : null
+        }))
+        .sort((a, b) => a.createdAt - b.createdAt);
+
+    task.state.previewHistory = list;
+    if (!Number.isFinite(task.state.nextSubmitAt)) task.state.nextSubmitAt = 0;
+
+    const successImages = task.state.previewHistory
+        .filter((item) => item.status === 'success' && item.image)
+        .map((item) => item.image);
+    if (successImages.length > IMG_GEN_PREVIEW_LIMIT) {
+        let dropCount = successImages.length - IMG_GEN_PREVIEW_LIMIT;
+        const trimmed = [];
+        for (const item of task.state.previewHistory) {
+            if (item.status === 'success' && item.image && dropCount > 0) {
+                dropCount--;
+                continue;
+            }
+            trimmed.push(item);
+        }
+        task.state.previewHistory = trimmed;
+    }
+
+    const finalSuccessImages = task.state.previewHistory
+        .filter((item) => item.status === 'success' && item.image)
+        .map((item) => item.image)
+        .slice(-IMG_GEN_PREVIEW_LIMIT);
+    task.state.resultBlobs = finalSuccessImages;
+    task.state.resultBlob = finalSuccessImages.length ? finalSuccessImages[finalSuccessImages.length - 1] : null;
+}
+
+function getImgGenPendingCount(task) {
+    if (!task || !task.state || !Array.isArray(task.state.previewHistory)) return 0;
+    return task.state.previewHistory.filter((item) => item && item.status === 'pending').length;
+}
+
+function recalcImgGenTaskStatus(task) {
+    if (!task || task.type !== 'tool_image_gen') return;
+    normalizeImgGenPreviewHistory(task);
+    const pendingCount = getImgGenPendingCount(task);
+    if (pendingCount > 0) {
+        task.status = 'processing';
+        return;
+    }
+    const hasSuccess = task.state.previewHistory.some((item) => item && item.status === 'success');
+    if (hasSuccess) {
+        task.status = 'success';
+        return;
+    }
+    const hasFailed = task.state.previewHistory.some((item) => item && item.status === 'failed');
+    if (hasFailed) {
+        task.status = 'failed';
+        return;
+    }
+    task.status = 'idle';
+}
+
+function pushImgGenPendingItem(task) {
+    normalizeImgGenPreviewHistory(task);
+    const itemId = createImgGenPreviewId();
+    task.state.previewHistory.push({
+        id: itemId,
+        status: 'pending',
+        image: null,
+        createdAt: Date.now(),
+        costTime: null
+    });
+    recalcImgGenTaskStatus(task);
+    return itemId;
+}
+
+function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = null) {
+    normalizeImgGenPreviewHistory(task);
+    const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
+    if (item) {
+        item.status = 'success';
+        item.image = imageBlobOrUrl || null;
+        item.costTime = Number.isFinite(costTimeSec) ? costTimeSec : null;
+    } else {
+        task.state.previewHistory.push({
+            id: itemId || createImgGenPreviewId(),
+            status: 'success',
+            image: imageBlobOrUrl || null,
+            createdAt: Date.now(),
+            costTime: Number.isFinite(costTimeSec) ? costTimeSec : null
+        });
+    }
+    recalcImgGenTaskStatus(task);
+}
+
+function markImgGenPreviewFailed(task, itemId) {
+    normalizeImgGenPreviewHistory(task);
+    const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
+    if (item) item.status = 'failed';
+    else {
+        task.state.previewHistory.push({
+            id: itemId || createImgGenPreviewId(),
+            status: 'failed',
+            image: null,
+            createdAt: Date.now(),
+            costTime: null
+        });
+    }
+    recalcImgGenTaskStatus(task);
 }
 
 function buildImgGenHeaders() {
@@ -2817,8 +2996,10 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     };
 }
 
-function startImgGenTaskPolling(taskId, remoteTaskId) {
-    clearImgGenPolling(taskId);
+function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
+    const itemId = previewItemId || remoteTaskId || createImgGenPreviewId();
+    const pollKey = buildImgGenPollKey(taskId, itemId);
+    clearImgGenPolling(taskId, itemId);
     let attempts = 0;
     let errorCount = 0;
     const maxAttempts = 180;
@@ -2828,22 +3009,29 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
         const timer = setTimeout(() => {
             poll().catch(() => {});
         }, Math.max(1000, toFiniteNumber(delayMs, 3500)));
-        imgGenPollTimers.set(taskId, timer);
+        imgGenPollTimers.set(pollKey, timer);
     };
 
     const poll = async () => {
-        imgGenPollTimers.delete(taskId);
+        imgGenPollTimers.delete(pollKey);
         attempts++;
 
         const task = await getTaskDB(taskId);
-        if (!task) { clearImgGenPolling(taskId); return; }
+        if (!task) { clearImgGenPolling(taskId, itemId); return; }
         ensureImgGenState(task);
-        if (task.status !== 'processing') { clearImgGenPolling(taskId); return; }
+        normalizeImgGenPreviewHistory(task);
 
-        const remoteId = String(remoteTaskId || task.genTaskId || task.state.genTaskId || '').trim();
+        const targetItem = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
+        if (!targetItem || targetItem.status !== 'pending') {
+            clearImgGenPolling(taskId, itemId);
+            return;
+        }
+
+        const remoteId = String(remoteTaskId || targetItem.remoteTaskId || '').trim();
         if (!remoteId) {
-            clearImgGenPolling(taskId);
-            task.status = 'failed';
+            markImgGenPreviewFailed(task, itemId);
+            task.timestamp = Date.now();
+            clearImgGenPolling(taskId, itemId);
             await saveTaskDB(task);
             renderCard(taskId, task);
             showToast('轮询缺少任务ID，已终止', 'error');
@@ -2870,16 +3058,16 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
             if (!target || !target.url) continue;
             try {
                 const controller = new AbortController();
-                imgGenPollControllers.set(taskId, controller);
+                imgGenPollControllers.set(pollKey, controller);
                 const response = await fetch(target.url, {
                     method: 'POST',
                     headers,
                     body: JSON.stringify(target.body),
                     signal: controller.signal
                 });
-                imgGenPollControllers.delete(taskId);
+                imgGenPollControllers.delete(pollKey);
                 if (response.status === 401 || response.status === 403) {
-                    clearImgGenPolling(taskId);
+                    clearImgGenPolling(taskId, itemId);
                     handleAuthError();
                     return;
                 }
@@ -2898,15 +3086,16 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
                 if (err && err.name === 'AbortError') return;
                 lastHttpError = err;
             } finally {
-                imgGenPollControllers.delete(taskId);
+                imgGenPollControllers.delete(pollKey);
             }
         }
 
         if (rawData === null || rawData === undefined) {
             errorCount++;
             if (errorCount >= maxErrors || attempts >= maxAttempts) {
-                clearImgGenPolling(taskId);
-                task.status = 'failed';
+                markImgGenPreviewFailed(task, itemId);
+                task.timestamp = Date.now();
+                clearImgGenPolling(taskId, itemId);
                 await saveTaskDB(task);
                 renderCard(taskId, task);
                 showToast('生图轮询超时，请稍后重试', 'error');
@@ -2919,23 +3108,28 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
 
         const returnedUrls = extractImageUrlsFromResponse(rawData);
         if (Array.isArray(returnedUrls) && returnedUrls.length > 0) {
-            const resultBlobs = [];
-            for (const u of returnedUrls) {
-                try {
-                    const r = await fetch(u);
-                    if (!r.ok) throw new Error('fetch image failed');
-                    resultBlobs.push(await r.blob());
-                } catch (fetchErr) {
-                    resultBlobs.push(u);
-                }
-            }
-            task.status = 'success';
-            task.state.resultBlobs = resultBlobs;
-            task.state.resultBlob = resultBlobs[0] || null;
-            task.state.costTime = Math.floor((Date.now() - (task.state.startTime || Date.now())) / 1000);
+            let output = returnedUrls[0];
+            try {
+                const r = await fetch(output);
+                if (r.ok) output = await r.blob();
+            } catch (fetchErr) {}
+
+            const costTime = Math.floor((Date.now() - (targetItem.createdAt || Date.now())) / 1000);
+            markImgGenPreviewSuccess(task, itemId, output, costTime);
+            task.state.costTime = costTime;
             task.timestamp = Date.now();
             task.genTaskId = null;
-            clearImgGenPolling(taskId);
+            clearImgGenPolling(taskId, itemId);
+            let cost = 0.084;
+            let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
+            if (task.state.version === 'pro') {
+                cost = 0.12;
+                detail = "AI生图 专业版 GPT Image 2";
+            } else if (task.state.channel === 'channel_2') {
+                cost = 0.06;
+            }
+            await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
+            updateBillingUI();
             await saveTaskDB(task);
             renderCard(taskId, task);
             return;
@@ -2943,14 +3137,13 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
 
         const status = extractImgGenStatus(rawData);
         if (isImgGenSuccessStatus(status)) {
-            // 有些后端先回 success，再异步写图片链接，短暂等待一轮
             scheduleNext(resolveImgGenPollDelayMs(rawData, 1800));
             return;
         }
         if (isImgGenFailedStatus(status)) {
-            clearImgGenPolling(taskId);
-            task.status = 'failed';
+            markImgGenPreviewFailed(task, itemId);
             task.timestamp = Date.now();
+            clearImgGenPolling(taskId, itemId);
             await saveTaskDB(task);
             renderCard(taskId, task);
             showToast('生图任务失败，请调整参数后重试', 'error');
@@ -2959,16 +3152,18 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
 
         const nextTaskId = extractImgGenTaskId(rawData);
         if (nextTaskId && nextTaskId !== remoteId) {
+            remoteTaskId = nextTaskId;
+            const dynamicItem = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
+            if (dynamicItem) dynamicItem.remoteTaskId = nextTaskId;
             task.genTaskId = nextTaskId;
             await saveTaskDB(task);
-            remoteTaskId = nextTaskId;
         }
 
         if (!status || isImgGenPendingStatus(status)) {
             if (attempts >= maxAttempts) {
-                clearImgGenPolling(taskId);
-                task.status = 'failed';
+                markImgGenPreviewFailed(task, itemId);
                 task.timestamp = Date.now();
+                clearImgGenPolling(taskId, itemId);
                 await saveTaskDB(task);
                 renderCard(taskId, task);
                 showToast('生图轮询超时，请稍后重试', 'error');
@@ -2978,7 +3173,6 @@ function startImgGenTaskPolling(taskId, remoteTaskId) {
             return;
         }
 
-        // 未知状态，保守继续下一轮
         scheduleNext(resolveImgGenPollDelayMs(rawData, 3500));
     };
 
@@ -3009,8 +3203,7 @@ async function updateImgGenState(taskId, key, val) {
         ensureImgGenState(task);
 
         if (key === 'n') {
-            const n = parseInt(val, 10);
-            task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
+            task.state.n = 1;
         } else if (key === 'proResolution') {
             task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
             if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
@@ -3125,18 +3318,34 @@ async function submitImgGen(taskId) {
     if (!task) return;
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
+    const now = Date.now();
+    const nextSubmitAt = toFiniteNumber(task.state.nextSubmitAt, 0);
+    if (now < nextSubmitAt) {
+        const waitSec = Math.max(1, Math.ceil((nextSubmitAt - now) / 1000));
+        showToast(`请等待 ${waitSec}s 后再生成`, "warning");
+        renderCard(taskId, task);
+        return;
+    }
     if (task.state.previewCollapsed) task.state.previewCollapsed = false;
-    clearImgGenPolling(taskId);
 
-    task.status = 'processing';
+    task.state.nextSubmitAt = now + IMG_GEN_CLICK_COOLDOWN_MS;
     task.retryCount = 0;
     task.isBilled = false;
-    task.genTaskId = null;
-    task.state.resultBlob = null;
-    task.state.resultBlobs = [];
-    task.state.startTime = Date.now();
+    task.state.startTime = now;
+    const previewItemId = pushImgGenPendingItem(task);
+    task.timestamp = now;
     await saveTaskDB(task);
-    renderCard(taskId);
+    renderCard(taskId, task);
+
+    setTimeout(async () => {
+        try {
+            const fresh = await getTaskDB(taskId);
+            if (!fresh) return;
+            ensureImgGenState(fresh);
+            setTaskShadow(fresh);
+            renderCard(taskId, fresh);
+        } catch (err) {}
+    }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
 
     const version = task.state.version === 'pro' ? 'pro' : 'trial';
     let resolvedSize = resolveImgGenSize(task.state);
@@ -3149,9 +3358,9 @@ async function submitImgGen(taskId) {
     if (version === 'pro' && resolvedSize !== 'auto') {
         const strict = enforceProSizeRules(resolvedSize);
         if (!strict.isValid) {
-            task.status = 'failed';
+            markImgGenPreviewFailed(task, previewItemId);
             await saveTaskDB(task);
-            renderCard(taskId);
+            renderCard(taskId, task);
             return showToast('Pro 尺寸不符合规则，请调整比例后重试', 'error');
         }
         if (strict.changed) {
@@ -3164,7 +3373,7 @@ async function submitImgGen(taskId) {
     const mode = resolveImgGenMode(task.state);
     const imagesBase64 = await blobsToBase64Sequential(task.state.images, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 });
     const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
-    const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 10) : 1;
+    const nValue = 1;
 
     const unifiedPayloadCore = {
         version: version,
@@ -3265,47 +3474,6 @@ async function submitImgGen(taskId) {
         return { rawData, resData, returnedUrls };
     };
 
-    const collectRequestedUrls = async () => {
-        const targetCount = Math.min(Math.max(nValue, 1), 10);
-        const aggregatedUrls = [];
-
-        const firstResult = await requestImgGenOnce(unifiedPayload, legacyPayload);
-        if (Array.isArray(firstResult.returnedUrls) && firstResult.returnedUrls.length > 0) {
-            aggregatedUrls.push(...firstResult.returnedUrls);
-        }
-
-        let latestResData = firstResult.resData;
-        if (aggregatedUrls.length === 0 && firstResult.resData && firstResult.resData.taskId) {
-            return { returnedUrls: [], resData: firstResult.resData };
-        }
-
-        if (targetCount > aggregatedUrls.length) {
-            const missingCount = targetCount - aggregatedUrls.length;
-            for (let i = 0; i < missingCount; i++) {
-                const extraCore = { ...unifiedPayloadCore, n: 1 };
-                const extraUnifiedPayload = {
-                    body: { ...extraCore },
-                    ...extraCore,
-                    inputImages: imagesBase64,
-                    maskImage: maskBase64
-                };
-                const extraLegacyPayload = { ...legacyPayload, n: 1 };
-                try {
-                    const extraResult = await requestImgGenOnce(extraUnifiedPayload, extraLegacyPayload);
-                    latestResData = extraResult.resData || latestResData;
-                    if (Array.isArray(extraResult.returnedUrls) && extraResult.returnedUrls.length > 0) {
-                        aggregatedUrls.push(...extraResult.returnedUrls);
-                    }
-                    if (aggregatedUrls.length >= targetCount) break;
-                } catch (extraErr) {
-                    console.warn('[submitImgGen] extra image request failed:', extraErr);
-                }
-            }
-        }
-
-        return { returnedUrls: aggregatedUrls.slice(0, targetCount), resData: latestResData };
-    };
-
     let success = false;
     let attempts = 0;
     const maxAttempts = task.state.autoRetry ? 3 : 1;
@@ -3314,55 +3482,44 @@ async function submitImgGen(taskId) {
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const resultPack = await collectRequestedUrls();
+            const resultPack = await requestImgGenOnce(unifiedPayload, legacyPayload);
             const resData = resultPack.resData;
             const returnedUrls = resultPack.returnedUrls;
 
             if (returnedUrls.length > 0) {
-                const resultBlobs = [];
-                for (const u of returnedUrls) {
-                    try {
-                        const r = await fetch(u);
-                        if (!r.ok) throw new Error('fetch image failed');
-                        resultBlobs.push(await r.blob());
-                    } catch (fetchErr) {
-                        // CORS/临时 URL 失败时回退成原始 URL 字符串，仍可预览与复用
-                        resultBlobs.push(u);
-                    }
-                }
-                task.status = 'success';
-                task.state.resultBlobs = resultBlobs;
-                task.state.resultBlob = resultBlobs[0] || null;
-                task.state.costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
+                let output = returnedUrls[0];
+                try {
+                    const r = await fetch(output);
+                    if (r.ok) output = await r.blob();
+                } catch (fetchErr) {}
+                const costTime = Math.floor((Date.now() - task.state.startTime) / 1000);
+                markImgGenPreviewSuccess(task, previewItemId, output, costTime);
+                task.state.costTime = costTime;
                 task.timestamp = Date.now();
                 task.genTaskId = null;
                 success = true;
-                if (nValue > 1 && resultBlobs.length < nValue) {
-                    showToast(`当前通道只返回 ${resultBlobs.length}/${nValue} 张，已自动补发并完成聚合`, "warning");
-                }
 
-                if (!task.isBilled) {
-                    let cost = 0.084;
-                    let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
-                    if (version === 'pro') {
-                        cost = 0.12;
-                        detail = "AI生图 专业版 GPT Image 2";
-                    } else if (task.state.channel === 'channel_2') {
-                        cost = 0.06;
-                    }
-                    await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
-                    task.isBilled = true;
-                    updateBillingUI();
+                let cost = 0.084;
+                let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
+                if (version === 'pro') {
+                    cost = 0.12;
+                    detail = "AI生图 专业版 GPT Image 2";
+                } else if (task.state.channel === 'channel_2') {
+                    cost = 0.06;
                 }
+                await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
+                updateBillingUI();
             } else {
                 const asyncTaskId = extractImgGenTaskId(resData);
                 const status = extractImgGenStatus(resData);
                 if (asyncTaskId) {
+                    const item = task.state.previewHistory.find((entry) => entry && entry.id === previewItemId);
+                    if (item) item.remoteTaskId = asyncTaskId;
                     task.genTaskId = asyncTaskId;
                     task.timestamp = Date.now();
                     await saveTaskDB(task);
                     renderCard(taskId, task);
-                    startImgGenTaskPolling(taskId, asyncTaskId);
+                    startImgGenTaskPolling(taskId, asyncTaskId, previewItemId);
                     return;
                 }
                 if (isImgGenPendingStatus(status) || !status) throw new Error("后端进入异步态但未返回 taskId");
@@ -3374,20 +3531,20 @@ async function submitImgGen(taskId) {
         } catch (err) {
             lastError = err;
             if (attempts >= maxAttempts) {
-                task.status = 'failed';
+                markImgGenPreviewFailed(task, previewItemId);
             } else {
                 task.retryCount = attempts;
                 await saveTaskDB(task);
-                renderCard(taskId);
+                renderCard(taskId, task);
                 await new Promise(r => setTimeout(r, 2000));
             }
         }
     }
 
     await saveTaskDB(task);
-    renderCard(taskId);
-    if (!success && task.status === 'failed') {
-        clearImgGenPolling(taskId);
+    renderCard(taskId, task);
+    if (!success) {
+        clearImgGenPolling(taskId, previewItemId);
         showToast("生图请求失败，请检查 webhook、密钥或网络", "error");
         if (lastError) console.warn('[submitImgGen] failed:', lastError);
     }
