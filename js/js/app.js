@@ -325,6 +325,8 @@ const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUT
 let activeTasks = [], activeRetries = new Set(); 
 const taskPollControllers = new Map();
 const taskPollTimers = new Map();
+const taskShadowCache = new Map();
+const imgGenUpdateQueues = new Map();
 
 function cssEscapeSafe(id) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
@@ -493,6 +495,44 @@ function clearTaskPolling(taskId, removeActive = true) {
         taskPollTimers.delete(taskId);
     }
     if (removeActive) removeActiveTask(taskId);
+}
+
+function setTaskShadow(task) {
+    if (!task || !task.id) return;
+    taskShadowCache.set(task.id, task);
+    const cardEl = document.getElementById('card-' + task.id);
+    if (cardEl) cardEl.__veoTask = task;
+}
+
+function getTaskShadow(taskId) {
+    if (!taskId) return null;
+    const cardEl = document.getElementById('card-' + taskId);
+    if (cardEl && cardEl.__veoTask) return cardEl.__veoTask;
+    return taskShadowCache.get(taskId) || null;
+}
+
+function cloneTaskDeep(task) {
+    if (typeof structuredClone === 'function') {
+        try { return structuredClone(task); } catch (err) {}
+    }
+    try { return JSON.parse(JSON.stringify(task)); } catch (err) { return null; }
+}
+
+function queueImgGenTaskUpdate(taskId, runner) {
+    const prev = imgGenUpdateQueues.get(taskId) || Promise.resolve();
+    const next = prev
+        .catch(() => null)
+        .then(() => runner())
+        .catch((err) => {
+            console.error('[img-gen-update] failed:', err);
+            throw err;
+        });
+
+    imgGenUpdateQueues.set(taskId, next);
+    next.finally(() => {
+        if (imgGenUpdateQueues.get(taskId) === next) imgGenUpdateQueues.delete(taskId);
+    });
+    return next;
 }
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
@@ -1425,6 +1465,7 @@ function applyImgGenCardFrame(cardEl, task) {
 
 async function renderCard(taskId, taskOverride = null) {
     const task = taskOverride || await getTaskDB(taskId); if (!task) return;
+    setTaskShadow(task);
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
     // 仅重绘当前的这一张卡片
@@ -2093,6 +2134,7 @@ async function renderBoard() {
 
     boardTasks.forEach(task => {
         normalizeTaskPosition(task);
+        setTaskShadow(task);
         let cardEl = document.getElementById('card-' + task.id);
         const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na'; 
         
@@ -2148,6 +2190,8 @@ async function removeTask(id) {
     if (!confirm('确定删除这张卡片吗？')) return;
     clearTaskPolling(id);
     await deleteTaskDB(id);
+    taskShadowCache.delete(id);
+    imgGenUpdateQueues.delete(id);
     const card = document.getElementById('card-' + id);
     if (card) card.remove();
     renderMinimap();
@@ -2575,62 +2619,73 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     ensureImgGenState(task);
     task.state.previewCollapsed = !task.state.previewCollapsed;
     task.timestamp = Date.now();
+    setTaskShadow(task);
     renderCard(taskId, task);
     await saveTaskDB(task);
 }
 
 async function updateImgGenState(taskId, key, val) {
-    const task = await getTaskDB(taskId);
-    if (!task) return;
-    ensureImgGenState(task);
-    if (key === 'n') {
-        const n = parseInt(val, 10);
-        task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
-    } else if (key === 'proResolution') {
-        task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
-        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
-    } else if (key === 'proRatio') {
-        task.state.proRatio = String(val || '1:1');
-        if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
-    } else if (key === 'customW' || key === 'customH') {
-        const parsed = parseInt(val, 10);
-        task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
-        if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
-        if (task.state.version !== 'pro' && task.state.trialRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
-    } else if (key === 'trialRatio') {
-        task.state.trialRatio = ['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(String(val)) ? String(val) : '1:1';
-        task.state.size = resolveImgGenSize(task.state);
-    } else if (key === 'version') {
-        const nextVersion = val === 'pro' ? 'pro' : 'trial';
-        task.state.version = nextVersion;
-        if (nextVersion === 'pro') {
-            const detected = detectProPresetFromSize(task.state.size);
-            if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
-            if (detected.proResolution) task.state.proResolution = detected.proResolution;
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+
+        if (key === 'n') {
+            const n = parseInt(val, 10);
+            task.state.n = Number.isFinite(n) && n > 0 ? Math.min(n, 10) : 1;
+        } else if (key === 'proResolution') {
+            task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
+            if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'proRatio') {
+            task.state.proRatio = String(val || '1:1');
+            if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'customW' || key === 'customH') {
+            const parsed = parseInt(val, 10);
+            task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
+            if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+            if (task.state.version !== 'pro' && task.state.trialRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'trialRatio') {
+            task.state.trialRatio = ['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(String(val)) ? String(val) : '1:1';
             task.state.size = resolveImgGenSize(task.state);
-        } else {
-            task.state.size = resolveImgGenSize(task.state);
-        }
-    } else if (key === 'size') {
-        task.state.size = val;
-        if (task.state.version === 'pro') {
-            const detected = detectProPresetFromSize(val);
-            if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
-            task.state.proResolution = detected.proResolution;
-        } else {
-            if (val === '') task.state.trialRatio = 'custom';
-            else {
-                const trialDetected = detectProPresetFromSize(val);
-                if (trialDetected.proRatio && trialDetected.proRatio !== 'auto') task.state.trialRatio = trialDetected.proRatio;
+        } else if (key === 'version') {
+            const nextVersion = val === 'pro' ? 'pro' : 'trial';
+            task.state.version = nextVersion;
+            if (nextVersion === 'pro') {
+                const detected = detectProPresetFromSize(task.state.size);
+                if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+                if (detected.proResolution) task.state.proResolution = detected.proResolution;
+                task.state.size = resolveImgGenSize(task.state);
+            } else {
+                task.state.size = resolveImgGenSize(task.state);
             }
-            task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'size') {
+            task.state.size = val;
+            if (task.state.version === 'pro') {
+                const detected = detectProPresetFromSize(val);
+                if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+                task.state.proResolution = detected.proResolution;
+            } else {
+                if (val === '') task.state.trialRatio = 'custom';
+                else {
+                    const trialDetected = detectProPresetFromSize(val);
+                    if (trialDetected.proRatio && trialDetected.proRatio !== 'auto') task.state.trialRatio = trialDetected.proRatio;
+                }
+                task.state.size = resolveImgGenSize(task.state);
+            }
+        } else {
+            task.state[key] = val;
+            if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
         }
-    } else {
-        task.state[key] = val;
-        if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
-    }
-    renderCard(taskId, task);
-    await saveTaskDB(task);
+
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('参数更新失败，请重试', 'error');
+    });
 }
 
 async function handleGenImageUpload(input, taskId) {
