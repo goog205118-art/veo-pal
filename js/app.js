@@ -578,6 +578,9 @@ let activeCrop = null, activeFrameResize = null;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
+let toolDragSession = null;
+let lastViewportDragClientX = NaN;
+let lastViewportDragClientY = NaN;
 
 function clientToBoard(clientX, clientY) {
     const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
@@ -590,6 +593,28 @@ function clientToBoard(clientX, clientY) {
         x: (localX - transform.x) / scaleSafe,
         y: (localY - transform.y) / scaleSafe
     };
+}
+
+function getEventClientPoint(e) {
+    if (!e) return null;
+    const hasPage = Number.isFinite(e.pageX) && Number.isFinite(e.pageY);
+    const hasClient = Number.isFinite(e.clientX) && Number.isFinite(e.clientY);
+    if (hasPage) {
+        return { x: e.pageX - window.scrollX, y: e.pageY - window.scrollY };
+    }
+    if (hasClient) {
+        return { x: e.clientX, y: e.clientY };
+    }
+    return null;
+}
+
+function detectToolPluginType(el) {
+    if (!el) return '';
+    const attr = el.getAttribute('ondragstart') || '';
+    if (attr.includes("'generator'")) return 'generator';
+    if (attr.includes("'image_gen'")) return 'image_gen';
+    if (attr.includes("'cropper'")) return 'cropper';
+    return '';
 }
 
 window.addEventListener('mousedown', (e) => {
@@ -948,11 +973,65 @@ async function importWorkspace(input) {
 
 window.addEventListener("dragover", function(e){ e.preventDefault(); }, false); window.addEventListener("drop", function(e){ e.preventDefault(); }, false);
 
+document.addEventListener('dragstart', (e) => {
+    const toolEl = e.target && e.target.closest ? e.target.closest('.draggable-tool') : null;
+    if (!toolEl) return;
+    const point = getEventClientPoint(e);
+    if (!point) return;
+    const plugin = detectToolPluginType(toolEl);
+    const startBoard = clientToBoard(point.x, point.y);
+
+    toolDragSession = {
+        plugin,
+        startClientX: point.x,
+        startClientY: point.y,
+        startBoardX: startBoard.x,
+        startBoardY: startBoard.y
+    };
+
+    if (plugin && e.dataTransfer) e.dataTransfer.setData('plugin', plugin);
+    if (e.dataTransfer && typeof e.dataTransfer.setDragImage === 'function') {
+        const rect = toolEl.getBoundingClientRect();
+        const hotX = Math.max(0, Math.min(rect.width, point.x - rect.left));
+        const hotY = Math.max(0, Math.min(rect.height, point.y - rect.top));
+        e.dataTransfer.setDragImage(toolEl, hotX, hotY);
+    }
+}, true);
+
+document.addEventListener('dragend', () => {
+    toolDragSession = null;
+    lastViewportDragClientX = NaN;
+    lastViewportDragClientY = NaN;
+}, true);
+
+viewport.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const point = getEventClientPoint(e);
+    if (!point) return;
+    lastViewportDragClientX = point.x;
+    lastViewportDragClientY = point.y;
+}, false);
+
 viewport.addEventListener('drop', async (e) => {
-    e.preventDefault(); const pluginType = e.dataTransfer.getData('plugin');
+    e.preventDefault();
+    const pluginType = e.dataTransfer.getData('plugin') || (toolDragSession && toolDragSession.plugin) || '';
     if (pluginType) {
-        const spawnPoint = clientToBoard(e.clientX, e.clientY);
-        const spawnX = spawnPoint.x, spawnY = spawnPoint.y;
+        const dropPoint = (Number.isFinite(lastViewportDragClientX) && Number.isFinite(lastViewportDragClientY))
+            ? { x: lastViewportDragClientX, y: lastViewportDragClientY }
+            : (getEventClientPoint(e) || { x: 0, y: 0 });
+        const dropBoard = clientToBoard(dropPoint.x, dropPoint.y);
+
+        // 规避浏览器原生 DnD 坐标漂移：优先使用 dragStart->drop 的位移增量
+        let spawnX = dropBoard.x;
+        let spawnY = dropBoard.y;
+        if (toolDragSession && Number.isFinite(toolDragSession.startClientX) && Number.isFinite(toolDragSession.startClientY)) {
+            const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
+            const dx = (dropPoint.x - toolDragSession.startClientX) / scaleSafe;
+            const dy = (dropPoint.y - toolDragSession.startClientY) / scaleSafe;
+            spawnX = toolDragSession.startBoardX + dx;
+            spawnY = toolDragSession.startBoardY + dy;
+        }
+
         let newTool = null;
         if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
         else if (pluginType === 'image_gen') newTool = {
@@ -989,7 +1068,15 @@ viewport.addEventListener('drop', async (e) => {
             retryCount: 0
         };
         else if (pluginType === 'cropper') newTool = { id: 'tool_crop_' + Date.now(), type: 'tool_cropper', x: spawnX, y: spawnY, timestamp: Date.now(), state: { sourceBlob: null, resultBlob: null, cropParams: { left: 10, top: 10, width: 80, height: 80 } } };
-        if (newTool) { await saveTaskDB(newTool); renderBoard(); document.getElementById('tool-drawer').classList.remove('open'); return; }
+        if (newTool) {
+            await saveTaskDB(newTool);
+            renderBoard();
+            document.getElementById('tool-drawer').classList.remove('open');
+            toolDragSession = null;
+            lastViewportDragClientX = NaN;
+            lastViewportDragClientY = NaN;
+            return;
+        }
     }
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
