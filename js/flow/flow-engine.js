@@ -256,8 +256,22 @@ let flowState = {
     // 🌟 新增高级交互状态
     selectedNodeIds: new Set(), 
     selectionBox: { active: false, startX: 0, startY: 0 },
-    minimap: { minX: 0, minY: 0, scale: 1 } // 🚨 新增：小地图逆向映射锚点
+    selectionBoxMode: 'intersect',
+    minimap: { minX: 0, minY: 0, scale: 1 }, // 🚨 新增：小地图逆向映射锚点
+    history: {
+        undo: [],
+        redo: [],
+        maxSteps: 30,
+        isApplying: false
+    },
+    edgeScroll: {
+        threshold: 40,
+        maxStep: 18
+    }
 };
+
+const flowLinkIndexByNode = new Map();
+const flowLinkPathCache = new Map();
 
 // 动态挂载原生框选框 DOM 到页面
 const dragSelectBox = document.createElement('div');
@@ -292,12 +306,94 @@ async function loadFlowFromDB() {
             if (req.result) {
                 flowState.nodes = req.result.nodes || [];
                 flowState.links = req.result.links || [];
+                rebuildLinkIndex();
                 if (req.result.transform) flowState.transform = req.result.transform;
                 resolve(true);
             } else resolve(false);
         };
         req.onerror = () => resolve(false);
     });
+}
+
+function deepCopyJsonSafe(obj) {
+    try {
+        return JSON.parse(JSON.stringify(obj));
+    } catch (err) {
+        return null;
+    }
+}
+
+function snapshotFlowState() {
+    return {
+        nodes: deepCopyJsonSafe(flowState.nodes) || [],
+        links: deepCopyJsonSafe(flowState.links) || [],
+        transform: deepCopyJsonSafe(flowState.transform) || { x: 0, y: 0, scale: 1 }
+    };
+}
+
+function pushFlowHistory(label) {
+    if (flowState.history.isApplying) return;
+    const snap = snapshotFlowState();
+    if (!snap) return;
+    const undoStack = flowState.history.undo;
+    undoStack.push(snap);
+    if (undoStack.length > flowState.history.maxSteps) undoStack.shift();
+    flowState.history.redo = [];
+}
+
+function applyFlowSnapshot(snapshot) {
+    if (!snapshot) return;
+    flowState.history.isApplying = true;
+    flowState.nodes = deepCopyJsonSafe(snapshot.nodes) || [];
+    flowState.links = deepCopyJsonSafe(snapshot.links) || [];
+    flowState.transform = deepCopyJsonSafe(snapshot.transform) || { x: 0, y: 0, scale: 1 };
+    flowState.selectedNodeIds.clear();
+    renderNodes();
+    rebuildLinkIndex();
+    renderLinks();
+    updateCanvasTransform();
+    flowState.history.isApplying = false;
+}
+
+window.undoFlow = function() {
+    if (!flowState.history.undo.length) return;
+    const current = snapshotFlowState();
+    const prev = flowState.history.undo.pop();
+    flowState.history.redo.push(current);
+    applyFlowSnapshot(prev);
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+};
+
+window.redoFlow = function() {
+    if (!flowState.history.redo.length) return;
+    const current = snapshotFlowState();
+    const next = flowState.history.redo.pop();
+    flowState.history.undo.push(current);
+    applyFlowSnapshot(next);
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+};
+
+function rebuildLinkIndex() {
+    flowLinkIndexByNode.clear();
+    (flowState.links || []).forEach((link) => {
+        if (!link || !link.id) return;
+        const sourceSet = flowLinkIndexByNode.get(link.source) || new Set();
+        sourceSet.add(link.id);
+        flowLinkIndexByNode.set(link.source, sourceSet);
+        const targetSet = flowLinkIndexByNode.get(link.target) || new Set();
+        targetSet.add(link.id);
+        flowLinkIndexByNode.set(link.target, targetSet);
+    });
+}
+
+function getRelatedLinkIds(nodeIds) {
+    const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
+    const result = new Set();
+    ids.forEach((nodeId) => {
+        const linkSet = flowLinkIndexByNode.get(nodeId);
+        if (linkSet) linkSet.forEach((lid) => result.add(lid));
+    });
+    return result;
 }
 
 // ==========================================
@@ -484,44 +580,66 @@ window.toggleNodeInputs = function(nodeId) {
 // ==========================================
 // 🎨 SVG 局部靶向渲染引擎
 // ==========================================
-function renderLinks() {
+function renderSingleLink(link, canvasRect) {
+    if (!link || !link.id) return;
+    const sourcePortEl = document.getElementById(`${link.source}-${link.sourcePort}`);
+    const targetPortEl = document.getElementById(`${link.target}-${link.targetPort}`);
+    const pathId = 'svgpath_' + link.id;
+    let pathEl = document.getElementById(pathId);
+
+    if (!sourcePortEl || !targetPortEl) {
+        if (pathEl) pathEl.remove();
+        flowLinkPathCache.delete(link.id);
+        return;
+    }
+
+    const sRect = sourcePortEl.getBoundingClientRect();
+    const tRect = targetPortEl.getBoundingClientRect();
+    const x1 = (sRect.left + sRect.width / 2 - canvasRect.left) / flowState.transform.scale;
+    const y1 = (sRect.top + sRect.height / 2 - canvasRect.top) / flowState.transform.scale;
+    const x2 = (tRect.left + tRect.width / 2 - canvasRect.left) / flowState.transform.scale;
+    const y2 = (tRect.top + tRect.height / 2 - canvasRect.top) / flowState.transform.scale;
+    const offset = Math.max(Math.abs(x2 - x1) / 2, 60);
+    const pathData = `M ${x1} ${y1} C ${x1 + offset} ${y1}, ${x2 - offset} ${y2}, ${x2} ${y2}`;
+
+    if (!pathEl) {
+        pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathEl.id = pathId;
+        pathEl.setAttribute('stroke', link.type === 'image' ? '#c084fc' : (link.type === 'text' ? '#fbbf24' : '#38bdf8'));
+        pathEl.setAttribute('stroke-width', '3');
+        pathEl.setAttribute('fill', 'none');
+        pathEl.setAttribute('opacity', '0.8');
+        pathEl.setAttribute('stroke-linecap', 'round');
+        svgLayer.appendChild(pathEl);
+    }
+    const prevD = flowLinkPathCache.get(link.id);
+    if (prevD !== pathData) {
+        pathEl.setAttribute('d', pathData);
+        flowLinkPathCache.set(link.id, pathData);
+    }
+}
+
+function renderLinks(dirtyNodeIds = null) {
     if (!svgLayer) return;
     const canvasRect = canvas.getBoundingClientRect();
-    
-    flowState.links.forEach(link => {
-        const sourcePortEl = document.getElementById(`${link.source}-${link.sourcePort}`);
-        const targetPortEl = document.getElementById(`${link.target}-${link.targetPort}`);
-        
-        if (sourcePortEl && targetPortEl) {
-            const sRect = sourcePortEl.getBoundingClientRect();
-            const tRect = targetPortEl.getBoundingClientRect();
-            const x1 = (sRect.left + sRect.width/2 - canvasRect.left) / flowState.transform.scale;
-            const y1 = (sRect.top + sRect.height/2 - canvasRect.top) / flowState.transform.scale;
-            const x2 = (tRect.left + tRect.width/2 - canvasRect.left) / flowState.transform.scale;
-            const y2 = (tRect.top + tRect.height/2 - canvasRect.top) / flowState.transform.scale;
-            const offset = Math.max(Math.abs(x2 - x1) / 2, 60);
-            const pathData = `M ${x1} ${y1} C ${x1 + offset} ${y1}, ${x2 - offset} ${y2}, ${x2} ${y2}`;
-            
-            let pathEl = document.getElementById('svgpath_' + link.id);
-            if (!pathEl) {
-                pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                pathEl.id = 'svgpath_' + link.id;
-                pathEl.setAttribute('stroke', link.type === 'image' ? '#c084fc' : (link.type === 'text' ? '#fbbf24' : '#38bdf8'));
-                pathEl.setAttribute('stroke-width', '3');
-                pathEl.setAttribute('fill', 'none');
-                pathEl.setAttribute('opacity', '0.8');
-                pathEl.setAttribute('stroke-linecap', 'round');
-                svgLayer.appendChild(pathEl);
-            }
-            if (pathEl.getAttribute('d') !== pathData) pathEl.setAttribute('d', pathData);
-        }
+
+    const targetLinkIds = (dirtyNodeIds && dirtyNodeIds.size)
+        ? getRelatedLinkIds(Array.from(dirtyNodeIds))
+        : new Set((flowState.links || []).map(l => l.id));
+
+    flowState.links.forEach((link) => {
+        if (!link || !link.id) return;
+        if (!targetLinkIds.has(link.id)) return;
+        renderSingleLink(link, canvasRect);
     });
 
-    const existingPaths = Array.from(svgLayer.querySelectorAll('path[id^="svgpath_link_"]'));
-    const validLinkIds = new Set(flowState.links.map(l => 'svgpath_' + l.id));
-    existingPaths.forEach(p => {
-        if (!validLinkIds.has(p.id)) p.remove();
-    });
+    if (!dirtyNodeIds || !dirtyNodeIds.size) {
+        const existingPaths = Array.from(svgLayer.querySelectorAll('path[id^="svgpath_link_"]'));
+        const validLinkIds = new Set(flowState.links.map(l => 'svgpath_' + l.id));
+        existingPaths.forEach(p => {
+            if (!validLinkIds.has(p.id)) p.remove();
+        });
+    }
 
     let drawingPath = document.getElementById('svgpath_drawing_temp');
     if (flowState.drawingLink.active) {
@@ -542,7 +660,7 @@ function renderLinks() {
             drawingPath.setAttribute('stroke-linecap', 'round');
             svgLayer.appendChild(drawingPath);
         }
-        
+
         drawingPath.setAttribute('stroke', flowState.drawingLink.type === 'image' ? '#c084fc' : (flowState.drawingLink.type === 'text' ? '#fbbf24' : '#38bdf8'));
         drawingPath.setAttribute('d', pathData);
         drawingPath.style.display = 'block';
@@ -647,8 +765,10 @@ function normalizeFlowLinks(persistToDb = true) {
     const current = flowState.links || [];
     const next = sanitizeFlowLinks(current);
     const changed = linksFingerprint(current) !== linksFingerprint(next);
+    if (!changed) rebuildLinkIndex();
     if (changed) {
         flowState.links = next;
+        rebuildLinkIndex();
         renderLinks();
         if (persistToDb && typeof saveFlowToDB === 'function') saveFlowToDB();
     }
@@ -672,6 +792,7 @@ function startDragNode(e, nodeId) {
     // 将当前拖拽的节点强行纳入选中阵列
     flowState.selectedNodeIds.add(nodeId);
     updateSelectionStyles();
+    pushFlowHistory('move-node');
 
     flowState.activeNode = flowState.nodes.find(n => n.id === nodeId);
     flowState.startX = e.clientX; flowState.startY = e.clientY;
@@ -681,6 +802,32 @@ function startDragNode(e, nodeId) {
         const el = document.getElementById(id);
         if (el) el.style.zIndex = 100;
     });
+}
+
+function computeEdgeScrollDelta(clientX, clientY) {
+    const rect = viewport.getBoundingClientRect();
+    const threshold = flowState.edgeScroll.threshold;
+    const maxStep = flowState.edgeScroll.maxStep;
+    let dx = 0;
+    let dy = 0;
+
+    if (clientX < rect.left + threshold) {
+        const ratio = Math.max(0, (threshold - (clientX - rect.left)) / threshold);
+        dx = maxStep * ratio;
+    } else if (clientX > rect.right - threshold) {
+        const ratio = Math.max(0, (threshold - (rect.right - clientX)) / threshold);
+        dx = -maxStep * ratio;
+    }
+
+    if (clientY < rect.top + threshold) {
+        const ratio = Math.max(0, (threshold - (clientY - rect.top)) / threshold);
+        dy = maxStep * ratio;
+    } else if (clientY > rect.bottom - threshold) {
+        const ratio = Math.max(0, (threshold - (rect.bottom - clientY)) / threshold);
+        dy = -maxStep * ratio;
+    }
+
+    return { dx, dy };
 }
 
 // 辅助函数：清除高亮
@@ -776,7 +923,9 @@ window.finishDrawLink = function(e, targetNodeId, targetPortId, targetPortType, 
         return;
     }
 
+    pushFlowHistory('link-add');
     flowState.links = nextLinks;
+    rebuildLinkIndex();
     if (typeof saveFlowToDB === 'function') saveFlowToDB();
     renderLinks();
     console.log(`🔗 连线成功: ${sourceNode} -> ${targetNodeId}`);
@@ -794,12 +943,15 @@ viewport.addEventListener('mousedown', (e) => {
         flowState.selectionBox.active = true;
         flowState.selectionBox.startX = e.clientX;
         flowState.selectionBox.startY = e.clientY;
+        flowState.selectionBoxMode = 'intersect';
         
         dragSelectBox.style.left = e.clientX + 'px';
         dragSelectBox.style.top = e.clientY + 'px';
         dragSelectBox.style.width = '0px';
         dragSelectBox.style.height = '0px';
         dragSelectBox.style.display = 'block';
+        dragSelectBox.style.border = '1px dashed #22c55e';
+        dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
         return;
     }
 
@@ -809,6 +961,7 @@ viewport.addEventListener('mousedown', (e) => {
     }
 
     if (e.button === 1 || (e.button === 0 && e.target === viewport)) {
+        pushFlowHistory('pan-canvas');
         flowState.isPanning = true; flowState.startX = e.clientX; flowState.startY = e.clientY;
         viewport.style.cursor = 'grabbing';
     }
@@ -831,11 +984,20 @@ window.addEventListener('mousemove', (e) => {
                 const top = Math.min(box.startY, e.clientY);
                 const width = Math.abs(box.startX - e.clientX);
                 const height = Math.abs(box.startY - e.clientY);
+                const leftToRight = e.clientX >= box.startX;
+                flowState.selectionBoxMode = leftToRight ? 'contain' : 'intersect';
                 
                 dragSelectBox.style.left = left + 'px';
                 dragSelectBox.style.top = top + 'px';
                 dragSelectBox.style.width = width + 'px';
                 dragSelectBox.style.height = height + 'px';
+                if (leftToRight) {
+                    dragSelectBox.style.border = '1px solid #3b82f6';
+                    dragSelectBox.style.background = 'rgba(59, 130, 246, 0.10)';
+                } else {
+                    dragSelectBox.style.border = '1px dashed #22c55e';
+                    dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
+                }
             }
             // 模式 3：工业级多节点协同平移 (矩阵协同位移核心)
             else if (flowState.activeNode) {
@@ -854,7 +1016,8 @@ window.addEventListener('mousemove', (e) => {
                 });
                 
                 flowState.startX = e.clientX; flowState.startY = e.clientY;
-                renderLinks(); 
+                const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
+                renderLinks(dirtyIds); 
                 if (typeof renderMinimap === 'function') renderMinimap(); // 联动更新小地图
             }
             // 模式 4：画布全局平移
@@ -863,6 +1026,21 @@ window.addEventListener('mousemove', (e) => {
                 flowState.transform.y += (e.clientY - flowState.startY);
                 flowState.startX = e.clientX; flowState.startY = e.clientY;
                 updateCanvasTransform();
+            }
+
+            if (flowState.activeNode || flowState.drawingLink.active) {
+                const edgeDelta = computeEdgeScrollDelta(e.clientX, e.clientY);
+                if (Math.abs(edgeDelta.dx) > 0.2 || Math.abs(edgeDelta.dy) > 0.2) {
+                    flowState.transform.x += edgeDelta.dx;
+                    flowState.transform.y += edgeDelta.dy;
+                    updateCanvasTransform();
+                    if (flowState.activeNode) {
+                        const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
+                        renderLinks(dirtyIds);
+                    } else {
+                        renderLinks();
+                    }
+                }
             }
             isTicking = false;
         });
@@ -891,12 +1069,18 @@ window.addEventListener('mouseup', (e) => {
                 const nodeEl = document.getElementById(node.id);
                 if (nodeEl) {
                     const nRect = nodeEl.getBoundingClientRect();
-                    // 核心算法：判定两个 client 视口矩形是否发生重叠相交
-                    const isIntersect = !(nRect.left > sRect.right || 
-                                          nRect.right < sRect.left || 
-                                          nRect.top > sRect.bottom || 
+                    const isIntersect = !(nRect.left > sRect.right ||
+                                          nRect.right < sRect.left ||
+                                          nRect.top > sRect.bottom ||
                                           nRect.bottom < sRect.top);
-                    if (isIntersect) {
+                    const isContain = (
+                        nRect.left >= sRect.left &&
+                        nRect.right <= sRect.right &&
+                        nRect.top >= sRect.top &&
+                        nRect.bottom <= sRect.bottom
+                    );
+                    const hit = flowState.selectionBoxMode === 'contain' ? isContain : isIntersect;
+                    if (hit) {
                         flowState.selectedNodeIds.add(node.id);
                     }
                 }
@@ -910,9 +1094,11 @@ window.addEventListener('mouseup', (e) => {
             const el = document.getElementById(id);
             if (el) el.style.zIndex = '';
         });
-        shouldSave = true; 
+        shouldSave = true;
     }
-    if (flowState.isPanning) shouldSave = true;
+    if (flowState.isPanning) {
+        shouldSave = true;
+    }
 
     flowState.activeNode = null;
     flowState.isPanning = false;
@@ -957,6 +1143,8 @@ window.disconnectPort = function(e, nodeId, portId) {
         (l.target === nodeId && l.targetPort === portId)
     ));
     if (flowState.links.length !== initialLen) {
+        pushFlowHistory('link-remove');
+        rebuildLinkIndex();
         renderLinks();
         if (typeof saveFlowToDB === 'function') saveFlowToDB();
     }
@@ -1024,10 +1212,12 @@ window.importFlowFromJSON = function(event) {
             });
 
             // 暴力接管状态机
+            pushFlowHistory('import-flow');
             flowState.nodes = reconstructedNodes;
             flowState.links = importedData.links;
             if (importedData.transform) flowState.transform = importedData.transform;
             normalizeFlowLinks(false);
+            rebuildLinkIndex();
             if (hasGraphCycle(flowState.nodes, flowState.links)) {
                 throw new Error("导入后检测到环路，请修正后再执行");
             }
@@ -1052,8 +1242,10 @@ window.importFlowFromJSON = function(event) {
 window.clearFlowCanvas = function() {
     if (flowState.nodes.length === 0) return;
     if (confirm("🚨 警告：这将彻底清空画布上的所有节点与连线，且无法撤销！是否继续？")) {
+        pushFlowHistory('clear-flow');
         flowState.nodes = [];
         flowState.links = [];
+        rebuildLinkIndex();
         renderNodes();
         renderLinks();
         if (typeof saveFlowToDB === 'function') saveFlowToDB();
@@ -1199,6 +1391,17 @@ window.showNodeMenu = function(e, nodeId) {
     e.preventDefault(); e.stopPropagation();
     menuTargetNodeId = nodeId;
     ctxMenu.innerHTML = `
+        <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #38bdf8;"
+             onmouseover="this.style.background='rgba(56,189,248,0.12)'" onmouseout="this.style.background='transparent'"
+             onclick="runFlow({mode:'from', startNodeId:'${nodeId}'})">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">play_arrow</span> 从此处开始执行
+        </div>
+        <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #a78bfa;"
+             onmouseover="this.style.background='rgba(167,139,250,0.12)'" onmouseout="this.style.background='transparent'"
+             onclick="runFlow({mode:'single', startNodeId:'${nodeId}'})">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">bolt</span> 仅执行该节点
+        </div>
+        <div style="height:1px; background: rgba(255,255,255,0.08); margin: 6px 0;"></div>
         <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #ef4444;" 
              onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='transparent'"
              onclick="deleteNode('${nodeId}')">
@@ -1209,8 +1412,10 @@ window.showNodeMenu = function(e, nodeId) {
 };
 
 window.deleteNode = function(nodeId) {
+    pushFlowHistory('delete-node');
     flowState.nodes = flowState.nodes.filter(n => n.id !== nodeId);
     flowState.links = flowState.links.filter(l => l.source !== nodeId && l.target !== nodeId); 
+    rebuildLinkIndex();
     renderNodes(); renderLinks();
     saveFlowToDB(); 
 };
@@ -1239,6 +1444,7 @@ viewport.addEventListener('contextmenu', (e) => {
 window.spawnNode = function(blueprintType, spawnX, spawnY) {
     const blueprint = PluginManager.getSchema(blueprintType);
     if (!blueprint) return console.error(`❌ 找不到节点蓝图: ${blueprintType}`);
+    pushFlowHistory('spawn-node');
     const newNode = JSON.parse(JSON.stringify(blueprint)); 
     newNode.id = 'node_' + Date.now();
     newNode.x = spawnX !== undefined ? spawnX : menuClickWorldPos.x;
@@ -1321,6 +1527,13 @@ function initFlowToolbar() {
             <span class="material-symbols-outlined" style="font-size: 16px;">download</span> 导出
         </button>
         <div class="flow-tool-divider"></div>
+        <button class="flow-tool-btn" onclick="undoFlow()">
+            <span class="material-symbols-outlined" style="font-size: 16px;">undo</span> 撤销
+        </button>
+        <button class="flow-tool-btn" onclick="redoFlow()">
+            <span class="material-symbols-outlined" style="font-size: 16px;">redo</span> 重做
+        </button>
+        <div class="flow-tool-divider"></div>
         <button class="flow-tool-btn danger" onclick="clearFlowCanvas()">
             <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> 清空
         </button>
@@ -1351,6 +1564,17 @@ window.initFlowEngine = bootstrapFlowEngine;
 // ⌨️ 全局键盘快捷键中心 (支持批量一键销毁)
 // ==========================================
 window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undoFlow();
+        return;
+    }
+    if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        redoFlow();
+        return;
+    }
+
     if (e.key === 'Delete' || e.key === 'Backspace') {
         // 拦截机制：如果用户当前正在输入框或文本域中改参数，绝不误杀节点！
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
@@ -1360,8 +1584,10 @@ window.addEventListener('keydown', (e) => {
                 const idsToDelete = new Set(flowState.selectedNodeIds);
                 
                 // 1. 内存全量清洗
+                pushFlowHistory('bulk-delete');
                 flowState.nodes = flowState.nodes.filter(n => !idsToDelete.has(n.id));
                 flowState.links = flowState.links.filter(l => !idsToDelete.has(l.source) && !idsToDelete.has(l.target));
+                rebuildLinkIndex();
                 
                 // 2. 清空选择集
                 flowState.selectedNodeIds.clear();
@@ -1521,11 +1747,73 @@ viewport.addEventListener('drop', (e) => {
 // ==========================================
 // ⚙️ Phase 6: DAG 拓扑执行引擎
 // ==========================================
-window.runFlow = async function() {
+function summarizeForHash(value) {
+    if (value == null) return value;
+    if (typeof value === 'string') {
+        if (value.length <= 256) return value;
+        return `${value.slice(0, 96)}...${value.slice(-64)}|len:${value.length}`;
+    }
+    if (Array.isArray(value)) return value.map((item) => summarizeForHash(item));
+    if (typeof value === 'object') {
+        const out = {};
+        Object.keys(value).sort().forEach((k) => {
+            out[k] = summarizeForHash(value[k]);
+        });
+        return out;
+    }
+    return value;
+}
+
+function simpleHash(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return (h >>> 0).toString(16);
+}
+
+function computeNodeExecutionHash(node, compiledData, upstreamInputs) {
+    const payload = {
+        nodeType: node && node.type ? node.type : '',
+        data: summarizeForHash(compiledData),
+        upstream: summarizeForHash(upstreamInputs)
+    };
+    return simpleHash(JSON.stringify(payload));
+}
+
+function collectRunTargetIds(mode, startNodeId) {
+    const allNodeIds = new Set((flowState.nodes || []).map((n) => n.id));
+    if (mode === 'single' && startNodeId && allNodeIds.has(startNodeId)) {
+        return new Set([startNodeId]);
+    }
+    if (mode === 'from' && startNodeId && allNodeIds.has(startNodeId)) {
+        const targets = new Set([startNodeId]);
+        const queue = [startNodeId];
+        while (queue.length > 0) {
+            const current = queue.shift();
+            (flowState.links || []).forEach((link) => {
+                if (link.source === current && !targets.has(link.target)) {
+                    targets.add(link.target);
+                    queue.push(link.target);
+                }
+            });
+        }
+        return targets;
+    }
+    return allNodeIds;
+}
+
+window.runFlow = async function(options = {}) {
     console.log("🚀 [执行引擎] 启动工业级 DAG 拓扑扫描...");
     if (!Array.isArray(flowState.nodes) || flowState.nodes.length === 0) {
         return alert("⚠️ 当前画布没有节点可执行。");
     }
+
+    const runMode = options && options.mode ? options.mode : 'full';
+    const startNodeId = options && options.startNodeId ? options.startNodeId : null;
+    const targetIds = collectRunTargetIds(runMode, startNodeId);
+    if (!targetIds.size) return alert("⚠️ 未找到可执行节点。");
 
     normalizeFlowLinks(true);
 
@@ -1536,6 +1824,7 @@ window.runFlow = async function() {
     const indegree = new Map();
     const downstream = new Map();
     flowState.nodes.forEach(n => {
+        if (!targetIds.has(n.id)) return;
         indegree.set(n.id, 0);
         downstream.set(n.id, []);
     });
@@ -1545,11 +1834,12 @@ window.runFlow = async function() {
         downstream.get(link.source).push(link.target);
     });
 
-    let readyQueue = flowState.nodes.filter(n => indegree.get(n.id) === 0).map(n => n.id);
-    if (readyQueue.length === 0) return alert("⚠️ 错误：未找到起点节点，或者工作流中存在死循环连线！");
+    let readyQueue = flowState.nodes.filter(n => indegree.has(n.id) && indegree.get(n.id) === 0).map(n => n.id);
+    if (readyQueue.length === 0) return alert("⚠️ 错误：目标子图没有可执行起点，可能包含环路。");
 
     flowState.nodes.forEach(n => {
-        n.result = null; 
+        if (!targetIds.has(n.id)) return;
+        if (runMode === 'full') n.result = null;
         setNodeStatus(n.id, 'idle');
     });
 
@@ -1572,10 +1862,10 @@ window.runFlow = async function() {
             });
         }
 
-        if (processed !== flowState.nodes.length) {
+        if (processed !== targetIds.size) {
             throw new Error('执行队列异常：存在未完成节点（可能是隐式环路或损坏连线）');
         }
-        console.log("✅ [执行引擎] 工作流全链路并发执行完毕！");
+        console.log("✅ [执行引擎] 工作流执行完毕！模式:", runMode, '目标节点数:', targetIds.size);
     } catch (err) {
         console.error("❌ [执行引擎] 链路崩溃:", err);
         alert("执行流异常中断，请查看控制台日志。");
@@ -1953,37 +2243,77 @@ window.AutocompleteController = {
     }
 };
 window.compileExpressionTemplate = function(nodeData, upstreamInputs, flowNodes) {
-    // 深度克隆，绝对不污染原画布保存的静态数据
-    const compiled = JSON.parse(JSON.stringify(nodeData));
-    const regex = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
-    
-    const traverseAndCompile = (obj) => {
-        for (let key in obj) {
-            if (typeof obj[key] === 'string') {
-                obj[key] = obj[key].replace(regex, (match, varName) => {
-                    const v = varName.trim();
-                    // 1. 优先匹配上游连线的引脚数据 (例如: {{in_prompt}})
-                    if (upstreamInputs[v]) {
-                        return typeof upstreamInputs[v].data === 'string' 
-                               ? upstreamInputs[v].data 
-                               : (typeof upstreamInputs[v] === 'string' ? upstreamInputs[v] : match);
-                    }
-                    // 2. 跨空间匹配全局节点数据 (例如: {{node_123.prompt}})
-                    if (v.includes('.')) {
-                        const [nid, nfield] = v.split('.');
-                        const targetNode = flowNodes.find(n => n.id === nid);
-                        if (targetNode && targetNode.data && targetNode.data[nfield] !== undefined) {
-                            return targetNode.data[nfield];
-                        }
-                    }
-                    return match; // 无匹配则保留原样
-                });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                traverseAndCompile(obj[key]);
+    const compiled = JSON.parse(JSON.stringify(nodeData || {}));
+
+    const resolveTokenValue = (token) => {
+        const v = String(token || '').trim();
+        if (!v) return undefined;
+        if (upstreamInputs && upstreamInputs[v]) {
+            const inputVal = upstreamInputs[v];
+            if (inputVal && typeof inputVal === 'object' && inputVal.data !== undefined) return inputVal.data;
+            return inputVal;
+        }
+        if (v.includes('.')) {
+            const [nid, nfield] = v.split('.');
+            const targetNode = (flowNodes || []).find(n => n.id === nid);
+            if (targetNode && targetNode.data && targetNode.data[nfield] !== undefined) {
+                return targetNode.data[nfield];
             }
         }
+        return undefined;
     };
-    traverseAndCompile(compiled);
+
+    const parseExpressionBody = (rawBody) => {
+        const body = String(rawBody || '').trim();
+        if (!body) return { token: '', fallback: '' };
+        const pipePos = body.indexOf('|');
+        if (pipePos === -1) return { token: body, fallback: '' };
+        const token = body.slice(0, pipePos).trim();
+        let fallback = body.slice(pipePos + 1).trim();
+        if ((fallback.startsWith("'") && fallback.endsWith("'")) || (fallback.startsWith('"') && fallback.endsWith('"'))) {
+            fallback = fallback.slice(1, -1);
+        }
+        return { token, fallback };
+    };
+
+    const compileStringTemplate = (inputText) => {
+        const text = String(inputText || '');
+        let out = '';
+        let i = 0;
+        while (i < text.length) {
+            const open = text.indexOf('{{', i);
+            if (open === -1) {
+                out += text.slice(i);
+                break;
+            }
+            out += text.slice(i, open);
+            const close = text.indexOf('}}', open + 2);
+            if (close === -1) {
+                out += text.slice(open);
+                break;
+            }
+            const body = text.slice(open + 2, close);
+            const parsed = parseExpressionBody(body);
+            const resolved = resolveTokenValue(parsed.token);
+            if (resolved === undefined || resolved === null || resolved === '') {
+                out += parsed.fallback ? parsed.fallback : `{{${body}}}`;
+            } else {
+                out += String(resolved);
+            }
+            i = close + 2;
+        }
+        return out;
+    };
+
+    const walk = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        Object.keys(obj).forEach((key) => {
+            if (typeof obj[key] === 'string') obj[key] = compileStringTemplate(obj[key]);
+            else if (obj[key] && typeof obj[key] === 'object') walk(obj[key]);
+        });
+    };
+
+    walk(compiled);
     return compiled;
 };
 
@@ -2010,6 +2340,12 @@ async function executeNode(nodeId) {
 
         // 🌟 核心：在此处插入编译管线！把含有 {{}} 的表单数据替换为真实变量！
         const compiledData = compileExpressionTemplate(node.data || {}, upstreamInputs, flowState.nodes);
+        const inputHash = computeNodeExecutionHash(node, compiledData, upstreamInputs);
+        if (node.result && node._lastInputHash && node._lastInputHash === inputHash) {
+            const costTimeCached = ((Date.now() - nodeStartTime) / 1000).toFixed(2);
+            setNodeStatus(nodeId, 'success', { costTime: `${costTimeCached} (cache)` });
+            return;
+        }
 
         const isInfiniteRetry = (compiledData.autoRetry === '开启 (无限重试)' || compiledData.autoRetry === true);
         let attempt = 0;
@@ -2035,6 +2371,7 @@ async function executeNode(nodeId) {
         }
 
         node.result = finalResult; 
+        node._lastInputHash = inputHash;
         saveFlowToDB(); 
         
         const costTime = ((Date.now() - nodeStartTime) / 1000).toFixed(1);

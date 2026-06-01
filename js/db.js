@@ -4,6 +4,11 @@
 const DB_NAME = 'VeoInfinityDB';
 let db;
 const blobUrlCache = new Map(); 
+const TASK_SAVE_BATCH_WINDOW = 100;
+const taskSaveBuffer = new Map();
+const taskSaveResolvers = new Map();
+const taskSaveRejectors = new Map();
+let taskSaveFlushTimer = null;
 
 function initDB() {
     return new Promise((resolve, reject) => {
@@ -73,6 +78,84 @@ function getBlobUrl(id, blobData) {
     return url;
 }
 
+function readBlobAsDataUrl(blob) {
+    return new Promise((resolve) => {
+        try {
+            const reader = new FileReader();
+            reader.onerror = () => resolve(null);
+            reader.onloadend = () => resolve(reader.result || null);
+            reader.readAsDataURL(blob);
+        } catch (err) {
+            resolve(null);
+        }
+    });
+}
+
+async function downscaleImageBlobIfNeeded(blob, options = {}) {
+    if (!blob || typeof blob === 'string') return blob;
+    const type = String(blob.type || '').toLowerCase();
+    if (!type.startsWith('image/')) return blob;
+
+    const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : (8 * 1024 * 1024);
+    const maxEdge = Number.isFinite(options.maxEdge) ? options.maxEdge : 2048;
+    const maxPixels = Number.isFinite(options.maxPixels) ? options.maxPixels : (4096 * 4096);
+    const needDownscale = blob.size > maxBytes;
+    if (!needDownscale) return blob;
+
+    return new Promise((resolve) => {
+        let objectUrl = '';
+        try {
+            objectUrl = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onerror = () => {
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                resolve(blob);
+            };
+            img.onload = () => {
+                try {
+                    const srcW = Math.max(1, img.naturalWidth || img.width || 1);
+                    const srcH = Math.max(1, img.naturalHeight || img.height || 1);
+                    let scale = 1;
+                    if (srcW > maxEdge || srcH > maxEdge) scale = Math.min(scale, maxEdge / Math.max(srcW, srcH));
+                    if ((srcW * srcH) > maxPixels) scale = Math.min(scale, Math.sqrt(maxPixels / (srcW * srcH)));
+                    const dstW = Math.max(1, Math.floor(srcW * scale));
+                    const dstH = Math.max(1, Math.floor(srcH * scale));
+
+                    if (scale >= 0.999) {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(blob);
+                        return;
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = dstW;
+                    canvas.height = dstH;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(blob);
+                        return;
+                    }
+                    ctx.drawImage(img, 0, 0, dstW, dstH);
+                    const outType = type === 'image/png' ? 'image/png' : 'image/jpeg';
+                    const quality = outType === 'image/png' ? undefined : 0.9;
+                    canvas.toBlob((nextBlob) => {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(nextBlob || blob);
+                    }, outType, quality);
+                } catch (err) {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                    resolve(blob);
+                }
+            };
+            img.src = objectUrl;
+        } catch (err) {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            resolve(blob);
+        }
+    });
+}
+
 async function compressImageToBlob(file, maxWidth = 1024) {
     return new Promise((resolve) => {
         const reader = new FileReader();
@@ -93,13 +176,81 @@ async function compressImageToBlob(file, maxWidth = 1024) {
     });
 }
 
-function blobToBase64(blob) {
+async function blobToBase64(blob, options = {}) {
     if (!blob) return null;
     if (typeof blob === 'string') return Promise.resolve(blob);
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
+    const mode = options && options.mode ? String(options.mode) : 'generic';
+    const sourceBlob = mode === 'network'
+        ? await downscaleImageBlobIfNeeded(blob, options)
+        : blob;
+    return readBlobAsDataUrl(sourceBlob);
+}
+
+function resolveTaskSave(taskId) {
+    const list = taskSaveResolvers.get(taskId);
+    if (Array.isArray(list)) {
+        list.forEach((resolve) => {
+            try { resolve(); } catch (err) {}
+        });
+    }
+    taskSaveResolvers.delete(taskId);
+    taskSaveRejectors.delete(taskId);
+}
+
+function rejectTaskSave(taskId, error) {
+    const list = taskSaveRejectors.get(taskId);
+    if (Array.isArray(list)) {
+        list.forEach((reject) => {
+            try { reject(error); } catch (err) {}
+        });
+    }
+    taskSaveResolvers.delete(taskId);
+    taskSaveRejectors.delete(taskId);
+}
+
+function flushTaskSaveQueue() {
+    taskSaveFlushTimer = null;
+    const entries = Array.from(taskSaveBuffer.values());
+    taskSaveBuffer.clear();
+    if (entries.length === 0) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+        try {
+            const tx = db.transaction('tasks', 'readwrite');
+            const store = tx.objectStore('tasks');
+            entries.forEach((task) => {
+                if (task && task.id) store.put(task);
+            });
+            tx.oncomplete = () => {
+                entries.forEach((task) => task && task.id && resolveTaskSave(task.id));
+                resolve();
+            };
+            tx.onerror = (event) => {
+                const err = event && event.target ? event.target.error : new Error('save queue transaction failed');
+                entries.forEach((task) => task && task.id && rejectTaskSave(task.id, err));
+                reject(err);
+            };
+        } catch (err) {
+            entries.forEach((task) => task && task.id && rejectTaskSave(task.id, err));
+            reject(err);
+        }
+    });
+}
+
+function enqueueTaskSave(task) {
+    if (!task || !task.id) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        taskSaveBuffer.set(task.id, task);
+        if (!taskSaveResolvers.has(task.id)) taskSaveResolvers.set(task.id, []);
+        if (!taskSaveRejectors.has(task.id)) taskSaveRejectors.set(task.id, []);
+        taskSaveResolvers.get(task.id).push(resolve);
+        taskSaveRejectors.get(task.id).push(reject);
+
+        if (!taskSaveFlushTimer) {
+            taskSaveFlushTimer = setTimeout(() => {
+                flushTaskSaveQueue().catch(() => {});
+            }, TASK_SAVE_BATCH_WINDOW);
+        }
     });
 }
 
@@ -112,11 +263,12 @@ async function getAllTasksDB() {
 }
 
 async function saveTaskDB(task) {
-    return new Promise((resolve) => {
-        const tx = db.transaction('tasks', 'readwrite');
-        tx.objectStore('tasks').put(task);
-        tx.oncomplete = () => resolve();
-    });
+    return enqueueTaskSave(task);
+}
+
+async function saveTaskBatchDB(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) return;
+    await Promise.all(tasks.map((task) => enqueueTaskSave(task)));
 }
 
 async function getTaskDB(id) {
@@ -128,6 +280,7 @@ async function getTaskDB(id) {
 }
 
 async function deleteTaskDB(id) {
+    if (id && taskSaveBuffer.has(id)) taskSaveBuffer.delete(id);
     return new Promise((resolve) => {
         const tx = db.transaction('tasks', 'readwrite');
         tx.objectStore('tasks').delete(id);
@@ -142,3 +295,9 @@ async function deleteTaskDB(id) {
         };
     });
 }
+
+window.addEventListener('beforeunload', () => {
+    if (taskSaveBuffer.size > 0) {
+        try { flushTaskSaveQueue(); } catch (err) {}
+    }
+});

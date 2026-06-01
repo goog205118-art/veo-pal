@@ -323,6 +323,177 @@ const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMA
 const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
 const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
 let activeTasks = [], activeRetries = new Set(); 
+const taskPollControllers = new Map();
+const taskPollTimers = new Map();
+
+function cssEscapeSafe(id) {
+    if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
+    return String(id).replace(/([!"#$%&'()*+,./:;<=>?@[\]^`{|}~\\])/g, '\\$1');
+}
+
+function snapshotCardState(cardEl) {
+    const state = { focusSelector: '', selectionStart: null, selectionEnd: null, videos: [] };
+    if (!cardEl) return state;
+    const activeEl = document.activeElement;
+    if (activeEl && cardEl.contains(activeEl)) {
+        if (activeEl.id) state.focusSelector = `#${cssEscapeSafe(activeEl.id)}`;
+        else if (activeEl.name) state.focusSelector = `[name="${String(activeEl.name).replace(/"/g, '\\"')}"]`;
+        else if (activeEl.className && typeof activeEl.className === 'string') {
+            const oneClass = activeEl.className.split(/\s+/).find(Boolean);
+            if (oneClass) state.focusSelector = `.${cssEscapeSafe(oneClass)}`;
+        }
+        if (typeof activeEl.selectionStart === 'number') state.selectionStart = activeEl.selectionStart;
+        if (typeof activeEl.selectionEnd === 'number') state.selectionEnd = activeEl.selectionEnd;
+    }
+    const videos = cardEl.querySelectorAll('video');
+    videos.forEach((video, idx) => {
+        state.videos.push({
+            key: video.currentSrc || video.getAttribute('src') || `video_${idx}`,
+            currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
+            paused: video.paused
+        });
+    });
+    return state;
+}
+
+function restoreCardState(cardEl, state) {
+    if (!cardEl || !state) return;
+    if (Array.isArray(state.videos) && state.videos.length > 0) {
+        const videos = cardEl.querySelectorAll('video');
+        videos.forEach((video, idx) => {
+            const key = video.currentSrc || video.getAttribute('src') || `video_${idx}`;
+            const hit = state.videos.find((v) => v.key === key) || state.videos[idx];
+            if (!hit) return;
+            try {
+                if (Number.isFinite(hit.currentTime) && hit.currentTime > 0) video.currentTime = hit.currentTime;
+                if (!hit.paused) video.play().catch(() => {});
+            } catch (err) {}
+        });
+    }
+    if (state.focusSelector) {
+        const target = cardEl.querySelector(state.focusSelector);
+        if (target && typeof target.focus === 'function') {
+            target.focus({ preventScroll: true });
+            if (typeof state.selectionStart === 'number' && typeof state.selectionEnd === 'number' && typeof target.setSelectionRange === 'function') {
+                try { target.setSelectionRange(state.selectionStart, state.selectionEnd); } catch (err) {}
+            }
+        }
+    }
+}
+
+function patchElementAttributes(fromEl, toEl) {
+    const fromAttrs = fromEl.getAttributeNames ? fromEl.getAttributeNames() : [];
+    const toAttrs = toEl.getAttributeNames ? toEl.getAttributeNames() : [];
+    fromAttrs.forEach((name) => {
+        if (!toEl.hasAttribute(name)) fromEl.removeAttribute(name);
+    });
+    toAttrs.forEach((name) => {
+        const nextVal = toEl.getAttribute(name);
+        if (fromEl.getAttribute(name) !== nextVal) fromEl.setAttribute(name, nextVal);
+    });
+}
+
+function canReuseNode(fromNode, toNode) {
+    if (!fromNode || !toNode) return false;
+    if (fromNode.nodeType !== toNode.nodeType) return false;
+    if (fromNode.nodeType === Node.TEXT_NODE) return true;
+    if (fromNode.nodeType === Node.ELEMENT_NODE) return fromNode.tagName === toNode.tagName;
+    return false;
+}
+
+function morphNodeLite(fromNode, toNode) {
+    if (!canReuseNode(fromNode, toNode)) {
+        fromNode.replaceWith(toNode.cloneNode(true));
+        return;
+    }
+    if (fromNode.nodeType === Node.TEXT_NODE) {
+        if (fromNode.nodeValue !== toNode.nodeValue) fromNode.nodeValue = toNode.nodeValue;
+        return;
+    }
+    patchElementAttributes(fromNode, toNode);
+    morphChildrenLite(fromNode, toNode);
+}
+
+function morphChildrenLite(fromParent, toParent) {
+    const fromChildren = Array.from(fromParent.childNodes);
+    const toChildren = Array.from(toParent.childNodes);
+    const byId = new Map();
+    fromChildren.forEach((child) => {
+        if (child.nodeType === Node.ELEMENT_NODE && child.id) byId.set(child.id, child);
+    });
+    const used = new Set();
+    const nextOrdered = [];
+    let cursor = 0;
+
+    toChildren.forEach((nextChild) => {
+        let matched = null;
+        if (nextChild.nodeType === Node.ELEMENT_NODE && nextChild.id && byId.has(nextChild.id)) {
+            matched = byId.get(nextChild.id);
+        } else {
+            while (cursor < fromChildren.length && used.has(fromChildren[cursor])) cursor++;
+            const candidate = fromChildren[cursor];
+            if (canReuseNode(candidate, nextChild)) matched = candidate;
+            cursor++;
+        }
+        if (matched) {
+            used.add(matched);
+            morphNodeLite(matched, nextChild);
+            nextOrdered.push(matched);
+        } else {
+            nextOrdered.push(nextChild.cloneNode(true));
+        }
+    });
+
+    fromChildren.forEach((child) => {
+        if (!used.has(child) && child.parentNode === fromParent) child.remove();
+    });
+    fromParent.replaceChildren(...nextOrdered);
+}
+
+function morphCardDOM(cardEl, nextHtml) {
+    if (!cardEl) return;
+    const state = snapshotCardState(cardEl);
+    const shell = document.createElement('div');
+    shell.innerHTML = nextHtml;
+    morphChildrenLite(cardEl, shell);
+    restoreCardState(cardEl, state);
+}
+
+async function blobsToBase64Sequential(blobs, options = {}) {
+    const list = Array.isArray(blobs) ? blobs : [];
+    const out = [];
+    for (const blob of list) {
+        out.push(await blobToBase64(blob, options));
+    }
+    return out;
+}
+
+async function buildBlobSignature(blob) {
+    if (!blob) return '';
+    if (typeof blob === 'string') return `str_${blob.length}_${blob.slice(-120)}`;
+    const size = toFiniteNumber(blob.size, 0);
+    const type = blob.type || 'application/octet-stream';
+    const head = await blob.slice(0, 64).arrayBuffer().catch(() => null);
+    const tailStart = Math.max(0, size - 64);
+    const tail = await blob.slice(tailStart, size).arrayBuffer().catch(() => null);
+    const headArr = head ? Array.from(new Uint8Array(head)).join(',') : '';
+    const tailArr = tail ? Array.from(new Uint8Array(tail)).join(',') : '';
+    return `${type}|${size}|${headArr}|${tailArr}`;
+}
+
+function clearTaskPolling(taskId, removeActive = true) {
+    const controller = taskPollControllers.get(taskId);
+    if (controller) {
+        try { controller.abort(); } catch (err) {}
+        taskPollControllers.delete(taskId);
+    }
+    const timerId = taskPollTimers.get(taskId);
+    if (timerId) {
+        clearTimeout(timerId);
+        taskPollTimers.delete(taskId);
+    }
+    if (removeActive) removeActiveTask(taskId);
+}
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
 function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
@@ -396,10 +567,8 @@ async function deduplicateMaterials(event) {
 
         for (let m of materials) {
             if (!m.src) continue; 
-            const base64 = await blobToBase64(m.src);
-            if (!base64) continue; 
-            const size = m.src.size || m.src.length || 0;
-            const signature = size + '_' + base64.slice(-150); 
+            const signature = await buildBlobSignature(m.src);
+            if (!signature) continue; 
 
             if (seenSignatures.has(signature)) {
                 await deleteTaskDB(m.id); 
@@ -509,7 +678,8 @@ async function alignSelectedCards() {
         rowMaxHeight = Math.max(rowMaxHeight, size.height);
     }
 
-    await Promise.all(cardsToAlign.map(saveTaskDB));
+    if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(cardsToAlign);
+    else await Promise.all(cardsToAlign.map(saveTaskDB));
     await renderBoard();
     showToast(`🪄 空间清理完成：已按真实尺寸自动排版`, "success");
 }
@@ -558,8 +728,12 @@ async function createFrame() {
     const frameId = 'frame_' + Date.now(), padding = 60;
     const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '未命名项目组', isCollapsed: false, timestamp: Date.now() };
 
-    await saveTaskDB(newFrame);
-    for (let t of selected) { t.parentId = frameId; await saveTaskDB(t); }
+    selected.forEach((t) => { t.parentId = frameId; });
+    if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB([newFrame].concat(selected));
+    else {
+        await saveTaskDB(newFrame);
+        for (let t of selected) await saveTaskDB(t);
+    }
     clearSelection(); await renderBoard(); showToast(`✅ 已将 ${selected.length} 个卡片收纳为项目组`, "success");
 }
 
@@ -1038,14 +1212,18 @@ async function exportWorkspace() {
     try {
         const tasks = await getAllTasksDB(); const exportData = [];
         for (let t of tasks) {
-            let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src);
+            let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
             if (clone.state) {
-                if (clone.state.images) clone.state.images = await Promise.all(clone.state.images.map(b => blobToBase64(b)));
-                if (Array.isArray(clone.state.resultBlobs)) clone.state.resultBlobs = await Promise.all(clone.state.resultBlobs.map(b => blobToBase64(b)));
-                if (clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob);
-                if (clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob);
+                if (clone.state.images) clone.state.images = await blobsToBase64Sequential(clone.state.images, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+                if (Array.isArray(clone.state.resultBlobs)) clone.state.resultBlobs = await blobsToBase64Sequential(clone.state.resultBlobs, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+                if (clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+                if (clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
             }
-            if (clone.rawImages) { if (clone.rawImages.firstFrame) clone.rawImages.firstFrame = await blobToBase64(clone.rawImages.firstFrame); if (clone.rawImages.lastFrame) clone.rawImages.lastFrame = await blobToBase64(clone.rawImages.lastFrame); if (clone.rawImages.references) clone.rawImages.references = await Promise.all(clone.rawImages.references.map(b => blobToBase64(b))); }
+            if (clone.rawImages) {
+                if (clone.rawImages.firstFrame) clone.rawImages.firstFrame = await blobToBase64(clone.rawImages.firstFrame, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+                if (clone.rawImages.lastFrame) clone.rawImages.lastFrame = await blobToBase64(clone.rawImages.lastFrame, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+                if (clone.rawImages.references) clone.rawImages.references = await blobsToBase64Sequential(clone.rawImages.references, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
+            }
             exportData.push(clone);
         }
         const blob = new Blob([JSON.stringify(exportData)], {type: 'application/json'}); const url = URL.createObjectURL(blob);
@@ -1059,6 +1237,7 @@ async function importWorkspace(input) {
         try {
             const data = JSON.parse(e.target.result);
             if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
+                const importedTasks = [];
                 for (let t of data) {
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
                     if (t.state) {
@@ -1070,8 +1249,10 @@ async function importWorkspace(input) {
                         if (t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob());
                     }
                     if (t.rawImages) { if (typeof t.rawImages.firstFrame === 'string') t.rawImages.firstFrame = await fetch(t.rawImages.firstFrame).then(r => r.blob()); if (typeof t.rawImages.lastFrame === 'string') t.rawImages.lastFrame = await fetch(t.rawImages.lastFrame).then(r => r.blob()); if (t.rawImages.references) t.rawImages.references = await Promise.all(t.rawImages.references.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); }
-                    await saveTaskDB(t);
+                    importedTasks.push(t);
                 }
+                if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(importedTasks);
+                else for (const t of importedTasks) await saveTaskDB(t);
                 renderBoard(); await renderMaterialLibrary(); await updateBillingUI(); renderMinimap();
             }
         } catch(err) { alert('❌ 文件解析失败，请确保导入的是有效的 .veo 格式文件'); } input.value = '';
@@ -1247,7 +1428,7 @@ async function renderCard(taskId) {
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
     // 仅重绘当前的这一张卡片
-    cardEl.innerHTML = generateCardHTML(task);
+    morphCardDOM(cardEl, generateCardHTML(task));
     applyImgGenCardFrame(cardEl, task);
     bindCardDrag(cardEl, task);
 
@@ -1487,7 +1668,16 @@ async function submitBatchTask() {
 // 🌟 提交引擎 (高容错 ID 解析版)
 async function executeSubmission(params, promptText, offsetIndex = 0) {
     try {
-        const apiPayload = { model: params.model, prompt: promptText, aspectRatio: params.aspectRatio, enhancePrompt: params.enhancePrompt, enableUpsample: params.enableUpsample, firstFrame: await blobToBase64(params.firstFrame), lastFrame: await blobToBase64(params.lastFrame), references: await Promise.all(params.references.map(b => blobToBase64(b))) };
+        const apiPayload = {
+            model: params.model,
+            prompt: promptText,
+            aspectRatio: params.aspectRatio,
+            enhancePrompt: params.enhancePrompt,
+            enableUpsample: params.enableUpsample,
+            firstFrame: await blobToBase64(params.firstFrame, { mode: 'network' }),
+            lastFrame: await blobToBase64(params.lastFrame, { mode: 'network' }),
+            references: await blobsToBase64Sequential(params.references, { mode: 'network' })
+        };
         const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
         
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
@@ -1518,7 +1708,16 @@ async function retryTask(taskId, btnElement) {
     if (btnElement) { btnElement.disabled = true; btnElement.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:18px;height:18px;stroke:var(--text-sub);"><circle cx="25" cy="25" r="20"></circle></svg>`; }
     const task = await getTaskDB(taskId); if(!task) { activeRetries.delete(taskId); return; }
     try {
-        const apiPayload = { model: task.modelVal, prompt: task.prompt, aspectRatio: task.ratio, enhancePrompt: true, enableUpsample: false, firstFrame: await blobToBase64(task.rawImages.firstFrame), lastFrame: await blobToBase64(task.rawImages.lastFrame), references: await Promise.all((task.rawImages.references || []).map(b => blobToBase64(b))) };
+        const apiPayload = {
+            model: task.modelVal,
+            prompt: task.prompt,
+            aspectRatio: task.ratio,
+            enhancePrompt: true,
+            enableUpsample: false,
+            firstFrame: await blobToBase64(task.rawImages.firstFrame, { mode: 'network' }),
+            lastFrame: await blobToBase64(task.rawImages.lastFrame, { mode: 'network' }),
+            references: await blobsToBase64Sequential((task.rawImages.references || []), { mode: 'network' })
+        };
         const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) throw new Error("API 异常");
@@ -1526,7 +1725,8 @@ async function retryTask(taskId, btnElement) {
         
         const returnedId = data.taskId || data.id || data.task_id;
         if (returnedId) { 
-            await deleteTaskDB(taskId); removeActiveTask(taskId); 
+            clearTaskPolling(taskId);
+            await deleteTaskDB(taskId); 
             task.id = returnedId; task.status = 'processing'; task.progress = null; task.retryCount = (task.retryCount || 0) + 1; task.timestamp = Date.now(); task.time = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}); task.isBilled = false; 
             await saveTaskDB(task); activeRetries.delete(taskId); await renderBoard(); 
         } else throw new Error("无返回 ID");
@@ -1535,22 +1735,39 @@ async function retryTask(taskId, btnElement) {
 
 // 🌟 轮询引擎 (高容错状态解析版)
 function startTaskPolling(taskId) {
+    clearTaskPolling(taskId, false);
     let attempts = 0;
     let errorCount = 0;
     const maxAttempts = 240;
     const maxConsecutiveErrors = 20;
+    const scheduleNextPoll = (delayMs = 15000) => {
+        const safeDelay = Math.max(500, toFiniteNumber(delayMs, 15000));
+        const timerId = setTimeout(() => {
+            poll().catch(() => {});
+        }, safeDelay);
+        taskPollTimers.set(taskId, timerId);
+    };
     const poll = async () => {
+        taskPollTimers.delete(taskId);
         attempts++;
         try {
-            const task = await getTaskDB(taskId); if (!task) { removeActiveTask(taskId); return; }
+            const task = await getTaskDB(taskId); if (!task) { clearTaskPolling(taskId); return; }
             // 仅视频任务使用该轮询器，防止生图/工具卡在刷新后被误判失败。
-            if (task.type) { removeActiveTask(taskId); return; }
-            if (!task.modelVal) { removeActiveTask(taskId); return; }
+            if (task.type) { clearTaskPolling(taskId); return; }
+            if (!task.modelVal) { clearTaskPolling(taskId); return; }
             const currentPwd = sessionStorage.getItem('veo_admin_pwd');
-            if (!currentPwd) { setTimeout(poll, 2000); return; } 
+            if (!currentPwd) { scheduleNextPoll(2000); return; } 
 
-            const response = await fetch(API_POLL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': currentPwd }, body: JSON.stringify({ taskId: taskId, model: task.modelVal }) });
-            if (response.status === 401 || response.status === 403) { removeActiveTask(taskId); handleAuthError(); return; }
+            const controller = new AbortController();
+            taskPollControllers.set(taskId, controller);
+            const response = await fetch(API_POLL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'wally123': currentPwd },
+                body: JSON.stringify({ taskId: taskId, model: task.modelVal }),
+                signal: controller.signal
+            });
+            taskPollControllers.delete(taskId);
+            if (response.status === 401 || response.status === 403) { clearTaskPolling(taskId); handleAuthError(); return; }
             if (!response.ok) throw new Error("API 异常");
             const data = await response.json();
             errorCount = 0;
@@ -1560,7 +1777,7 @@ function startTaskPolling(taskId) {
             const currentVideoUrl = data.videoUrl || data.video_url || data.url;
 
             if (data && (currentStatus === 'success' || currentStatus === 'completed' || currentStatus === 'succeeded') && currentVideoUrl) { 
-                removeActiveTask(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl; 
+                clearTaskPolling(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl; 
                 if (!task.isBilled) {
                     let cost = 0.35, detailDesc = "Veo 3.1 (首尾帧)";
                     if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (参考图)"; } 
@@ -1575,7 +1792,7 @@ function startTaskPolling(taskId) {
                 await saveTaskDB(task); renderCard(taskId); return; 
             }
             if (data && (currentStatus === 'failed' || currentStatus === 'error' || currentStatus === 'canceled' || currentStatus === 'rejected')) { 
-                removeActiveTask(taskId); 
+                clearTaskPolling(taskId); 
                 if (task.autoRetry) retryTask(task.id, null); 
                 else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } 
                 return; 
@@ -1584,18 +1801,25 @@ function startTaskPolling(taskId) {
                 task.progress = data.progress; await saveTaskDB(task); renderCard(taskId); 
             }
             
-            if (attempts < maxAttempts) setTimeout(poll, 15000); else { removeActiveTask(taskId); if (task.autoRetry) retryTask(task.id, null); else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } }
+            if (attempts < maxAttempts) scheduleNextPoll(15000);
+            else {
+                clearTaskPolling(taskId);
+                if (task.autoRetry) retryTask(task.id, null);
+                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
+            }
         } catch (error) {
+            if (error && error.name === 'AbortError') return;
             errorCount++;
+            taskPollControllers.delete(taskId);
             const task = await getTaskDB(taskId);
-            if (!task) { removeActiveTask(taskId); return; }
+            if (!task) { clearTaskPolling(taskId); return; }
             if (errorCount >= maxConsecutiveErrors || attempts >= maxAttempts) {
-                removeActiveTask(taskId);
+                clearTaskPolling(taskId);
                 if (task.autoRetry) retryTask(task.id, null);
                 else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
                 return;
             }
-            setTimeout(poll, 15000);
+            scheduleNextPoll(15000);
         }
     };
     poll();
@@ -1886,7 +2110,7 @@ async function renderBoard() {
             }
             else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
             
-            cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; cardEl.innerHTML = generateCardHTML(task); board.appendChild(cardEl); 
+            cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl); 
             applyImgGenCardFrame(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
@@ -1904,7 +2128,7 @@ async function renderBoard() {
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
             if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
-                cardEl.innerHTML = generateCardHTML(task); 
+                morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
         }
@@ -1920,7 +2144,14 @@ async function renderBoard() {
     renderMinimap();
 }
 
-async function removeTask(id) { if(confirm('确定删除这张卡片吗？')) { await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); renderMinimap(); } }
+async function removeTask(id) {
+    if (!confirm('确定删除这张卡片吗？')) return;
+    clearTaskPolling(id);
+    await deleteTaskDB(id);
+    const card = document.getElementById('card-' + id);
+    if (card) card.remove();
+    renderMinimap();
+}
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -2497,8 +2728,8 @@ async function submitImgGen(taskId) {
     task.state.size = resolvedSize;
     const sizeToSend = resolvedSize;
     const mode = resolveImgGenMode(task.state);
-    const imagesBase64 = await Promise.all(task.state.images.map(b => blobToBase64(b)));
-    const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage) : null;
+    const imagesBase64 = await blobsToBase64Sequential(task.state.images, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 });
+    const maskBase64 = task.state.maskImage ? await blobToBase64(task.state.maskImage, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
     const nValue = Number.isFinite(parseInt(task.state.n, 10)) ? Math.min(Math.max(parseInt(task.state.n, 10), 1), 10) : 1;
 
     const unifiedPayloadCore = {

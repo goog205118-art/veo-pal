@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // 🚀 Veo Flow 核心节点引擎 V2 (加入动态拉线状态机)
 // ==========================================
 
@@ -34,18 +34,32 @@ flowStyleInj.innerHTML = `
     .flow-viewport { left: 220px !important; width: calc(100vw - 220px) !important; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); } 
     .port-text { border-color: #fbbf24 !important; color: #fbbf24 !important; } 
 
-    /* 👇 新增：全局画布序列化控制台 (居中防遮挡) */
+    /* 👇 工作流工具组（挂载到头部按钮区） */
     .flow-top-toolbar {
-        position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
-        display: flex; gap: 8px; background: rgba(25, 25, 30, 0.85); backdrop-filter: blur(10px);
-        padding: 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        display: flex; gap: 8px; align-items: center;
     }
     .flow-tool-btn {
-        background: transparent; border: 1px solid transparent; color: #aaa; padding: 6px 12px; border-radius: 6px; cursor: pointer;
-        display: flex; align-items: center; gap: 6px; font-size: 12px; transition: 0.2s;
+        background: var(--flow-btn-bg, rgba(255,255,255,0.05));
+        border: 1px solid var(--flow-border, rgba(255,255,255,0.1));
+        color: var(--flow-btn-text, #fff);
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        transition: 0.2s;
     }
-    .flow-tool-btn:hover { background: rgba(255,255,255,0.05); color: #fff; border-color: rgba(255,255,255,0.1); transform: translateY(-1px); }
-    .flow-tool-btn.danger:hover { background: rgba(239, 68, 68, 0.15); color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+    .flow-tool-btn:hover { background: var(--flow-btn-bg-hover, rgba(255,255,255,0.15)); transform: translateY(-1px); }
+    .flow-tool-divider {
+        width: 1px;
+        height: 16px;
+        background: var(--flow-border, rgba(255,255,255,0.1));
+        margin: 0 2px;
+    }
+    .flow-tool-btn.danger { border-color: rgba(239, 68, 68, 0.25); color: #f87171; }
+    .flow-tool-btn.danger:hover { background: rgba(239, 68, 68, 0.14); color: #ef4444; border-color: rgba(239, 68, 68, 0.35); }
 
     /* 🌟 核心：收缩状态类联动机制 */
     .palette-collapsed .node-palette { transform: translateX(-220px); }
@@ -110,13 +124,122 @@ flowStyleInj.innerHTML = `
     }
     .tag-local { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
     .tag-cross { background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); }
-`;
+
+    .node-image-upload {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 4px;
+        padding: 2px;
+        border: 1px dashed transparent;
+        border-radius: 6px;
+        transition: 0.2s;
+    }
+    .node-image-upload-large {
+        display: block;
+        position: relative;
+        padding: 0;
+        border-style: dashed;
+        border-color: rgba(56, 189, 248, 0.35);
+        background: rgba(56, 189, 248, 0.06);
+        min-height: 112px;
+        overflow: hidden;
+    }
+    .node-image-upload-large.has-image {
+        border-style: solid;
+        border-color: rgba(56, 189, 248, 0.45);
+    }
+    .node-image-upload-large.node-image-drag-over {
+        border-color: var(--accent);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+    .node-image-upload-empty {
+        min-height: 112px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #7dd3fc;
+        font-size: 12px;
+        gap: 4px;
+        pointer-events: none;
+    }
+    .node-image-upload-empty .material-symbols-outlined { font-size: 22px; }
+    .img-preview-large {
+        width: 100%;
+        height: 112px;
+        display: block;
+        object-fit: contain;
+        background: rgba(0,0,0,0.28);
+    }
+    .node-image-upload-overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 10px;
+        font-size: 11px;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 100%);
+        color: #e0f2fe;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+    .node-image-upload-overlay:hover { filter: brightness(1.06); }
+    .node-image-upload-overlay .material-symbols-outlined { font-size: 14px; }
+
+    :root[data-theme='light'] .flow-tool-btn.danger { color: #dc2626; border-color: rgba(220, 38, 38, 0.25); }
+    :root[data-theme='light'] .node-image-upload-large { background: rgba(14, 116, 144, 0.07); border-color: rgba(14, 116, 144, 0.28); }
+    :root[data-theme='light'] .node-image-upload-empty { color: #0369a1; }
+    :root[data-theme='light'] .img-preview-large { background: rgba(15, 23, 42, 0.05); }
+    :root[data-theme='light'] .node-image-upload-overlay { color: #f8fafc; }
+`; 
 document.head.appendChild(flowStyleInj);
 
 const viewport = document.getElementById('flow-viewport');
 const canvas = document.getElementById('flow-canvas');
 const svgLayer = document.getElementById('svg-layer');
 const nodeBoard = document.getElementById('node-board');
+const FLOW_THEME_MODE_KEY = 'veo_theme_mode';
+const FLOW_THEME_DARK = 'dark';
+const FLOW_THEME_LIGHT = 'light';
+
+function normalizeFlowThemeMode(rawMode) {
+    if (rawMode === FLOW_THEME_LIGHT || rawMode === 'mono') return FLOW_THEME_LIGHT;
+    return FLOW_THEME_DARK;
+}
+
+function applyFlowThemeMode(mode) {
+    const nextMode = normalizeFlowThemeMode(mode);
+    const isLight = nextMode === FLOW_THEME_LIGHT;
+    document.documentElement.setAttribute('data-theme', nextMode);
+
+    const iconEl = document.getElementById('flow-theme-toggle-icon');
+    const btnEl = document.getElementById('flow-theme-toggle-btn');
+    const labelEl = document.getElementById('flow-theme-toggle-label');
+    if (iconEl) iconEl.innerText = isLight ? 'light_mode' : 'dark_mode';
+    if (labelEl) labelEl.innerText = isLight ? '日间' : '夜间';
+    if (btnEl) btnEl.title = isLight ? '切换到夜间模式' : '切换到日间模式';
+}
+
+function initFlowThemeMode() {
+    const saved = localStorage.getItem(FLOW_THEME_MODE_KEY);
+    const nextMode = normalizeFlowThemeMode(saved);
+    localStorage.setItem(FLOW_THEME_MODE_KEY, nextMode);
+    applyFlowThemeMode(nextMode);
+}
+
+window.toggleFlowThemeMode = function() {
+    const current = normalizeFlowThemeMode(localStorage.getItem(FLOW_THEME_MODE_KEY));
+    const next = current === FLOW_THEME_LIGHT ? FLOW_THEME_DARK : FLOW_THEME_LIGHT;
+    localStorage.setItem(FLOW_THEME_MODE_KEY, next);
+    applyFlowThemeMode(next);
+};
+
+window.toggleMonoTheme = window.toggleFlowThemeMode;
 
 // 🌟 修复 SVG 容器折叠导致的连线消失问题
 canvas.style.width = '1px'; canvas.style.height = '1px'; canvas.style.overflow = 'visible';
@@ -133,8 +256,22 @@ let flowState = {
     // 🌟 新增高级交互状态
     selectedNodeIds: new Set(), 
     selectionBox: { active: false, startX: 0, startY: 0 },
-    minimap: { minX: 0, minY: 0, scale: 1 } // 🚨 新增：小地图逆向映射锚点
+    selectionBoxMode: 'intersect',
+    minimap: { minX: 0, minY: 0, scale: 1 }, // 🚨 新增：小地图逆向映射锚点
+    history: {
+        undo: [],
+        redo: [],
+        maxSteps: 30,
+        isApplying: false
+    },
+    edgeScroll: {
+        threshold: 40,
+        maxStep: 18
+    }
 };
+
+const flowLinkIndexByNode = new Map();
+const flowLinkPathCache = new Map();
 
 // 动态挂载原生框选框 DOM 到页面
 const dragSelectBox = document.createElement('div');
@@ -169,12 +306,94 @@ async function loadFlowFromDB() {
             if (req.result) {
                 flowState.nodes = req.result.nodes || [];
                 flowState.links = req.result.links || [];
+                rebuildLinkIndex();
                 if (req.result.transform) flowState.transform = req.result.transform;
                 resolve(true);
             } else resolve(false);
         };
         req.onerror = () => resolve(false);
     });
+}
+
+function deepCopyJsonSafe(obj) {
+    try {
+        return JSON.parse(JSON.stringify(obj));
+    } catch (err) {
+        return null;
+    }
+}
+
+function snapshotFlowState() {
+    return {
+        nodes: deepCopyJsonSafe(flowState.nodes) || [],
+        links: deepCopyJsonSafe(flowState.links) || [],
+        transform: deepCopyJsonSafe(flowState.transform) || { x: 0, y: 0, scale: 1 }
+    };
+}
+
+function pushFlowHistory(label) {
+    if (flowState.history.isApplying) return;
+    const snap = snapshotFlowState();
+    if (!snap) return;
+    const undoStack = flowState.history.undo;
+    undoStack.push(snap);
+    if (undoStack.length > flowState.history.maxSteps) undoStack.shift();
+    flowState.history.redo = [];
+}
+
+function applyFlowSnapshot(snapshot) {
+    if (!snapshot) return;
+    flowState.history.isApplying = true;
+    flowState.nodes = deepCopyJsonSafe(snapshot.nodes) || [];
+    flowState.links = deepCopyJsonSafe(snapshot.links) || [];
+    flowState.transform = deepCopyJsonSafe(snapshot.transform) || { x: 0, y: 0, scale: 1 };
+    flowState.selectedNodeIds.clear();
+    renderNodes();
+    rebuildLinkIndex();
+    renderLinks();
+    updateCanvasTransform();
+    flowState.history.isApplying = false;
+}
+
+window.undoFlow = function() {
+    if (!flowState.history.undo.length) return;
+    const current = snapshotFlowState();
+    const prev = flowState.history.undo.pop();
+    flowState.history.redo.push(current);
+    applyFlowSnapshot(prev);
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+};
+
+window.redoFlow = function() {
+    if (!flowState.history.redo.length) return;
+    const current = snapshotFlowState();
+    const next = flowState.history.redo.pop();
+    flowState.history.undo.push(current);
+    applyFlowSnapshot(next);
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+};
+
+function rebuildLinkIndex() {
+    flowLinkIndexByNode.clear();
+    (flowState.links || []).forEach((link) => {
+        if (!link || !link.id) return;
+        const sourceSet = flowLinkIndexByNode.get(link.source) || new Set();
+        sourceSet.add(link.id);
+        flowLinkIndexByNode.set(link.source, sourceSet);
+        const targetSet = flowLinkIndexByNode.get(link.target) || new Set();
+        targetSet.add(link.id);
+        flowLinkIndexByNode.set(link.target, targetSet);
+    });
+}
+
+function getRelatedLinkIds(nodeIds) {
+    const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
+    const result = new Set();
+    ids.forEach((nodeId) => {
+        const linkSet = flowLinkIndexByNode.get(nodeId);
+        if (linkSet) linkSet.forEach((lid) => result.add(lid));
+    });
+    return result;
 }
 
 // ==========================================
@@ -188,6 +407,42 @@ function renderPreview(node) {
         return `<video src="${node.result.data}" style="width:100%; height:auto; display:block; border-radius: 4px;" autoplay loop muted controls></video>`;
     }
     return '';
+}
+
+function renderImageUploadInput(node, inp, val) {
+    const hasImage = typeof val === 'string' && val.length > 100;
+    const uploadId = `node-file-${node.id}-${inp.id}`;
+    const uploadUiId = `img-upload-ui-${node.id}-${inp.id}`;
+    const isPrimaryImageNode = node.type === 'base_image' && inp.id === 'image';
+
+    if (isPrimaryImageNode) {
+        return `
+        <div id="${uploadUiId}" class="node-image-upload node-image-upload-large ${hasImage ? 'has-image' : ''}"
+             ondragover="event.preventDefault(); this.classList.add('node-image-drag-over');" 
+             ondragleave="event.preventDefault(); this.classList.remove('node-image-drag-over');" 
+             ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.classList.remove('node-image-drag-over');">
+            <input id="${uploadId}" type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
+            ${hasImage
+                ? `<img src="${val}" class="img-preview-large" onmousedown="event.stopPropagation()" data-tip="已挂载图片，支持再次拖入覆盖">`
+                : `<div class="node-image-upload-empty"><span class="material-symbols-outlined">image</span><span>拖入图片或点击上传</span></div>`}
+            <label for="${uploadId}" class="node-image-upload-overlay" onmousedown="event.stopPropagation()">
+                <span class="material-symbols-outlined">upload</span>
+                <span class="img-upload-text">${hasImage ? '更换图片' : '上传 / 拖入图片'}</span>
+            </label>
+        </div>`;
+    }
+
+    return `
+    <div id="${uploadUiId}" class="node-image-upload"
+         ondragover="event.preventDefault(); this.style.borderColor='var(--accent)';" 
+         ondragleave="event.preventDefault(); this.style.borderColor='transparent';" 
+         ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.style.borderColor='transparent';">
+        <label class="node-input" style="flex:1; text-align:center; cursor:pointer; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); color: #38bdf8; padding: 6px; transition: 0.2s; margin:0;" onmouseover="this.style.background='rgba(56,189,248,0.2)'" onmouseout="this.style.background='rgba(56,189,248,0.1)'">
+            <input type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
+            <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">upload</span> <span class="img-upload-text">${hasImage ? '更换图片' : '点击 / 拖入图片'}</span>
+        </label>
+        ${hasImage ? `<img src="${val}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
+    </div>`;
 }
 
 function renderNodes() {
@@ -234,18 +489,7 @@ function renderNodes() {
                     } else if (inp.type === 'number') {
                         inputsHtml += `<input type="number" class="node-input" onmousedown="event.stopPropagation()" value="${val}" oninput="updateNodeData('${node.id}', '${inp.id}', this.value)" style="font-family: monospace; color: var(--accent);" />`;
                     } else if (inp.type === 'image_upload') {
-                        const hasImage = val && val.length > 100; 
-                        inputsHtml += `
-                        <div id="img-upload-ui-${node.id}-${inp.id}" style="display:flex; gap:8px; align-items:center; margin-top: 4px; padding: 2px; border: 1px dashed transparent; border-radius: 6px; transition: 0.2s;"
-                             ondragover="event.preventDefault(); this.style.borderColor='var(--accent)';" 
-                             ondragleave="this.style.borderColor='transparent';" 
-                             ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.style.borderColor='transparent';">
-                            <label class="node-input" style="flex:1; text-align:center; cursor:pointer; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3); color: #38bdf8; padding: 6px; transition: 0.2s; margin:0;" onmouseover="this.style.background='rgba(56,189,248,0.2)'" onmouseout="this.style.background='rgba(56,189,248,0.1)'">
-                                <input type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
-                                <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">upload</span> <span class="img-upload-text">${hasImage ? '更换图片' : '点击 / 拖入图片'}</span>
-                            </label>
-                            ${hasImage ? `<img src="${val}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
-                        </div>`;
+                        inputsHtml += renderImageUploadInput(node, inp, val);
                     }
                     inputsHtml += `</div>`;
                 });
@@ -336,44 +580,66 @@ window.toggleNodeInputs = function(nodeId) {
 // ==========================================
 // 🎨 SVG 局部靶向渲染引擎
 // ==========================================
-function renderLinks() {
+function renderSingleLink(link, canvasRect) {
+    if (!link || !link.id) return;
+    const sourcePortEl = document.getElementById(`${link.source}-${link.sourcePort}`);
+    const targetPortEl = document.getElementById(`${link.target}-${link.targetPort}`);
+    const pathId = 'svgpath_' + link.id;
+    let pathEl = document.getElementById(pathId);
+
+    if (!sourcePortEl || !targetPortEl) {
+        if (pathEl) pathEl.remove();
+        flowLinkPathCache.delete(link.id);
+        return;
+    }
+
+    const sRect = sourcePortEl.getBoundingClientRect();
+    const tRect = targetPortEl.getBoundingClientRect();
+    const x1 = (sRect.left + sRect.width / 2 - canvasRect.left) / flowState.transform.scale;
+    const y1 = (sRect.top + sRect.height / 2 - canvasRect.top) / flowState.transform.scale;
+    const x2 = (tRect.left + tRect.width / 2 - canvasRect.left) / flowState.transform.scale;
+    const y2 = (tRect.top + tRect.height / 2 - canvasRect.top) / flowState.transform.scale;
+    const offset = Math.max(Math.abs(x2 - x1) / 2, 60);
+    const pathData = `M ${x1} ${y1} C ${x1 + offset} ${y1}, ${x2 - offset} ${y2}, ${x2} ${y2}`;
+
+    if (!pathEl) {
+        pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathEl.id = pathId;
+        pathEl.setAttribute('stroke', link.type === 'image' ? '#c084fc' : (link.type === 'text' ? '#fbbf24' : '#38bdf8'));
+        pathEl.setAttribute('stroke-width', '3');
+        pathEl.setAttribute('fill', 'none');
+        pathEl.setAttribute('opacity', '0.8');
+        pathEl.setAttribute('stroke-linecap', 'round');
+        svgLayer.appendChild(pathEl);
+    }
+    const prevD = flowLinkPathCache.get(link.id);
+    if (prevD !== pathData) {
+        pathEl.setAttribute('d', pathData);
+        flowLinkPathCache.set(link.id, pathData);
+    }
+}
+
+function renderLinks(dirtyNodeIds = null) {
     if (!svgLayer) return;
     const canvasRect = canvas.getBoundingClientRect();
-    
-    flowState.links.forEach(link => {
-        const sourcePortEl = document.getElementById(`${link.source}-${link.sourcePort}`);
-        const targetPortEl = document.getElementById(`${link.target}-${link.targetPort}`);
-        
-        if (sourcePortEl && targetPortEl) {
-            const sRect = sourcePortEl.getBoundingClientRect();
-            const tRect = targetPortEl.getBoundingClientRect();
-            const x1 = (sRect.left + sRect.width/2 - canvasRect.left) / flowState.transform.scale;
-            const y1 = (sRect.top + sRect.height/2 - canvasRect.top) / flowState.transform.scale;
-            const x2 = (tRect.left + tRect.width/2 - canvasRect.left) / flowState.transform.scale;
-            const y2 = (tRect.top + tRect.height/2 - canvasRect.top) / flowState.transform.scale;
-            const offset = Math.max(Math.abs(x2 - x1) / 2, 60);
-            const pathData = `M ${x1} ${y1} C ${x1 + offset} ${y1}, ${x2 - offset} ${y2}, ${x2} ${y2}`;
-            
-            let pathEl = document.getElementById('svgpath_' + link.id);
-            if (!pathEl) {
-                pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
-                pathEl.id = 'svgpath_' + link.id;
-                pathEl.setAttribute('stroke', link.type === 'image' ? '#c084fc' : (link.type === 'text' ? '#fbbf24' : '#38bdf8'));
-                pathEl.setAttribute('stroke-width', '3');
-                pathEl.setAttribute('fill', 'none');
-                pathEl.setAttribute('opacity', '0.8');
-                pathEl.setAttribute('stroke-linecap', 'round');
-                svgLayer.appendChild(pathEl);
-            }
-            if (pathEl.getAttribute('d') !== pathData) pathEl.setAttribute('d', pathData);
-        }
+
+    const targetLinkIds = (dirtyNodeIds && dirtyNodeIds.size)
+        ? getRelatedLinkIds(Array.from(dirtyNodeIds))
+        : new Set((flowState.links || []).map(l => l.id));
+
+    flowState.links.forEach((link) => {
+        if (!link || !link.id) return;
+        if (!targetLinkIds.has(link.id)) return;
+        renderSingleLink(link, canvasRect);
     });
 
-    const existingPaths = Array.from(svgLayer.querySelectorAll('path[id^="svgpath_link_"]'));
-    const validLinkIds = new Set(flowState.links.map(l => 'svgpath_' + l.id));
-    existingPaths.forEach(p => {
-        if (!validLinkIds.has(p.id)) p.remove();
-    });
+    if (!dirtyNodeIds || !dirtyNodeIds.size) {
+        const existingPaths = Array.from(svgLayer.querySelectorAll('path[id^="svgpath_link_"]'));
+        const validLinkIds = new Set(flowState.links.map(l => 'svgpath_' + l.id));
+        existingPaths.forEach(p => {
+            if (!validLinkIds.has(p.id)) p.remove();
+        });
+    }
 
     let drawingPath = document.getElementById('svgpath_drawing_temp');
     if (flowState.drawingLink.active) {
@@ -394,13 +660,119 @@ function renderLinks() {
             drawingPath.setAttribute('stroke-linecap', 'round');
             svgLayer.appendChild(drawingPath);
         }
-        
+
         drawingPath.setAttribute('stroke', flowState.drawingLink.type === 'image' ? '#c084fc' : (flowState.drawingLink.type === 'text' ? '#fbbf24' : '#38bdf8'));
         drawingPath.setAttribute('d', pathData);
         drawingPath.style.display = 'block';
     } else if (drawingPath) {
         drawingPath.style.display = 'none';
     }
+}
+
+function getNodeById(nodeId) {
+    return flowState.nodes.find(n => n.id === nodeId) || null;
+}
+
+function getPortById(node, ioType, portId) {
+    if (!node || !node.ports) return null;
+    const list = ioType === 'out' ? (node.ports.out || []) : (node.ports.in || []);
+    return list.find(p => p.id === portId) || null;
+}
+
+function hasGraphCycle(nodes, links) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return false;
+
+    const indegree = new Map();
+    const adjacency = new Map();
+    nodes.forEach(n => {
+        indegree.set(n.id, 0);
+        adjacency.set(n.id, new Set());
+    });
+
+    (links || []).forEach(link => {
+        if (!link || !indegree.has(link.source) || !indegree.has(link.target)) return;
+        if (adjacency.get(link.source).has(link.target)) return;
+        adjacency.get(link.source).add(link.target);
+        indegree.set(link.target, indegree.get(link.target) + 1);
+    });
+
+    const queue = [];
+    indegree.forEach((deg, nodeId) => {
+        if (deg === 0) queue.push(nodeId);
+    });
+
+    let visited = 0;
+    while (queue.length > 0) {
+        const current = queue.shift();
+        visited++;
+        adjacency.get(current).forEach(next => {
+            const nextDeg = indegree.get(next) - 1;
+            indegree.set(next, nextDeg);
+            if (nextDeg === 0) queue.push(next);
+        });
+    }
+
+    return visited !== nodes.length;
+}
+
+function sanitizeFlowLinks(links) {
+    const sanitized = [];
+    const exactSet = new Set();
+    const targetInputSlotIndex = new Map();
+
+    (links || []).forEach((link) => {
+        if (!link) return;
+
+        const sourceNode = getNodeById(link.source);
+        const targetNode = getNodeById(link.target);
+        if (!sourceNode || !targetNode) return;
+
+        const sourcePort = getPortById(sourceNode, 'out', link.sourcePort);
+        const targetPort = getPortById(targetNode, 'in', link.targetPort);
+        if (!sourcePort || !targetPort) return;
+        if (sourcePort.type !== targetPort.type) return;
+
+        const exactKey = `${link.source}|${link.sourcePort}|${link.target}|${link.targetPort}|${sourcePort.type}`;
+        if (exactSet.has(exactKey)) return;
+        exactSet.add(exactKey);
+
+        const normalizedLink = {
+            id: link.id || ('link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)),
+            source: link.source,
+            sourcePort: link.sourcePort,
+            target: link.target,
+            targetPort: link.targetPort,
+            type: sourcePort.type
+        };
+
+        const inputSlotKey = `${normalizedLink.target}|${normalizedLink.targetPort}`;
+        if (targetInputSlotIndex.has(inputSlotKey)) {
+            sanitized[targetInputSlotIndex.get(inputSlotKey)] = normalizedLink;
+        } else {
+            targetInputSlotIndex.set(inputSlotKey, sanitized.length);
+            sanitized.push(normalizedLink);
+        }
+    });
+
+    return sanitized.filter(Boolean);
+}
+
+function linksFingerprint(links) {
+    return JSON.stringify((links || []).map(l => `${l.source}|${l.sourcePort}|${l.target}|${l.targetPort}|${l.type}`).sort());
+}
+
+function normalizeFlowLinks(persistToDb = true) {
+    const current = flowState.links || [];
+    const next = sanitizeFlowLinks(current);
+    const changed = linksFingerprint(current) !== linksFingerprint(next);
+    if (!changed) rebuildLinkIndex();
+    if (changed) {
+        flowState.links = next;
+        rebuildLinkIndex();
+        renderLinks();
+        if (persistToDb && typeof saveFlowToDB === 'function') saveFlowToDB();
+    }
+    return flowState.links;
 }
 
 // ==========================================
@@ -420,6 +792,7 @@ function startDragNode(e, nodeId) {
     // 将当前拖拽的节点强行纳入选中阵列
     flowState.selectedNodeIds.add(nodeId);
     updateSelectionStyles();
+    pushFlowHistory('move-node');
 
     flowState.activeNode = flowState.nodes.find(n => n.id === nodeId);
     flowState.startX = e.clientX; flowState.startY = e.clientY;
@@ -429,6 +802,32 @@ function startDragNode(e, nodeId) {
         const el = document.getElementById(id);
         if (el) el.style.zIndex = 100;
     });
+}
+
+function computeEdgeScrollDelta(clientX, clientY) {
+    const rect = viewport.getBoundingClientRect();
+    const threshold = flowState.edgeScroll.threshold;
+    const maxStep = flowState.edgeScroll.maxStep;
+    let dx = 0;
+    let dy = 0;
+
+    if (clientX < rect.left + threshold) {
+        const ratio = Math.max(0, (threshold - (clientX - rect.left)) / threshold);
+        dx = maxStep * ratio;
+    } else if (clientX > rect.right - threshold) {
+        const ratio = Math.max(0, (threshold - (rect.right - clientX)) / threshold);
+        dx = -maxStep * ratio;
+    }
+
+    if (clientY < rect.top + threshold) {
+        const ratio = Math.max(0, (threshold - (clientY - rect.top)) / threshold);
+        dy = maxStep * ratio;
+    } else if (clientY > rect.bottom - threshold) {
+        const ratio = Math.max(0, (threshold - (rect.bottom - clientY)) / threshold);
+        dy = -maxStep * ratio;
+    }
+
+    return { dx, dy };
 }
 
 // 辅助函数：清除高亮
@@ -472,21 +871,64 @@ window.startDrawLink = function(e, nodeId, portId, portType, ioType) {
 window.finishDrawLink = function(e, targetNodeId, targetPortId, targetPortType, ioType) {
     e.stopPropagation();
     if (!flowState.drawingLink.active) return;
+
     const { sourceNode, sourcePort, type } = flowState.drawingLink;
-    if (sourceNode !== targetNodeId && ioType === 'in' && type === targetPortType) {
-        const exists = flowState.links.find(l => l.source === sourceNode && l.sourcePort === sourcePort && l.target === targetNodeId && l.targetPort === targetPortId);
-        if (!exists) {
-            flowState.links.push({
-                id: 'link_' + Date.now(),
-                source: sourceNode, sourcePort: sourcePort,
-                target: targetNodeId, targetPort: targetPortId,
-                type: type
-            });
-            console.log(`🔗 连线成功: ${sourceNode} -> ${targetNodeId}`);
-        }
-    }
     flowState.drawingLink.active = false;
+
+    if (ioType !== 'in' || sourceNode === targetNodeId || type !== targetPortType) {
+        renderLinks();
+        return;
+    }
+
+    const sourceNodeData = getNodeById(sourceNode);
+    const targetNodeData = getNodeById(targetNodeId);
+    const sourcePortData = getPortById(sourceNodeData, 'out', sourcePort);
+    const targetPortData = getPortById(targetNodeData, 'in', targetPortId);
+
+    if (!sourceNodeData || !targetNodeData || !sourcePortData || !targetPortData) {
+        renderLinks();
+        return;
+    }
+    if (sourcePortData.type !== targetPortData.type) {
+        alert('端口类型不匹配，连线已取消。');
+        renderLinks();
+        return;
+    }
+
+    const sameLinkExists = flowState.links.some(l =>
+        l.source === sourceNode &&
+        l.sourcePort === sourcePort &&
+        l.target === targetNodeId &&
+        l.targetPort === targetPortId
+    );
+    if (sameLinkExists) {
+        renderLinks();
+        return;
+    }
+
+    const withoutTargetInput = flowState.links.filter(l => !(l.target === targetNodeId && l.targetPort === targetPortId));
+    const candidateLink = {
+        id: 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        source: sourceNode,
+        sourcePort: sourcePort,
+        target: targetNodeId,
+        targetPort: targetPortId,
+        type: sourcePortData.type
+    };
+    const nextLinks = sanitizeFlowLinks(withoutTargetInput.concat(candidateLink));
+
+    if (hasGraphCycle(flowState.nodes, nextLinks)) {
+        alert('检测到死循环风险：该连线会形成环路，已阻止。');
+        renderLinks();
+        return;
+    }
+
+    pushFlowHistory('link-add');
+    flowState.links = nextLinks;
+    rebuildLinkIndex();
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
     renderLinks();
+    console.log(`🔗 连线成功: ${sourceNode} -> ${targetNodeId}`);
 };
 
 let isTicking = false;
@@ -501,12 +943,15 @@ viewport.addEventListener('mousedown', (e) => {
         flowState.selectionBox.active = true;
         flowState.selectionBox.startX = e.clientX;
         flowState.selectionBox.startY = e.clientY;
+        flowState.selectionBoxMode = 'intersect';
         
         dragSelectBox.style.left = e.clientX + 'px';
         dragSelectBox.style.top = e.clientY + 'px';
         dragSelectBox.style.width = '0px';
         dragSelectBox.style.height = '0px';
         dragSelectBox.style.display = 'block';
+        dragSelectBox.style.border = '1px dashed #22c55e';
+        dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
         return;
     }
 
@@ -516,6 +961,7 @@ viewport.addEventListener('mousedown', (e) => {
     }
 
     if (e.button === 1 || (e.button === 0 && e.target === viewport)) {
+        pushFlowHistory('pan-canvas');
         flowState.isPanning = true; flowState.startX = e.clientX; flowState.startY = e.clientY;
         viewport.style.cursor = 'grabbing';
     }
@@ -538,11 +984,20 @@ window.addEventListener('mousemove', (e) => {
                 const top = Math.min(box.startY, e.clientY);
                 const width = Math.abs(box.startX - e.clientX);
                 const height = Math.abs(box.startY - e.clientY);
+                const leftToRight = e.clientX >= box.startX;
+                flowState.selectionBoxMode = leftToRight ? 'contain' : 'intersect';
                 
                 dragSelectBox.style.left = left + 'px';
                 dragSelectBox.style.top = top + 'px';
                 dragSelectBox.style.width = width + 'px';
                 dragSelectBox.style.height = height + 'px';
+                if (leftToRight) {
+                    dragSelectBox.style.border = '1px solid #3b82f6';
+                    dragSelectBox.style.background = 'rgba(59, 130, 246, 0.10)';
+                } else {
+                    dragSelectBox.style.border = '1px dashed #22c55e';
+                    dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
+                }
             }
             // 模式 3：工业级多节点协同平移 (矩阵协同位移核心)
             else if (flowState.activeNode) {
@@ -561,7 +1016,8 @@ window.addEventListener('mousemove', (e) => {
                 });
                 
                 flowState.startX = e.clientX; flowState.startY = e.clientY;
-                renderLinks(); 
+                const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
+                renderLinks(dirtyIds); 
                 if (typeof renderMinimap === 'function') renderMinimap(); // 联动更新小地图
             }
             // 模式 4：画布全局平移
@@ -570,6 +1026,21 @@ window.addEventListener('mousemove', (e) => {
                 flowState.transform.y += (e.clientY - flowState.startY);
                 flowState.startX = e.clientX; flowState.startY = e.clientY;
                 updateCanvasTransform();
+            }
+
+            if (flowState.activeNode || flowState.drawingLink.active) {
+                const edgeDelta = computeEdgeScrollDelta(e.clientX, e.clientY);
+                if (Math.abs(edgeDelta.dx) > 0.2 || Math.abs(edgeDelta.dy) > 0.2) {
+                    flowState.transform.x += edgeDelta.dx;
+                    flowState.transform.y += edgeDelta.dy;
+                    updateCanvasTransform();
+                    if (flowState.activeNode) {
+                        const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
+                        renderLinks(dirtyIds);
+                    } else {
+                        renderLinks();
+                    }
+                }
             }
             isTicking = false;
         });
@@ -598,12 +1069,18 @@ window.addEventListener('mouseup', (e) => {
                 const nodeEl = document.getElementById(node.id);
                 if (nodeEl) {
                     const nRect = nodeEl.getBoundingClientRect();
-                    // 核心算法：判定两个 client 视口矩形是否发生重叠相交
-                    const isIntersect = !(nRect.left > sRect.right || 
-                                          nRect.right < sRect.left || 
-                                          nRect.top > sRect.bottom || 
+                    const isIntersect = !(nRect.left > sRect.right ||
+                                          nRect.right < sRect.left ||
+                                          nRect.top > sRect.bottom ||
                                           nRect.bottom < sRect.top);
-                    if (isIntersect) {
+                    const isContain = (
+                        nRect.left >= sRect.left &&
+                        nRect.right <= sRect.right &&
+                        nRect.top >= sRect.top &&
+                        nRect.bottom <= sRect.bottom
+                    );
+                    const hit = flowState.selectionBoxMode === 'contain' ? isContain : isIntersect;
+                    if (hit) {
                         flowState.selectedNodeIds.add(node.id);
                     }
                 }
@@ -617,9 +1094,11 @@ window.addEventListener('mouseup', (e) => {
             const el = document.getElementById(id);
             if (el) el.style.zIndex = '';
         });
-        shouldSave = true; 
+        shouldSave = true;
     }
-    if (flowState.isPanning) shouldSave = true;
+    if (flowState.isPanning) {
+        shouldSave = true;
+    }
 
     flowState.activeNode = null;
     flowState.isPanning = false;
@@ -663,7 +1142,12 @@ window.disconnectPort = function(e, nodeId, portId) {
         (l.source === nodeId && l.sourcePort === portId) ||
         (l.target === nodeId && l.targetPort === portId)
     ));
-    if (flowState.links.length !== initialLen) renderLinks();
+    if (flowState.links.length !== initialLen) {
+        pushFlowHistory('link-remove');
+        rebuildLinkIndex();
+        renderLinks();
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
+    }
 };
 
 // ==========================================
@@ -728,9 +1212,15 @@ window.importFlowFromJSON = function(event) {
             });
 
             // 暴力接管状态机
+            pushFlowHistory('import-flow');
             flowState.nodes = reconstructedNodes;
             flowState.links = importedData.links;
             if (importedData.transform) flowState.transform = importedData.transform;
+            normalizeFlowLinks(false);
+            rebuildLinkIndex();
+            if (hasGraphCycle(flowState.nodes, flowState.links)) {
+                throw new Error("导入后检测到环路，请修正后再执行");
+            }
 
             // 触发渲染轰炸与重写存档
             renderNodes();
@@ -752,8 +1242,10 @@ window.importFlowFromJSON = function(event) {
 window.clearFlowCanvas = function() {
     if (flowState.nodes.length === 0) return;
     if (confirm("🚨 警告：这将彻底清空画布上的所有节点与连线，且无法撤销！是否继续？")) {
+        pushFlowHistory('clear-flow');
         flowState.nodes = [];
         flowState.links = [];
+        rebuildLinkIndex();
         renderNodes();
         renderLinks();
         if (typeof saveFlowToDB === 'function') saveFlowToDB();
@@ -786,13 +1278,65 @@ window.updateNodeData = function(nodeId, key, value) {
     }
 };
 
+function updateNodeImageUploadUI(nodeId, inputId, srcToUse) {
+    const uploadUI = document.getElementById(`img-upload-ui-${nodeId}-${inputId}`);
+    if (!uploadUI) return;
+
+    const textSpan = uploadUI.querySelector('.img-upload-text');
+    if (textSpan) textSpan.innerText = srcToUse ? '更换图片' : '上传 / 拖入图片';
+
+    const isLargePreview = uploadUI.classList.contains('node-image-upload-large');
+    if (isLargePreview) {
+        uploadUI.classList.toggle('has-image', !!srcToUse);
+        let largeImg = uploadUI.querySelector('.img-preview-large');
+        let emptyEl = uploadUI.querySelector('.node-image-upload-empty');
+        const overlayEl = uploadUI.querySelector('.node-image-upload-overlay');
+
+        if (srcToUse) {
+            if (!largeImg) {
+                largeImg = document.createElement('img');
+                largeImg.className = 'img-preview-large';
+                largeImg.onmousedown = (e) => e.stopPropagation();
+                uploadUI.insertBefore(largeImg, overlayEl || null);
+            }
+            largeImg.src = srcToUse;
+            if (emptyEl) emptyEl.remove();
+        } else {
+            if (largeImg) largeImg.remove();
+            if (!emptyEl) {
+                emptyEl = document.createElement('div');
+                emptyEl.className = 'node-image-upload-empty';
+                emptyEl.innerHTML = '<span class="material-symbols-outlined">image</span><span>拖入图片或点击上传</span>';
+                uploadUI.insertBefore(emptyEl, overlayEl || null);
+            }
+        }
+        return;
+    }
+
+    if (srcToUse) {
+        let thumbImg = uploadUI.querySelector('.img-preview-thumb');
+        if (!thumbImg) {
+            thumbImg = document.createElement('img');
+            thumbImg.className = 'img-preview-thumb';
+            thumbImg.style.cssText = 'width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);';
+            thumbImg.onmousedown = (e) => e.stopPropagation();
+            uploadUI.appendChild(thumbImg);
+        }
+        thumbImg.src = srcToUse;
+    } else {
+        const thumbImg = uploadUI.querySelector('.img-preview-thumb');
+        if (thumbImg) thumbImg.remove();
+    }
+}
+
 window.handleNodeImageUpload = function(e, nodeId, inputId) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onloadend = () => {
         updateNodeData(nodeId, inputId, reader.result);
-        renderNodes(); 
+        updateNodeImageUploadUI(nodeId, inputId, reader.result);
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -827,20 +1371,8 @@ window.handleNodeImageDrop = async function(e, nodeId, inputId) {
 
     if (srcToUse) {
         updateNodeData(nodeId, inputId, srcToUse);
-        const uploadUI = document.getElementById(`img-upload-ui-${nodeId}-${inputId}`);
-        if (uploadUI) {
-            const textSpan = uploadUI.querySelector('.img-upload-text');
-            if (textSpan) textSpan.innerText = '更换图片';
-            let thumbImg = uploadUI.querySelector('.img-preview-thumb');
-            if (!thumbImg) {
-                thumbImg = document.createElement('img');
-                thumbImg.className = 'img-preview-thumb';
-                thumbImg.style.cssText = 'width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);';
-                thumbImg.onmousedown = (e) => e.stopPropagation();
-                uploadUI.appendChild(thumbImg);
-            }
-            thumbImg.src = srcToUse;
-        }
+        updateNodeImageUploadUI(nodeId, inputId, srcToUse);
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
     }
 };
 
@@ -859,6 +1391,17 @@ window.showNodeMenu = function(e, nodeId) {
     e.preventDefault(); e.stopPropagation();
     menuTargetNodeId = nodeId;
     ctxMenu.innerHTML = `
+        <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #38bdf8;"
+             onmouseover="this.style.background='rgba(56,189,248,0.12)'" onmouseout="this.style.background='transparent'"
+             onclick="runFlow({mode:'from', startNodeId:'${nodeId}'})">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">play_arrow</span> 从此处开始执行
+        </div>
+        <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #a78bfa;"
+             onmouseover="this.style.background='rgba(167,139,250,0.12)'" onmouseout="this.style.background='transparent'"
+             onclick="runFlow({mode:'single', startNodeId:'${nodeId}'})">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">bolt</span> 仅执行该节点
+        </div>
+        <div style="height:1px; background: rgba(255,255,255,0.08); margin: 6px 0;"></div>
         <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #ef4444;" 
              onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='transparent'"
              onclick="deleteNode('${nodeId}')">
@@ -869,8 +1412,10 @@ window.showNodeMenu = function(e, nodeId) {
 };
 
 window.deleteNode = function(nodeId) {
+    pushFlowHistory('delete-node');
     flowState.nodes = flowState.nodes.filter(n => n.id !== nodeId);
     flowState.links = flowState.links.filter(l => l.source !== nodeId && l.target !== nodeId); 
+    rebuildLinkIndex();
     renderNodes(); renderLinks();
     saveFlowToDB(); 
 };
@@ -899,6 +1444,7 @@ viewport.addEventListener('contextmenu', (e) => {
 window.spawnNode = function(blueprintType, spawnX, spawnY) {
     const blueprint = PluginManager.getSchema(blueprintType);
     if (!blueprint) return console.error(`❌ 找不到节点蓝图: ${blueprintType}`);
+    pushFlowHistory('spawn-node');
     const newNode = JSON.parse(JSON.stringify(blueprint)); 
     newNode.id = 'node_' + Date.now();
     newNode.x = spawnX !== undefined ? spawnX : menuClickWorldPos.x;
@@ -956,17 +1502,20 @@ window.initNodePalette = function() {
 // 初始化顶部控制台
 function initFlowToolbar() {
     if (document.getElementById('flow-top-toolbar')) return;
-    
-    // 隐藏的上传器
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '.json';
-    fileInput.id = 'flow-import-input';
-    fileInput.style.display = 'none';
-    fileInput.onchange = window.importFlowFromJSON;
-    document.body.appendChild(fileInput);
 
-    // 玻璃态面板
+    // 隐藏上传器（只初始化一次）
+    let fileInput = document.getElementById('flow-import-input');
+    if (!fileInput) {
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json';
+        fileInput.id = 'flow-import-input';
+        fileInput.style.display = 'none';
+        fileInput.onchange = window.importFlowFromJSON;
+        document.body.appendChild(fileInput);
+    }
+
+    // 挂载到头部同级按钮区
     const toolbar = document.createElement('div');
     toolbar.id = 'flow-top-toolbar';
     toolbar.className = 'flow-top-toolbar';
@@ -977,30 +1526,55 @@ function initFlowToolbar() {
         <button class="flow-tool-btn" onclick="exportFlowToJSON()">
             <span class="material-symbols-outlined" style="font-size: 16px;">download</span> 导出
         </button>
-        <div style="width: 1px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
+        <div class="flow-tool-divider"></div>
+        <button class="flow-tool-btn" onclick="undoFlow()">
+            <span class="material-symbols-outlined" style="font-size: 16px;">undo</span> 撤销
+        </button>
+        <button class="flow-tool-btn" onclick="redoFlow()">
+            <span class="material-symbols-outlined" style="font-size: 16px;">redo</span> 重做
+        </button>
+        <div class="flow-tool-divider"></div>
         <button class="flow-tool-btn danger" onclick="clearFlowCanvas()">
             <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> 清空
         </button>
     `;
-    // 挂载到画布层上方
-    viewport.appendChild(toolbar);
+    const headerSlot = document.getElementById('flow-header-tools');
+    if (headerSlot) headerSlot.appendChild(toolbar);
+    else viewport.appendChild(toolbar);
 }
 
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        // 👈 注入右下角导航小地图
-    window.AutocompleteController.init(); // 🚀 核心修复：在这里注入灵魂，它才是真正生效的那个！
-    await loadFlowFromDB(); 
+async function bootstrapFlowEngine() {
+    initFlowThemeMode();
+    initNodePalette();
+    initFlowToolbar();
+    initMinimapUI();
+    if (window.AutocompleteController && typeof window.AutocompleteController.init === 'function') {
+        window.AutocompleteController.init();
+    }
+    await loadFlowFromDB();
+    normalizeFlowLinks(false);
     renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
+    setTimeout(() => { renderLinks(); renderMinimap(); }, 50);
     updateCanvasTransform();
-};
+}
+
+window.initFlowEngine = bootstrapFlowEngine;
 
 // ==========================================
 // ⌨️ 全局键盘快捷键中心 (支持批量一键销毁)
 // ==========================================
 window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undoFlow();
+        return;
+    }
+    if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        redoFlow();
+        return;
+    }
+
     if (e.key === 'Delete' || e.key === 'Backspace') {
         // 拦截机制：如果用户当前正在输入框或文本域中改参数，绝不误杀节点！
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
@@ -1010,8 +1584,10 @@ window.addEventListener('keydown', (e) => {
                 const idsToDelete = new Set(flowState.selectedNodeIds);
                 
                 // 1. 内存全量清洗
+                pushFlowHistory('bulk-delete');
                 flowState.nodes = flowState.nodes.filter(n => !idsToDelete.has(n.id));
                 flowState.links = flowState.links.filter(l => !idsToDelete.has(l.source) && !idsToDelete.has(l.target));
+                rebuildLinkIndex();
                 
                 // 2. 清空选择集
                 flowState.selectedNodeIds.clear();
@@ -1150,16 +1726,6 @@ window.updateCanvasTransform = function() {
     renderMinimap(); // 缩放平移画布时无损重绘视野框
 };
 
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        // 👈 注入右下角导航小地图
-    await loadFlowFromDB(); 
-    renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
-    updateCanvasTransform();
-};
-
 viewport.addEventListener('dragover', (e) => {
     if (e.dataTransfer.types.includes('veo-node-type')) {
         e.preventDefault(); 
@@ -1181,40 +1747,125 @@ viewport.addEventListener('drop', (e) => {
 // ==========================================
 // ⚙️ Phase 6: DAG 拓扑执行引擎
 // ==========================================
-window.runFlow = async function() {
+function summarizeForHash(value) {
+    if (value == null) return value;
+    if (typeof value === 'string') {
+        if (value.length <= 256) return value;
+        return `${value.slice(0, 96)}...${value.slice(-64)}|len:${value.length}`;
+    }
+    if (Array.isArray(value)) return value.map((item) => summarizeForHash(item));
+    if (typeof value === 'object') {
+        const out = {};
+        Object.keys(value).sort().forEach((k) => {
+            out[k] = summarizeForHash(value[k]);
+        });
+        return out;
+    }
+    return value;
+}
+
+function simpleHash(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+    }
+    return (h >>> 0).toString(16);
+}
+
+function computeNodeExecutionHash(node, compiledData, upstreamInputs) {
+    const payload = {
+        nodeType: node && node.type ? node.type : '',
+        data: summarizeForHash(compiledData),
+        upstream: summarizeForHash(upstreamInputs)
+    };
+    return simpleHash(JSON.stringify(payload));
+}
+
+function collectRunTargetIds(mode, startNodeId) {
+    const allNodeIds = new Set((flowState.nodes || []).map((n) => n.id));
+    if (mode === 'single' && startNodeId && allNodeIds.has(startNodeId)) {
+        return new Set([startNodeId]);
+    }
+    if (mode === 'from' && startNodeId && allNodeIds.has(startNodeId)) {
+        const targets = new Set([startNodeId]);
+        const queue = [startNodeId];
+        while (queue.length > 0) {
+            const current = queue.shift();
+            (flowState.links || []).forEach((link) => {
+                if (link.source === current && !targets.has(link.target)) {
+                    targets.add(link.target);
+                    queue.push(link.target);
+                }
+            });
+        }
+        return targets;
+    }
+    return allNodeIds;
+}
+
+window.runFlow = async function(options = {}) {
     console.log("🚀 [执行引擎] 启动工业级 DAG 拓扑扫描...");
-    const nodeDeps = {};      
-    const nodePromises = {};  
-    
-    flowState.nodes.forEach(n => nodeDeps[n.id] = new Set());
+    if (!Array.isArray(flowState.nodes) || flowState.nodes.length === 0) {
+        return alert("⚠️ 当前画布没有节点可执行。");
+    }
+
+    const runMode = options && options.mode ? options.mode : 'full';
+    const startNodeId = options && options.startNodeId ? options.startNodeId : null;
+    const targetIds = collectRunTargetIds(runMode, startNodeId);
+    if (!targetIds.size) return alert("⚠️ 未找到可执行节点。");
+
+    normalizeFlowLinks(true);
+
+    if (hasGraphCycle(flowState.nodes, flowState.links)) {
+        return alert("⚠️ 错误：工作流存在死循环连线，请先断开环路。");
+    }
+
+    const indegree = new Map();
+    const downstream = new Map();
+    flowState.nodes.forEach(n => {
+        if (!targetIds.has(n.id)) return;
+        indegree.set(n.id, 0);
+        downstream.set(n.id, []);
+    });
     flowState.links.forEach(link => {
-        if (nodeDeps[link.target]) nodeDeps[link.target].add(link.source);
+        if (!indegree.has(link.source) || !indegree.has(link.target)) return;
+        indegree.set(link.target, indegree.get(link.target) + 1);
+        downstream.get(link.source).push(link.target);
     });
 
-    let readyQueue = flowState.nodes.filter(n => nodeDeps[n.id].size === 0).map(n => n.id);
-    if (readyQueue.length === 0) return alert("⚠️ 错误：未找到起点节点，或者工作流中存在死循环连线！");
+    let readyQueue = flowState.nodes.filter(n => indegree.has(n.id) && indegree.get(n.id) === 0).map(n => n.id);
+    if (readyQueue.length === 0) return alert("⚠️ 错误：目标子图没有可执行起点，可能包含环路。");
 
     flowState.nodes.forEach(n => {
-        n.result = null; 
+        if (!targetIds.has(n.id)) return;
+        if (runMode === 'full') n.result = null;
         setNodeStatus(n.id, 'idle');
     });
 
-    const scheduleNode = async (nodeId) => {
-        if (nodePromises[nodeId]) return nodePromises[nodeId];
-        const deps = Array.from(nodeDeps[nodeId]);
-        const upstreamPromises = deps.map(depId => scheduleNode(depId));
-        
-        nodePromises[nodeId] = (async () => {
-            if (upstreamPromises.length > 0) await Promise.all(upstreamPromises);
-            await executeNode(nodeId);
-        })();
-        return nodePromises[nodeId];
-    };
-
     try {
-        const allExecutions = flowState.nodes.map(n => scheduleNode(n.id));
-        await Promise.all(allExecutions);
-        console.log("✅ [执行引擎] 工作流全链路并发执行完毕！");
+        let processed = 0;
+        while (readyQueue.length > 0) {
+            const batch = readyQueue.slice();
+            readyQueue = [];
+
+            await Promise.all(batch.map(nodeId => executeNode(nodeId)));
+            processed += batch.length;
+
+            batch.forEach(nodeId => {
+                const nextNodes = downstream.get(nodeId) || [];
+                nextNodes.forEach(nextId => {
+                    const left = indegree.get(nextId) - 1;
+                    indegree.set(nextId, left);
+                    if (left === 0) readyQueue.push(nextId);
+                });
+            });
+        }
+
+        if (processed !== targetIds.size) {
+            throw new Error('执行队列异常：存在未完成节点（可能是隐式环路或损坏连线）');
+        }
+        console.log("✅ [执行引擎] 工作流执行完毕！模式:", runMode, '目标节点数:', targetIds.size);
     } catch (err) {
         console.error("❌ [执行引擎] 链路崩溃:", err);
         alert("执行流异常中断，请查看控制台日志。");
@@ -1222,10 +1873,12 @@ window.runFlow = async function() {
 };
 
 const BASE_N8N_URL = 'https://api.wallyai.top/webhook'; 
-const API_HEADERS = { 
-    'Content-Type': 'application/json',
-    'wally123': sessionStorage.getItem('veo_admin_pwd') || '2026veo' 
-};
+function getApiHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'wally123': sessionStorage.getItem('veo_admin_pwd') || ''
+    };
+}
 
 async function prepareImagePayload(src) {
     if (!src) return undefined;
@@ -1317,7 +1970,7 @@ PluginManager.register('tool_image_gen',
         const refImgSource = resolvePayloadData(upstreamInputs.in_ref) || resolvePayloadData(nodeData.local_ref);
         const payload = { prompt: finalPrompt.trim(), size: finalSize, channel: (nodeData.channel && nodeData.channel.includes('2')) ? 'channel_2' : 'channel_1', images: refImgSource ? [refImgSource] : [] };
         
-        const res = await fetch(`${BASE_N8N_URL}/proxy-image-gen`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify(payload) });
+        const res = await fetch(`${BASE_N8N_URL}/proxy-image-gen`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
         const rawText = await res.text();
         if (!res.ok) throw new Error(`HTTP ${res.status} 异常: ${rawText}`);
         
@@ -1387,7 +2040,7 @@ PluginManager.register('tool_video_gen',
             firstFrame: firstFrame || undefined, lastFrame: lastFrame || undefined, references: refImages.length > 0 ? refImages : undefined
         };
         
-        const submitRes = await fetch(`${BASE_N8N_URL}/proxy-submit`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify(payload) });
+        const submitRes = await fetch(`${BASE_N8N_URL}/proxy-submit`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
         const submitRawText = await submitRes.text();
         if (!submitRes.ok) throw new Error(`HTTP ${submitRes.status} 异常: ${submitRawText}`);
         
@@ -1399,7 +2052,7 @@ PluginManager.register('tool_video_gen',
             if (node._cancelToken) throw new Error("⛔ 手动中止");
             for (let i = 0; i < 15; i++) { if (node._cancelToken) throw new Error("⛔ 手动中止"); await new Promise(r => setTimeout(r, 1000)); }
             
-            const pollRes = await fetch(`${BASE_N8N_URL}/proxy-poll`, { method: 'POST', headers: API_HEADERS, body: JSON.stringify({ taskId: submitData.taskId }) });
+            const pollRes = await fetch(`${BASE_N8N_URL}/proxy-poll`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify({ taskId: submitData.taskId }) });
             const pollRawText = await pollRes.text();
             if (!pollRes.ok) throw new Error(`轮询异常: ${pollRawText}`);
             let pollData; try { pollData = JSON.parse(pollRawText); } catch (e) { throw new Error("轮询返回非 JSON"); }
@@ -1590,37 +2243,77 @@ window.AutocompleteController = {
     }
 };
 window.compileExpressionTemplate = function(nodeData, upstreamInputs, flowNodes) {
-    // 深度克隆，绝对不污染原画布保存的静态数据
-    const compiled = JSON.parse(JSON.stringify(nodeData));
-    const regex = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
-    
-    const traverseAndCompile = (obj) => {
-        for (let key in obj) {
-            if (typeof obj[key] === 'string') {
-                obj[key] = obj[key].replace(regex, (match, varName) => {
-                    const v = varName.trim();
-                    // 1. 优先匹配上游连线的引脚数据 (例如: {{in_prompt}})
-                    if (upstreamInputs[v]) {
-                        return typeof upstreamInputs[v].data === 'string' 
-                               ? upstreamInputs[v].data 
-                               : (typeof upstreamInputs[v] === 'string' ? upstreamInputs[v] : match);
-                    }
-                    // 2. 跨空间匹配全局节点数据 (例如: {{node_123.prompt}})
-                    if (v.includes('.')) {
-                        const [nid, nfield] = v.split('.');
-                        const targetNode = flowNodes.find(n => n.id === nid);
-                        if (targetNode && targetNode.data && targetNode.data[nfield] !== undefined) {
-                            return targetNode.data[nfield];
-                        }
-                    }
-                    return match; // 无匹配则保留原样
-                });
-            } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                traverseAndCompile(obj[key]);
+    const compiled = JSON.parse(JSON.stringify(nodeData || {}));
+
+    const resolveTokenValue = (token) => {
+        const v = String(token || '').trim();
+        if (!v) return undefined;
+        if (upstreamInputs && upstreamInputs[v]) {
+            const inputVal = upstreamInputs[v];
+            if (inputVal && typeof inputVal === 'object' && inputVal.data !== undefined) return inputVal.data;
+            return inputVal;
+        }
+        if (v.includes('.')) {
+            const [nid, nfield] = v.split('.');
+            const targetNode = (flowNodes || []).find(n => n.id === nid);
+            if (targetNode && targetNode.data && targetNode.data[nfield] !== undefined) {
+                return targetNode.data[nfield];
             }
         }
+        return undefined;
     };
-    traverseAndCompile(compiled);
+
+    const parseExpressionBody = (rawBody) => {
+        const body = String(rawBody || '').trim();
+        if (!body) return { token: '', fallback: '' };
+        const pipePos = body.indexOf('|');
+        if (pipePos === -1) return { token: body, fallback: '' };
+        const token = body.slice(0, pipePos).trim();
+        let fallback = body.slice(pipePos + 1).trim();
+        if ((fallback.startsWith("'") && fallback.endsWith("'")) || (fallback.startsWith('"') && fallback.endsWith('"'))) {
+            fallback = fallback.slice(1, -1);
+        }
+        return { token, fallback };
+    };
+
+    const compileStringTemplate = (inputText) => {
+        const text = String(inputText || '');
+        let out = '';
+        let i = 0;
+        while (i < text.length) {
+            const open = text.indexOf('{{', i);
+            if (open === -1) {
+                out += text.slice(i);
+                break;
+            }
+            out += text.slice(i, open);
+            const close = text.indexOf('}}', open + 2);
+            if (close === -1) {
+                out += text.slice(open);
+                break;
+            }
+            const body = text.slice(open + 2, close);
+            const parsed = parseExpressionBody(body);
+            const resolved = resolveTokenValue(parsed.token);
+            if (resolved === undefined || resolved === null || resolved === '') {
+                out += parsed.fallback ? parsed.fallback : `{{${body}}}`;
+            } else {
+                out += String(resolved);
+            }
+            i = close + 2;
+        }
+        return out;
+    };
+
+    const walk = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        Object.keys(obj).forEach((key) => {
+            if (typeof obj[key] === 'string') obj[key] = compileStringTemplate(obj[key]);
+            else if (obj[key] && typeof obj[key] === 'object') walk(obj[key]);
+        });
+    };
+
+    walk(compiled);
     return compiled;
 };
 
@@ -1647,6 +2340,12 @@ async function executeNode(nodeId) {
 
         // 🌟 核心：在此处插入编译管线！把含有 {{}} 的表单数据替换为真实变量！
         const compiledData = compileExpressionTemplate(node.data || {}, upstreamInputs, flowState.nodes);
+        const inputHash = computeNodeExecutionHash(node, compiledData, upstreamInputs);
+        if (node.result && node._lastInputHash && node._lastInputHash === inputHash) {
+            const costTimeCached = ((Date.now() - nodeStartTime) / 1000).toFixed(2);
+            setNodeStatus(nodeId, 'success', { costTime: `${costTimeCached} (cache)` });
+            return;
+        }
 
         const isInfiniteRetry = (compiledData.autoRetry === '开启 (无限重试)' || compiledData.autoRetry === true);
         let attempt = 0;
@@ -1672,6 +2371,7 @@ async function executeNode(nodeId) {
         }
 
         node.result = finalResult; 
+        node._lastInputHash = inputHash;
         saveFlowToDB(); 
         
         const costTime = ((Date.now() - nodeStartTime) / 1000).toFixed(1);
@@ -1785,7 +2485,15 @@ async function recordNodeBilling(node) {
     }
 
     if (cost > 0) {
-        const record = { id: 'bill_flow_' + Date.now() + '_' + Math.random().toString(36).substr(2,5), timestamp: Date.now(), amount: cost, detail: detailStr, nodeId: node.id };
+        const record = {
+            id: 'bill_flow_' + Date.now() + '_' + Math.random().toString(36).substr(2,5),
+            taskId: node.id,
+            nodeId: node.id,
+            type: node.type === 'tool_video_gen' ? 'video' : 'image',
+            cost: cost,
+            detail: detailStr,
+            timestamp: Date.now()
+        };
         return new Promise((resolve) => {
             try {
                 const tx = db.transaction('billing', 'readwrite');
@@ -1843,16 +2551,4 @@ document.addEventListener('mousedown', (e) => {
         if (!isClickInside && !isClickToggleButton) drawer.classList.remove('open');
     }
 });
-// ==========================================
-// 🚀 终极系统启动器强制覆写 (解决重复声明问题)
-// ==========================================
-window.initFlowEngine = async function() {
-    initNodePalette();      
-    initFlowToolbar();      
-    initMinimapUI();        
-    window.AutocompleteController.init(); // 🌟 灵魂注入：强制初始化补全 UI 容器！
-    await loadFlowFromDB(); 
-    renderNodes();
-    setTimeout(() => { renderLinks(); renderMinimap(); }, 50); 
-    updateCanvasTransform();
-};
+// initFlowEngine 已在上方统一挂载为 bootstrapFlowEngine。
