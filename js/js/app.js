@@ -1548,10 +1548,11 @@ function closeBillingModal() { const modal = document.getElementById('billing-mo
 
 function updateEstimatedCost() {
     const state = globalStore.getState(); 
+    const modelValue = String(state.model || '');
     let cost = 0.35; 
-    if (state.model.includes('4k')) {
+    if (modelValue.toLowerCase().includes('4k')) {
         cost = 0.50; 
-    } else if (state.model.includes('lite')) { // 🌟 兼容特惠模型 fast-lite-1.0
+    } else if (modelValue.toLowerCase().includes('lite')) { // 🌟 兼容特惠模型 fast-lite-1.0
         cost = 0.20; 
     }
     
@@ -3076,32 +3077,65 @@ async function applyGeneratorToPrompt(id, btnElement) {
 }
 function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>请选择...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
 
-function switchMode(mode) { globalStore.dispatch('SET_MODE', mode); }
+function getVideoInputModeLabel(mode) {
+    return mode === 'frame' ? '首尾帧' : '参考图';
+}
+
+function getVideoQualityModel(modelValue) {
+    const raw = String(modelValue || '').toLowerCase();
+    return raw.includes('4k') ? 'veo3.1-4k' : 'veo3.1';
+}
+
+function getVideoInputModeFromTask(task) {
+    const rawMode = task && (task.inputMode || task.mode);
+    if (rawMode === 'frame' || rawMode === 'ref') return rawMode;
+    return task && String(task.modelVal || '').includes('components') ? 'ref' : 'frame';
+}
+
+function buildVideoSubmitModel(modelValue, inputMode) {
+    const qualityModel = getVideoQualityModel(modelValue);
+    const safeMode = inputMode === 'frame' ? 'frame' : 'ref';
+    if (qualityModel === 'veo3.1-4k') {
+        return safeMode === 'ref' ? 'veo3.1-components-4k' : 'veo3.1-4k';
+    }
+    return safeMode === 'ref' ? 'veo3.1-components' : 'veo3.1';
+}
+
+function getVideoModelDisplayName(modelValue, inputMode) {
+    const raw = String(modelValue || '').toLowerCase();
+    if (raw.includes('lite')) return '极速特惠版';
+    const modelName = getVideoQualityModel(modelValue) === 'veo3.1-4k' ? 'Veo 3.1 4K' : 'Veo 3.1';
+    return `${modelName} · ${getVideoInputModeLabel(inputMode)}`;
+}
+
+function switchMode(mode) {
+    const safeMode = mode === 'frame' ? 'frame' : 'ref';
+    globalStore.dispatch('SET_MODE', safeMode);
+}
+function updateInputMode(select) { if (select) switchMode(select.value); }
 function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateRatio(select) { globalStore.dispatch('SET_RATIO', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateEnhance(select) { globalStore.dispatch('SET_ENHANCE', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateUpsample(select) { globalStore.getState().enableUpsample = select.value === 'true'; document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
 function updateAutoRetry(select) { globalStore.getState().autoRetry = select.value === 'true'; document.getElementById('retry-text').innerText = select.options[select.selectedIndex].text; }
 
-sysBus.on('UI:SWITCH_MODE', (mode) => { document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active')); document.querySelectorAll('.slot-group').forEach(s => s.classList.remove('active')); document.getElementById(`tab-${mode}`).classList.add('active'); document.getElementById(`slots-${mode}`).classList.add('active'); updateEstimatedCost(); });
+sysBus.on('UI:SWITCH_MODE', (mode) => {
+    const safeMode = mode === 'frame' ? 'frame' : 'ref';
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.slot-group').forEach(s => s.classList.remove('active'));
+    const legacyTab = document.getElementById(`tab-${safeMode}`);
+    const slotGroup = document.getElementById(`slots-${safeMode}`);
+    const inputModeSelect = document.getElementById('input-mode-select');
+    const inputModeText = document.getElementById('input-mode-text');
+    if (legacyTab) legacyTab.classList.add('active');
+    if (slotGroup) slotGroup.classList.add('active');
+    if (inputModeSelect && inputModeSelect.value !== safeMode) inputModeSelect.value = safeMode;
+    if (inputModeText) inputModeText.innerText = getVideoInputModeLabel(safeMode);
+    updateEstimatedCost();
+});
 sysBus.on('UI:UPDATE_MODEL_TEXT', (text) => document.getElementById('model-text').innerText = text);
 sysBus.on('UI:UPDATE_RATIO', (data) => { document.getElementById('ratio-text').innerText = data.text; document.getElementById('ratio-icon').innerText = data.value === '16:9' ? 'crop_16_9' : 'crop_portrait'; });
 sysBus.on('UI:UPDATE_ENHANCE_TEXT', (text) => document.getElementById('enhance-text').innerText = text);
-sysBus.on('SYSTEM:MODEL_CHANGED', (modelValue) => {
-    const frameTab = document.getElementById('tab-frame'), refTab = document.getElementById('tab-ref');
-    if (modelValue.includes('components')) {
-        if (globalStore.getState().currentMode !== 'ref') switchMode('ref');
-        frameTab.style.opacity = '0.3'; frameTab.style.pointerEvents = 'none';
-        refTab.style.opacity = '1'; refTab.style.pointerEvents = 'auto';
-        showToast("已自动切换至【参考图 Cmp】专属多模态通道", "info");
-    } else {
-        if (globalStore.getState().currentMode !== 'frame') switchMode('frame');
-        refTab.style.opacity = '0.3'; refTab.style.pointerEvents = 'none';
-        frameTab.style.opacity = '1'; frameTab.style.pointerEvents = 'auto';
-        showToast("已自动切换至【首尾帧】视频通道", "info");
-    }
-    updateEstimatedCost();
-});
 
 async function handleMultiRefs(input) {
     if (!input.files || input.files.length === 0) return; if (globalStore.getState().references.length + input.files.length > 3) { input.value = ''; return alert(`最多仅支持 3 张图。`); }
@@ -3135,9 +3169,11 @@ async function submitBatchTask() {
     const batchCount = parseInt(document.getElementById('batch-select').value), btn = document.getElementById('generate-btn');
     btn.disabled = true; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>`;
     
-    let submitRef = [...globalStore.getState().references], submitFirst = globalStore.getState().firstFrame, submitLast = globalStore.getState().lastFrame;
-    if (globalStore.getState().currentMode === 'ref') { submitFirst = null; submitLast = null; } else submitRef = [];
-    const taskParams = { model: globalStore.getState().model, aspectRatio: globalStore.getState().aspectRatio, enhancePrompt: globalStore.getState().enhancePrompt, enableUpsample: globalStore.getState().enableUpsample, autoRetry: globalStore.getState().autoRetry, firstFrame: submitFirst, lastFrame: submitLast, references: submitRef };
+    const state = globalStore.getState();
+    const inputMode = state.currentMode === 'frame' ? 'frame' : 'ref';
+    let submitRef = [...state.references], submitFirst = state.firstFrame, submitLast = state.lastFrame;
+    if (inputMode === 'ref') { submitFirst = null; submitLast = null; } else submitRef = [];
+    const taskParams = { model: buildVideoSubmitModel(state.model, inputMode), inputMode, aspectRatio: state.aspectRatio, enhancePrompt: state.enhancePrompt, enableUpsample: state.enableUpsample, autoRetry: state.autoRetry, firstFrame: submitFirst, lastFrame: submitLast, references: submitRef };
     let promises = []; for(let i=0; i<batchCount; i++) promises.push(executeSubmission(taskParams, prompt, i));
     
     await Promise.allSettled(promises);
@@ -3183,10 +3219,10 @@ async function executeSubmission(params, promptText, offsetIndex = 0) {
         
         if (returnedId) {
             const spawnX = (-transform.x + window.innerWidth/2 - 170) / transform.scale + (offsetIndex * 360), spawnY = (-transform.y + window.innerHeight/2 - 150) / transform.scale + (offsetIndex * 40);
-            let displayModelName = params.model.replace('veo3.1', 'Veo 3.1').replace('-components', ' Cmp').replace('-4k', ' 4K').toUpperCase();
-            if (params.model.includes('lite')) displayModelName = '极速特惠版'; 
+            const taskMode = params.inputMode || (params.references && params.references.length > 0 ? 'ref' : 'frame');
+            const displayModelName = getVideoModelDisplayName(params.model, taskMode);
             
-            const newTask = { id: returnedId, prompt: promptText, modelStr: displayModelName, modelVal: params.model, ratio: params.aspectRatio, autoRetry: params.autoRetry, retryCount: 0, rawImages: { firstFrame: params.firstFrame, lastFrame: params.lastFrame, references: params.references || [] }, mode: params.references && params.references.length > 0 ? 'ref' : 'frame', status: 'processing', progress: null, timestamp: Date.now(), time: new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}), videoUrl: null, x: spawnX, y: spawnY, isBilled: false };
+            const newTask = { id: returnedId, prompt: promptText, modelStr: displayModelName, modelVal: params.model, ratio: params.aspectRatio, autoRetry: params.autoRetry, retryCount: 0, rawImages: { firstFrame: params.firstFrame, lastFrame: params.lastFrame, references: params.references || [] }, mode: taskMode, inputMode: taskMode, status: 'processing', progress: null, timestamp: Date.now(), time: new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}), videoUrl: null, x: spawnX, y: spawnY, isBilled: false };
             await saveTaskDB(newTask); await renderBoard(); 
         }
     } catch (error) { 
@@ -3320,10 +3356,18 @@ function startTaskPolling(taskId) {
 async function reuseTask(taskId) {
     const task = await getTaskDB(taskId); if(!task) return;
     document.getElementById('prompt-input').value = task.prompt || '';
-    if (task.modelVal) { const modelSelect = document.getElementById('model-select'); if(modelSelect.querySelector(`option[value="${task.modelVal}"]`)) { modelSelect.value = task.modelVal; updateModel(modelSelect); } }
+    const modelSelect = document.getElementById('model-select');
+    if (modelSelect) {
+        const qualityModel = getVideoQualityModel(task.modelVal);
+        if(modelSelect.querySelector(`option[value="${qualityModel}"]`)) { modelSelect.value = qualityModel; updateModel(modelSelect); }
+    }
     if (task.ratio) { document.getElementById('ratio-select').value = task.ratio; updateRatio(document.getElementById('ratio-select')); }
+    const restoredMode = getVideoInputModeFromTask(task);
+    const inputModeSelect = document.getElementById('input-mode-select');
+    if (inputModeSelect) inputModeSelect.value = restoredMode;
+    switchMode(restoredMode);
     if (task.rawImages) {
-        globalStore.getState().firstFrame = task.rawImages.firstFrame || null; globalStore.getState().lastFrame = task.rawImages.lastFrame || null; globalStore.getState().references = [...(task.rawImages.references || [])]; switchMode(task.mode || 'ref');
+        globalStore.getState().firstFrame = task.rawImages.firstFrame || null; globalStore.getState().lastFrame = task.rawImages.lastFrame || null; globalStore.getState().references = [...(task.rawImages.references || [])];
         if (globalStore.getState().firstFrame) { document.getElementById('first-img').src = getBlobUrl('temp_first', globalStore.getState().firstFrame); document.getElementById('slot-first-box').classList.add('has-img'); } else clearFrame(null, 'firstFrame');
         if (globalStore.getState().lastFrame) { document.getElementById('last-img').src = getBlobUrl('temp_last', globalStore.getState().lastFrame); document.getElementById('slot-last-box').classList.add('has-img'); } else clearFrame(null, 'lastFrame');
         renderReferences();

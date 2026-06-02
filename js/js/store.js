@@ -115,7 +115,7 @@
     // ------------------------------------------
     function VeoStore() {
         this.state = {
-            model: 'veo_3_1_fast',
+            model: 'veo3.1',
             aspectRatio: '9:16',
             enhancePrompt: true,
             enableUpsample: false,
@@ -130,7 +130,6 @@
             SET_MODEL: function (state, payload) {
                 state.model = payload && payload.value;
                 global.sysBus.emit('UI:UPDATE_MODEL_TEXT', payload && payload.text);
-                global.sysBus.emit('SYSTEM:MODEL_CHANGED', payload && payload.value);
             },
 
             SET_RATIO: function (state, payload) {

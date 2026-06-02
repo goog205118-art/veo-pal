@@ -44,7 +44,6 @@ class VeoStore {
             case 'SET_MODEL':
                 this.state.model = payload.value;
                 sysBus.emit('UI:UPDATE_MODEL_TEXT', payload.text);
-                sysBus.emit('SYSTEM:MODEL_CHANGED', payload.value);
                 break;
                 
             case 'SET_RATIO':

@@ -139,11 +139,6 @@
 
     <div class="floating-console" id="floating-console">
         <div class="prompt-container">
-            <div class="mode-tabs">
-                <div class="mode-tab active" onclick="switchMode('ref')" id="tab-ref" data-tip="输入最多 3 张参考图，控制画面风格走向"><span class="material-symbols-outlined">image</span> 参考图</div>
-                <div class="mode-tab" onclick="switchMode('frame')" id="tab-frame" data-tip="输入首帧或尾帧图片，精准控制视频起始与结束画面"><span class="material-symbols-outlined">movie</span> 首尾帧</div>
-            </div>
-
             <div class="input-wrapper">
                 <div class="slot-group active" id="slots-ref">
                     <div class="img-slot" id="slot-ref-box" onclick="toggleRefPopover(event)" data-tip="点击上传或从画布拖入参考图 (最多3张)">
@@ -180,13 +175,18 @@
 
         <div class="console-actions-row">
             <div class="pill-group">
-                <div class="action-pill" data-tip="切换底层视频生成模型 (Cmp代表多模态参考图模型)">
-                    <span class="material-symbols-outlined">model_training</span><span id="model-text">Veo 3.1</span>
+                <div class="action-pill" data-tip="切换视频生成清晰度：普通 / 4K。参考图或首尾帧请用输入模式选择。">
+                    <span class="material-symbols-outlined">model_training</span><span id="model-text">普通</span>
                     <select id="model-select" onchange="updateModel(this)">
-                        <option value="veo3.1">Veo 3.1 (首尾帧)</option>
-                        <option value="veo3.1-4k">Veo 3.1 4K (首尾帧)</option>
-                        <option value="veo3.1-components">Veo 3.1 Cmp (参考图)</option>
-                        <option value="veo3.1-components-4k">Veo 3.1 Cmp 4K (参考图)</option>
+                        <option value="veo3.1">普通</option>
+                        <option value="veo3.1-4k">4K</option>
+                    </select>
+                </div>
+                <div class="action-pill" id="input-mode-pill" data-tip="切换输入方式：参考图走多模态参考通道，首尾帧走起止帧通道。">
+                    <span class="material-symbols-outlined">swap_horiz</span><span id="input-mode-text">参考图</span>
+                    <select id="input-mode-select" onchange="updateInputMode(this)">
+                        <option value="ref" selected>参考图</option>
+                        <option value="frame">首尾帧</option>
                     </select>
                 </div>
                 <div class="action-pill" data-tip="选择视频的输出比例">
