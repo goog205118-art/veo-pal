@@ -3566,7 +3566,7 @@ function renderImgGenParams(task) {
     const ratioKey = isPro ? 'proRatio' : 'trialRatio';
     const ratioValue = isPro ? state.proRatio : state.trialRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const routeLabel = isPro ? `${state.imageModel || 'gpt-image-2:stable'} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
+    const routeLabel = isPro ? `GPT Image 2 · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
 
     const customRatioHtml = showCustomRatio ? `
         <div class="img-gen-custom-ratio">
@@ -3587,14 +3587,6 @@ function renderImgGenParams(task) {
                     <option value="1k" ${state.proResolution === '1k' ? 'selected' : ''}>1K</option>
                     <option value="2k" ${state.proResolution === '2k' ? 'selected' : ''}>2K</option>
                     <option value="4k" ${state.proResolution === '4k' ? 'selected' : ''}>4K</option>
-                </select>
-            </label>
-            <label class="img-gen-field">
-                <span>路由</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="中转站路由：切换 gpt-image-2 后缀">
-                    <option value="stable" ${state.providerSort === 'stable' ? 'selected' : ''}>:stable 成功率</option>
-                    <option value="nitro" ${state.providerSort === 'nitro' ? 'selected' : ''}>:nitro 极速</option>
-                    <option value="floor" ${state.providerSort === 'floor' ? 'selected' : ''}>:floor 低价</option>
                 </select>
             </label>
             <label class="img-gen-field">
@@ -3868,7 +3860,6 @@ function renderImgGenHelpContent() {
         <section class="img-gen-help-section">
             <h3>Advanced Settings 参数字典</h3>
             <div class="img-gen-help-table">
-                <div><strong>路由</strong><span>选择后端通道策略。稳定路由优先成功率，备用路由适合当前通道超时、失败或图片没返回时切换重试。</span></div>
                 <div><strong>质量</strong><span>low 适合草稿和缩略图，medium 是速度/画质平衡，high 适合终稿。高质量 + 4K 会显著增加等待时间。</span></div>
                 <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
                 <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前官方支持项，如果需要抠图请后续走单独抠图/去背节点。</span></div>
@@ -4521,14 +4512,7 @@ function resolveImgGenSize(state) {
     return enforceProSizeRules('1024x1024').size;
 }
 
-function normalizeImgGenRoute(rawValue) {
-    const raw = String(rawValue || '').trim().toLowerCase().replace(/^:/, '');
-    if (['floor', 'price', 'cheap', 'cost'].includes(raw)) {
-        return { key: 'floor', suffix: ':floor', mode: 'price', label: '价格最低' };
-    }
-    if (['nitro', 'speed', 'fast'].includes(raw)) {
-        return { key: 'nitro', suffix: ':nitro', mode: 'speed', label: '速度最快' };
-    }
+function normalizeImgGenRoute() {
     return { key: 'stable', suffix: ':stable', mode: 'success_rate', label: '成功率最高' };
 }
 
@@ -5239,15 +5223,12 @@ async function switchImgGenChannelAndRetry(e, taskId) {
         const task = cloneTaskDeep(baseTask) || { ...baseTask };
         ensureImgGenState(task);
         if (task.state.version === 'pro') {
-            const order = ['stable', 'nitro', 'floor'];
-            const current = order.includes(task.state.providerSort) ? task.state.providerSort : 'stable';
-            const next = order[(order.indexOf(current) + 1) % order.length];
-            const route = normalizeImgGenRoute(next);
+            const route = normalizeImgGenRoute();
             task.state.providerSort = route.key;
             task.state.modelSuffix = route.suffix;
             task.state.routeMode = route.mode;
             task.state.imageModel = `gpt-image-2${route.suffix}`;
-            showToast(`已切换 Pro 路由：${route.suffix}，准备重试`, 'info');
+            showToast('Pro 将使用默认通道重试', 'info');
         } else {
             task.state.channel = task.state.channel === 'channel_2' ? 'channel_1' : 'channel_2';
             showToast(`已切换试用通道：${task.state.channel === 'channel_2' ? '通道 2' : '通道 1'}，准备重试`, 'info');
