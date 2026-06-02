@@ -790,6 +790,8 @@ class ImgMaskEditor {
         this.panX = 0;
         this.panY = 0;
         this.viewScale = 1;
+        this.toolMode = 'paint';
+        this.modeLabelEl = options.modeLabelEl || null;
     }
 
     _listen(target, type, handler, options) {
@@ -880,7 +882,9 @@ class ImgMaskEditor {
         });
         if (this.stageEl) {
             this.stageEl.classList.toggle('is-panning', this.isPanning);
+            this.stageEl.classList.toggle('is-pan-mode', this.toolMode === 'pan');
         }
+        this._syncToolModeLabel();
     }
 
     _setBrushSize(size, notifyPreview = false) {
@@ -889,6 +893,31 @@ class ImgMaskEditor {
             try { this.onBrushSizePreview(this.brushSize); } catch (err) {}
         }
         return this.brushSize;
+    }
+
+    _syncToolModeLabel() {
+        if (!this.modeLabelEl) return;
+        this.modeLabelEl.textContent = this.toolMode === 'pan' ? '抓手模式' : '绘画模式';
+        this.modeLabelEl.classList.toggle('is-pan', this.toolMode === 'pan');
+    }
+
+    _toggleToolMode(event) {
+        stopMaskEditorEvent(event, true);
+        this._setActive(true);
+        this.toolMode = this.toolMode === 'pan' ? 'paint' : 'pan';
+        this._applyViewTransform();
+    }
+
+    _startPan(event) {
+        stopMaskEditorEvent(event, true);
+        this.isPanning = true;
+        this.panPointerId = event.pointerId;
+        this.panStartX = event.clientX;
+        this.panStartY = event.clientY;
+        this.panStartOffsetX = this.panX;
+        this.panStartOffsetY = this.panY;
+        try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
+        this._applyViewTransform();
     }
 
     _pushHistory() {
@@ -980,17 +1009,14 @@ class ImgMaskEditor {
             this._setActive(true);
             try { this.stageEl.focus({ preventScroll: true }); } catch (err) {}
             if (event.button === 2) {
-                this.isPanning = true;
-                this.panPointerId = event.pointerId;
-                this.panStartX = event.clientX;
-                this.panStartY = event.clientY;
-                this.panStartOffsetX = this.panX;
-                this.panStartOffsetY = this.panY;
-                try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
-                this._applyViewTransform();
+                this._toggleToolMode(event);
                 return;
             }
             if (event.button !== undefined && event.button !== 0) return;
+            if (this.toolMode === 'pan') {
+                this._startPan(event);
+                return;
+            }
             const point = this._getCanvasPoint(event);
             if (!point) return;
             this._pushHistory();
@@ -1124,6 +1150,7 @@ class ImgMaskEditor {
         this.stageEl = null;
         this.baseImgEl = null;
         this.canvasEl = null;
+        this.modeLabelEl = null;
         this.ctx = null;
         this.isDrawing = false;
         this.pointerId = null;
@@ -1263,6 +1290,7 @@ async function openImgGenMaskStudio(e, taskId) {
                         <input type="range" min="4" max="192" step="1" value="${safeBrush}" data-mask-brush-input="${taskId}" oninput="updateImgGenMaskBrush(event, '${taskId}', this.value)">
                         <strong data-mask-brush-label="${taskId}">${safeBrush}px</strong>
                     </label>
+                    <span class="img-gen-mask-mode-pill" id="img-mask-mode-${studioKey}">绘画模式</span>
                     <button class="img-gen-mask-btn is-primary" type="button" onclick="applyImgGenMaskStudio(event, '${taskId}')">
                         <span class="material-symbols-outlined">done_all</span>
                         应用并返回
@@ -1281,7 +1309,7 @@ async function openImgGenMaskStudio(e, taskId) {
             </div>
             <footer class="img-gen-mask-studio-foot">
                 <span>红色区域会作为重绘蒙版发送到后端。</span>
-                <span>左键涂抹 · 右键拖动画布 · 鼠标滚轮缩放 · Ctrl+Z 回退</span>
+                <span>右键单击切换绘画/抓手 · 左键执行当前模式 · 鼠标滚轮缩放 · Ctrl+Z 回退</span>
             </footer>
         </section>
     `;
@@ -1299,11 +1327,13 @@ async function openImgGenMaskStudio(e, taskId) {
     const stageEl = overlay.querySelector(`#img-mask-stage-${cssEscapeSafe(studioKey)}`);
     const baseImgEl = overlay.querySelector(`#img-mask-base-${cssEscapeSafe(studioKey)}`);
     const canvasEl = overlay.querySelector(`#img-mask-canvas-${cssEscapeSafe(studioKey)}`);
+    const modeLabelEl = overlay.querySelector(`#img-mask-mode-${cssEscapeSafe(studioKey)}`);
     const editor = new ImgMaskEditor({
         taskId: studioKey,
         stageEl,
         baseImgEl,
         canvasEl,
+        modeLabelEl,
         sourceRef: task.state.images[0],
         brushSize: safeBrush,
         initialMask: task.state.maskBlob || task.state.maskImage || null,
@@ -3139,42 +3169,86 @@ function renderImgGenHelpContent() {
     return `
         <section class="img-gen-help-section">
             <p class="img-gen-help-kicker">Veo Studio AI 生图指南</p>
-            <h3>核心能力速览</h3>
-            <p>我们将行业顶尖的 AI 绘图引擎接入工作流，主要提供三类能力：</p>
+            <h3>这个节点能做什么</h3>
+            <p>AI 多模生图节点是工作台里的“图像发动机”：既能文生图，也能用垫图做变体，还能用蒙版局部重绘。当前一次点击只生成 1 张，右侧预览会保留最近 6 张结果，方便你连续试稿。</p>
+            <div class="img-gen-help-tag-row">
+                <span class="img-gen-help-tag">文生图</span>
+                <span class="img-gen-help-tag">垫图变体</span>
+                <span class="img-gen-help-tag">蒙版重绘</span>
+                <span class="img-gen-help-tag">工作流复用</span>
+            </div>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>模型版本：Trial / Pro</h3>
+            <div class="img-gen-help-grid">
+                <div class="img-gen-help-card">
+                    <strong>Trial 试用版</strong>
+                    <p>使用旧通道逻辑，适合低成本草稿、构图测试和日常灵感。试用版锁定 1K 输出，只跟随画幅比例换算尺寸，不开放蒙版编辑。</p>
+                </div>
+                <div class="img-gen-help-card">
+                    <strong>Pro · GPT Image 2</strong>
+                    <p>专业版面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
+                </div>
+            </div>
+            <p class="img-gen-help-note">官方边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>输入图槽位怎么用</h3>
             <ul>
-                <li><strong>无中生有（文生图）</strong>：输入文字描述，AI 直接生成高清图片。</li>
-                <li><strong>风格灵感（垫图变体）</strong>：加入参考图，让 AI 参考风格、色调或构图生成新图。</li>
-                <li><strong>魔法重绘（蒙版修改）</strong>：涂抹不满意的局部，再用提示词告诉 AI 要替换成什么。</li>
+                <li><strong>BASE / MASK SOURCE</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
+                <li><strong>REF 1-4</strong>：参考图槽。适合放产品细节、材质、风格、配色、版式灵感。它们会帮助 AI 理解“感觉”和“元素”，但不等于像素级复制。</li>
+                <li><strong>拖放规则</strong>：可以从电脑、素材库或生成结果直接拖入槽位。第一张建议放要保留主体的图，其余放风格或局部细节参考。</li>
             </ul>
         </section>
         <section class="img-gen-help-section">
-            <h3>快速上手</h3>
-            <ol>
-                <li><strong>创建节点</strong>：在画布上右键选择“添加生图节点”。</li>
-                <li><strong>选择模型</strong>：日常测试用 Trial，便宜且快；终稿输出切换 Pro，画质更精细。</li>
-                <li><strong>选择画幅</strong>：16:9 适合横屏，9:16 适合手机和短视频素材。</li>
-                <li><strong>输入 Prompt</strong>：例如“一只穿着宇航服的柴犬，赛博朋克城市背景，电影级光影”。</li>
-            </ol>
-            <p>需要调整分辨率、输出格式或路由策略时，点击卡片里的 <strong>Advanced Settings</strong>。</p>
+            <h3>高频参数</h3>
+            <div class="img-gen-help-table">
+                <div><strong>画幅比例</strong><span>决定横竖构图，例如 16:9 适合 YouTube 横版封面，9:16 适合 Shorts / Reels，1:1 适合社媒方图。</span></div>
+                <div><strong>分辨率</strong><span>Trial 固定 1K；Pro 可选 1K/2K/4K。1K 适合快速试稿，2K 适合正式发布，4K 适合产品细节但更慢更贵。</span></div>
+                <div><strong>Prompt</strong><span>建议写清主体、场景、风格、构图、光线、用途。做改图时要写“保留什么”和“只修改什么”。</span></div>
+            </div>
+            <p class="img-gen-help-note">Pro 后台会按“比例 + 分辨率档位”自动换算到 GPT Image 2 的有效尺寸范围，避免无效尺寸导致请求失败。</p>
         </section>
         <section class="img-gen-help-section">
-            <h3>添加参考图</h3>
-            <p>你可以直接从电脑桌面或素材库拖拽图片到节点下方的网格区域。</p>
-            <ul>
-                <li><strong>左侧大格 Base Image</strong>：主控图。做局部修改时，它就是底图。</li>
-                <li><strong>右侧小格 Style Reference</strong>：风格参考图，AI 会提取色调和感觉融合到新图里。</li>
-            </ul>
+            <h3>Advanced Settings 参数字典</h3>
+            <div class="img-gen-help-table">
+                <div><strong>路由</strong><span>选择后端通道策略。稳定路由优先成功率，备用路由适合当前通道超时、失败或图片没返回时切换重试。</span></div>
+                <div><strong>质量</strong><span>low 适合草稿和缩略图，medium 是速度/画质平衡，high 适合终稿。高质量 + 4K 会显著增加等待时间。</span></div>
+                <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
+                <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前官方支持项，如果需要抠图请后续走单独抠图/去背节点。</span></div>
+                <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
+                <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“切换通道并重试”适合通道超时或服务端偶发错误。</span></div>
+            </div>
         </section>
         <section class="img-gen-help-section">
-            <h3>局部重绘：蒙版工作室</h3>
+            <h3>蒙版工作室</h3>
             <ol>
                 <li>把要修改的底图拖入左侧 Base 大格。</li>
                 <li>切换到 Pro 版本，点击 <strong>编辑蒙版</strong> 打开大画布工作室。</li>
-                <li>在大画布中用<strong>左键涂抹</strong>需要修改的区域。</li>
-                <li>用<strong>右键拖动</strong>移动画布，用<strong>鼠标滚轮</strong>缩放视图。</li>
+                <li>在绘画模式下用<strong>左键涂抹</strong>需要修改的区域。</li>
+                <li><strong>右键单击</strong>切换绘画模式 / 抓手模式；抓手模式下用左键拖动画布。</li>
+                <li>用<strong>鼠标滚轮</strong>缩放视图，用 <strong>Ctrl+Z</strong> 回退上一笔。</li>
                 <li>在 Prompt 里写清楚希望涂抹区域变成什么，再点击生成。</li>
             </ol>
-            <p>AI 会尽量保留未涂抹区域，只在红色蒙版区域内进行替换。</p>
+            <p class="img-gen-help-note">重要：GPT Image 的蒙版是“提示词引导式”蒙版。模型会优先参考红色区域，但不保证像传统 PS 选区一样完全硬边精确；如果要更稳，请在 Prompt 里明确写“只修改蒙版区域，保留未涂抹区域”。</p>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>实战玩法：产品图与社媒图</h3>
+            <ul>
+                <li><strong>产品海报</strong>：Base 放产品实拍，REF 放品牌版式或竞品构图，Prompt 写清“保留产品结构、Logo、接口位置，生成高级商业海报”。</li>
+                <li><strong>局部换物</strong>：只涂抹要换的物体，Prompt 用“replace the masked area with...”并补充材质、光影和透视。</li>
+                <li><strong>版式变体</strong>：把上一张成功图拖回参考槽，Prompt 要求“same product, new layout, clean spacing, readable headline”。</li>
+                <li><strong>连续试稿</strong>：先用 1K + low 快速找方向，满意后切 2K/4K + high 出终稿。右侧预览保留最近 6 张，方便回看和拖拽复用。</li>
+            </ul>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>已知边界</h3>
+            <ul>
+                <li><strong>文字排版</strong>：GPT Image 2 的文字能力更强，但复杂小字、严密表格和品牌字体仍可能漂移。</li>
+                <li><strong>主体一致性</strong>：多轮生成能保持大体风格，但人脸、Logo、精密产品结构仍建议用 Base 图和明确 Prompt 约束。</li>
+                <li><strong>等待时间</strong>：复杂 Prompt、参考图、4K 和 high 质量会更慢，官方也提示复杂请求可能需要较长处理时间。</li>
+                <li><strong>成本意识</strong>：Pro 的参考图会按高保真输入处理，参考图越多、分辨率越高，成本和延迟越容易上升。</li>
+            </ul>
         </section>
     `;
 }

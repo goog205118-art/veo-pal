@@ -1392,6 +1392,70 @@ body.app-shell-ready .floating-console:not(.minimized) {
 .img-gen-help-section strong {
     color: var(--text-main);
 }
+.img-gen-help-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 8px 0;
+}
+.img-gen-help-card {
+    padding: 10px;
+    border: 1px solid rgba(94,156,255,0.14);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(94,156,255,0.07), rgba(255,255,255,0.018));
+}
+.img-gen-help-card p {
+    margin: 5px 0 0 0;
+}
+.img-gen-help-note {
+    padding: 9px 10px;
+    border: 1px solid rgba(255,184,77,0.2);
+    border-radius: 11px;
+    background: rgba(255,184,77,0.075);
+    color: var(--text-main);
+}
+.img-gen-help-tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+.img-gen-help-tag {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid rgba(94,156,255,0.18);
+    border-radius: 999px;
+    background: rgba(94,156,255,0.075);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+}
+.img-gen-help-table {
+    display: grid;
+    gap: 8px;
+}
+.img-gen-help-table > div {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 8px 9px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 11px;
+    background: rgba(255,255,255,0.018);
+}
+.img-gen-help-table span {
+    color: var(--text-sub);
+}
+@media (max-width: 520px) {
+    .img-gen-help-grid,
+    .img-gen-help-table > div {
+        grid-template-columns: 1fr;
+    }
+}
 .img-gen-file-input { display: none; }
 .img-gen-slots.img-gen-slots-fixed {
     position: relative;
@@ -2084,6 +2148,9 @@ body.app-shell-ready .floating-console:not(.minimized) {
 .img-gen-mask-stage.is-panning .img-gen-mask-canvas {
     cursor: grabbing;
 }
+.img-gen-mask-stage.is-pan-mode .img-gen-mask-canvas {
+    cursor: grab;
+}
 .img-gen-mask-base {
     width: 100%;
     height: 100%;
@@ -2109,6 +2176,25 @@ body.app-shell-ready .floating-console:not(.minimized) {
     font-size: 10px;
     color: var(--text-sub);
     opacity: 0.88;
+}
+.img-gen-mask-mode-pill {
+    height: 28px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(94,156,255,0.24);
+    background: rgba(94,156,255,0.08);
+    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.img-gen-mask-mode-pill.is-pan {
+    color: var(--success);
+    border-color: rgba(50,215,75,0.28);
+    background: rgba(50,215,75,0.09);
 }
 .img-gen-mask-empty {
     min-height: 110px;
@@ -2763,6 +2849,20 @@ body.app-shell-ready .floating-console:not(.minimized) {
 :root[data-theme='light'] .img-gen-help-section {
     background: rgba(43,99,216,0.035);
     border-color: rgba(43,99,216,0.12);
+}
+:root[data-theme='light'] .img-gen-help-card,
+:root[data-theme='light'] .img-gen-help-table > div {
+    background: rgba(255,255,255,0.72);
+    border-color: rgba(43,99,216,0.12);
+}
+:root[data-theme='light'] .img-gen-help-note {
+    background: rgba(255,184,77,0.12);
+    border-color: rgba(204,139,35,0.22);
+    color: #243044;
+}
+:root[data-theme='light'] .img-gen-help-tag {
+    background: rgba(43,99,216,0.08);
+    border-color: rgba(43,99,216,0.15);
 }
 :root[data-theme='light'] .img-gen-help-close {
     background: #ffffff;
