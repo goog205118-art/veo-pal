@@ -1,4 +1,4 @@
-﻿// ==========================================
+// ==========================================
 // 🟢 核心应用逻辑与安全拦截 (Veo Studio Infinity Flow)
 // ==========================================
 let loginAnimationId = null;
@@ -14,16 +14,16 @@ styleInj.innerHTML = `
     .minimap-container.is-minimized .minimap-toggle { display: none; }
     .minimap-icon { display: none; font-size: 24px; color: var(--accent); }
     .minimap-container.is-minimized .minimap-icon { display: block; }
-    
+
     .sys-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); z-index: 9999; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
     .sys-modal-overlay.show { opacity: 1; }
     .sys-modal-content { background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; width: 420px; max-width: 90%; transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: 0 20px 40px rgba(0,0,0,0.5); overflow: hidden; }
     .sys-modal-overlay.show .sys-modal-content { transform: scale(1); }
-    
+
     .cyber-scanner-box { width: 80%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 16px; overflow: hidden; position: relative; }
     .cyber-scanner-line { height: 100%; width: 30%; background: var(--accent); box-shadow: 0 0 10px var(--accent); border-radius: 2px; animation: scanAnim 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
     @keyframes scanAnim { 0% { transform: translateX(0); } 100% { transform: translateX(233%); } }
-    
+
     .frame-resize-handle {
         position: absolute; bottom: 0; right: 0; width: 28px; height: 28px;
         cursor: nwse-resize; z-index: 20; pointer-events: auto;
@@ -126,8 +126,9 @@ window.openFlowWorkspace = function(event) {
 };
 
 function normalizeThemeMode(rawMode) {
+    if (rawMode === THEME_DARK) return THEME_DARK;
     if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
-    return THEME_DARK;
+    return THEME_LIGHT;
 }
 
 function applyThemeMode(mode) {
@@ -187,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rememberedPwd = localStorage.getItem('veo_admin_pwd_saved');
     if (rememberedPwd) {
         const pwdInput = document.getElementById('studio-pwd-input'), rememberCheckbox = document.getElementById('remember-pwd');
-        if (pwdInput) pwdInput.value = rememberedPwd; if (rememberCheckbox) rememberCheckbox.checked = true; 
+        if (pwdInput) pwdInput.value = rememberedPwd; if (rememberCheckbox) rememberCheckbox.checked = true;
     }
 
     const loginScene = document.getElementById('login-scene');
@@ -244,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (this.x < 0 || this.x > width) this.speedX *= -1; if (this.y < 0 || this.y > height) this.speedY *= -1;
                 if (mouse.x && mouse.y) {
                     let dx = mouse.x - this.x, dy = mouse.y - this.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < 80) { this.x -= dx * 0.015; this.y -= dy * 0.015; this.opacity = 0.9; } 
+                    if (Math.sqrt(dx*dx + dy*dy) < 80) { this.x -= dx * 0.015; this.y -= dy * 0.015; this.opacity = 0.9; }
                     else { this.opacity = Math.max(this.baseOpacity, this.opacity - 0.02); }
                 }
             }
@@ -286,7 +287,7 @@ function startLoginTransition() {
 }
 
 async function handleLoginSubmit(e) {
-    e.preventDefault(); 
+    e.preventDefault();
     const pwdInput = document.getElementById('studio-pwd-input').value.trim(), btn = document.getElementById('login-submit-btn');
     if (!pwdInput) return showToast("请输入密钥", "error");
     btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:20px;height:20px;stroke:currentColor;margin:0 auto;"><circle cx="25" cy="25" r="20"></circle></svg>`; btn.style.pointerEvents = 'none';
@@ -297,13 +298,13 @@ async function handleLoginSubmit(e) {
     setTimeout(() => {
         if (inputHash !== TARGET_HASH) {
             showErrorModal(); btn.innerHTML = `验证身份 / LOGIN`; btn.style.pointerEvents = 'auto';
-            document.getElementById('studio-pwd-input').value = ''; localStorage.removeItem('veo_admin_pwd_saved'); return; 
+            document.getElementById('studio-pwd-input').value = ''; localStorage.removeItem('veo_admin_pwd_saved'); return;
         }
         sessionStorage.setItem('veo_admin_pwd', pwdInput);
         const rememberCheckbox = document.getElementById('remember-pwd');
-        if (rememberCheckbox && rememberCheckbox.checked) localStorage.setItem('veo_admin_pwd_saved', pwdInput); else localStorage.removeItem('veo_admin_pwd_saved'); 
+        if (rememberCheckbox && rememberCheckbox.checked) localStorage.setItem('veo_admin_pwd_saved', pwdInput); else localStorage.removeItem('veo_admin_pwd_saved');
         btn.innerHTML = `<span class="material-symbols-outlined">check_circle</span> 验证通过`; btn.style.background = 'var(--success)';
-        
+
         setTimeout(() => {
             document.getElementById('gate-step-2').classList.remove('step-active'); document.getElementById('gate-step-2').classList.add('step-passed');
             const gate = document.getElementById('login-gate'); gate.classList.add('unlocked');
@@ -311,20 +312,24 @@ async function handleLoginSubmit(e) {
                 if (typeof loginAnimationId !== 'undefined' && loginAnimationId) cancelAnimationFrame(loginAnimationId);
                 gate.remove(); showToast("欢迎回来", "success");
                 markAppShellReady();
-                setTimeout(showAnnouncement, 500); 
+                setTimeout(showAnnouncement, 500);
             }, 800);
         }, 400);
     }, 600);
 }
 
-const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit'; 
-const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll'; 
+const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit';
+const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll';
 const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
 const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
 const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
+const IMG_GEN_PRO_INPUT_PRICE_PER_1M = 5;
+const IMG_GEN_PRO_OUTPUT_PRICE_PER_1M = 30;
+const IMG_GEN_PROXY_RECHARGE_FACTOR = 0.5;
+const IMG_GEN_PRO_FALLBACK_COST = 0.12;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
-let activeTasks = [], activeRetries = new Set(); 
+let activeTasks = [], activeRetries = new Set();
 const taskPollControllers = new Map();
 const taskPollTimers = new Map();
 const imgGenPollControllers = new Map();
@@ -1430,10 +1435,10 @@ function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index
 function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
 function toggleMaterialDrawer() { document.getElementById('material-drawer').classList.toggle('open'); }
 
-function handleAuthError() { 
-    if (!sessionStorage.getItem('veo_admin_pwd')) return; 
-    sessionStorage.removeItem('veo_admin_pwd'); 
-    showToast("密钥验证失败或已过期，即将退回登录舱", "error"); 
+function handleAuthError() {
+    if (!sessionStorage.getItem('veo_admin_pwd')) return;
+    sessionStorage.removeItem('veo_admin_pwd');
+    showToast("密钥验证失败或已过期，即将退回登录舱", "error");
     setTimeout(() => {
         if (isReducedMotion()) {
             location.reload();
@@ -1441,21 +1446,21 @@ function handleAuthError() {
         }
         startRouteTransition('SESSION EXPIRED');
         setTimeout(() => location.reload(), ROUTE_TRANSITION_MS);
-    }, 1500); 
+    }, 1500);
 }
 
 // ==========================================
 // 🗂️ 智能素材库管理引擎
 // ==========================================
 async function renderMaterialLibrary() {
-    const tasks = await getAllTasksDB(); 
+    const tasks = await getAllTasksDB();
     const materials = tasks.filter(t => t.type === 'local_image');
-    const grid = document.getElementById('material-grid'); 
+    const grid = document.getElementById('material-grid');
     if (!grid) return;
-    
-    if (materials.length === 0) { 
-        grid.innerHTML = `<div style="grid-column: span 2; text-align: center; padding: 40px 0; color: var(--text-sub); font-size: 12px;">仓库空空如也</div>`; 
-        return; 
+
+    if (materials.length === 0) {
+        grid.innerHTML = `<div style="grid-column: span 2; text-align: center; padding: 40px 0; color: var(--text-sub); font-size: 12px;">仓库空空如也</div>`;
+        return;
     }
 
     const now = Date.now(), ONE_DAY = 86400000;
@@ -1497,12 +1502,12 @@ async function deduplicateMaterials(event) {
         let removedCount = 0;
 
         for (let m of materials) {
-            if (!m.src) continue; 
+            if (!m.src) continue;
             const signature = await buildBlobSignature(m.src);
-            if (!signature) continue; 
+            if (!signature) continue;
 
             if (seenSignatures.has(signature)) {
-                await deleteTaskDB(m.id); 
+                await deleteTaskDB(m.id);
                 removedCount++;
             } else {
                 seenSignatures.add(signature);
@@ -1547,20 +1552,20 @@ async function openBillingModal() {
 function closeBillingModal() { const modal = document.getElementById('billing-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
 
 function updateEstimatedCost() {
-    const state = globalStore.getState(); 
+    const state = globalStore.getState();
     const modelValue = String(state.model || '');
-    let cost = 0.35; 
+    let cost = 0.35;
     if (modelValue.toLowerCase().includes('4k')) {
-        cost = 0.50; 
+        cost = 0.50;
     } else if (modelValue.toLowerCase().includes('lite')) { // 🌟 兼容特惠模型 fast-lite-1.0
-        cost = 0.20; 
+        cost = 0.20;
     }
-    
+
     const batchSelect = document.getElementById('batch-select');
     const batch = batchSelect ? parseInt(batchSelect.value) : 1;
     const total = (cost * batch).toFixed(2);
-    
-    const btn = document.getElementById('generate-btn'); 
+
+    const btn = document.getElementById('generate-btn');
     if (btn) btn.setAttribute('data-tip', `发送至服务器生成 | 预估消耗: ￥${total}`);
 }
 function updateBatchCount(select) { document.getElementById('batch-text').innerText = select.options[select.selectedIndex].text; updateEstimatedCost(); }
@@ -1570,7 +1575,7 @@ async function alignSelectedCards() {
     if (tasks.length === 0) return showToast("画布上目前没有任何卡片", "info");
     let targetIds = selectedTasks.size > 0 ? Array.from(selectedTasks) : tasks.map(t => t.id);
     let cardsToAlign = tasks.filter(t => targetIds.includes(t.id) && t.type !== 'local_image' && t.type !== 'frame' && !t.parentId);
-    
+
     if(cardsToAlign.length === 0) return showToast("没有可排版的散落卡片", "info");
 
     cardsToAlign.forEach(normalizeTaskPosition);
@@ -1635,7 +1640,7 @@ document.addEventListener('mouseover', (e) => {
         const rect = target.getBoundingClientRect(); let x = rect.left + rect.width / 2, y = rect.top;
         if (y < 60) { y = rect.bottom; globalTooltip.classList.add('tooltip-bottom'); } else { globalTooltip.classList.remove('tooltip-bottom'); }
         globalTooltip.style.left = `${x}px`; globalTooltip.style.top = `${y}px`; globalTooltip.classList.add('show');
-    }, 500); 
+    }, 500);
 });
 document.addEventListener('mouseout', (e) => { const target = e.target.closest('[data-tip]'); if (!target) return; clearTimeout(tooltipTimer); document.getElementById('global-tooltip').classList.remove('show'); });
 
@@ -1681,12 +1686,12 @@ async function removeFrame(id) {
 
 async function checkGroupDrop(draggedInfo) {
     const task = draggedInfo.task;
-    if (task.type === 'frame') return; 
+    if (task.type === 'frame') return;
     const cardCenter = { x: task.x + (task.width || 340)/2, y: task.y + (task.height || 400)/2 };
-    
+
     const frames = Array.from(document.querySelectorAll('.frame-box')).map(el => el.__veoTask).filter(t => t && t.type === 'frame' && !t.isCollapsed);
     let validFrames = [];
-    
+
     for (let f of frames) {
         if (cardCenter.x > f.x && cardCenter.x < f.x + f.width && cardCenter.y > f.y && cardCenter.y < f.y + f.height) {
             validFrames.push(f);
@@ -1719,11 +1724,11 @@ async function checkGroupDrop(draggedInfo) {
 }
 
 
-const viewport = document.getElementById('canvas-viewport'), board = document.getElementById('canvas-board'), marquee = document.getElementById('selection-marquee'); 
-let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = false, startPanX = 0, startPanY = 0, ticking = false; 
-let draggingCardInfo = null, highestZIndex = 10, scrollTimeout; 
+const viewport = document.getElementById('canvas-viewport'), board = document.getElementById('canvas-board'), marquee = document.getElementById('selection-marquee');
+let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
+let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
-let activeCrop = null, activeFrameResize = null; 
+let activeCrop = null, activeFrameResize = null;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
@@ -2129,7 +2134,7 @@ window.addEventListener('mousemove', (e) => {
                 transform.y = e.clientY - startPanY;
                 recordPanSample(e.clientX, e.clientY);
                 applyCanvasTransform({ cull: false, minimapDuration: 900 });
-            } 
+            }
             else if (isSelecting) {
                 const currentX = e.clientX, currentY = e.clientY, left = Math.min(startSelX, currentX), top = Math.min(startSelY, currentY), width = Math.abs(currentX - startSelX), height = Math.abs(currentY - startSelY);
                 const isCrossing = currentX < startSelX;
@@ -2152,7 +2157,7 @@ window.addEventListener('mousemove', (e) => {
                     else { card.classList.remove('selected'); selectedTasks.delete(card.id.replace('card-', '')); }
                 });
                 updateSelectionToolbar();
-            } 
+            }
             else if (draggingCardInfo) {
                 const dx = (e.clientX - draggingCardInfo.startMouseX) / transform.scale, dy = (e.clientY - draggingCardInfo.startMouseY) / transform.scale;
                 const dragBaseX = toFiniteNumber(draggingCardInfo.initialX, 0);
@@ -2174,7 +2179,7 @@ window.addEventListener('mousemove', (e) => {
                 const newW = Math.max(activeFrameResize.minW, activeFrameResize.startW + dx);
                 const newH = Math.max(activeFrameResize.minH, activeFrameResize.startH + dy);
                 activeFrameResize.el.style.width = newW + 'px'; activeFrameResize.el.style.height = newH + 'px';
-                activeFrameResize.task.width = newW; activeFrameResize.task.height = newH; 
+                activeFrameResize.task.width = newW; activeFrameResize.task.height = newH;
                 syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
                 updateSelectionToolbar();
             }
@@ -2184,8 +2189,8 @@ window.addEventListener('mousemove', (e) => {
     }
 });
 
-viewport.addEventListener('mousedown', (e) => { 
-    if (e.target === viewport || e.target === board) { 
+viewport.addEventListener('mousedown', (e) => {
+    if (e.target === viewport || e.target === board) {
         cancelCameraAnimation();
         cancelCanvasInertia();
         if (e.shiftKey) {
@@ -2211,10 +2216,10 @@ viewport.addEventListener('mousedown', (e) => {
             startPanY = e.clientY - transform.y;
             recordPanSample(e.clientX, e.clientY);
         }
-    } 
+    }
 });
 
-window.addEventListener('mouseup', async () => { 
+window.addEventListener('mouseup', async () => {
     isPrimaryPointerDown = false;
     const wasPanning = isPanning;
     isPanning = false;
@@ -2229,25 +2234,25 @@ window.addEventListener('mouseup', async () => {
         scheduleViewportCulling(40);
         updateSelectionToolbar();
     }
-    
-    if (draggingCardInfo) { 
-        draggingCardInfo.el.style.willChange = 'auto'; 
+
+    if (draggingCardInfo) {
+        draggingCardInfo.el.style.willChange = 'auto';
         syncCardViewportMetrics(draggingCardInfo.el, draggingCardInfo.task);
-        await saveTaskDB(draggingCardInfo.task); 
-        
-        if (draggingCardInfo.children) { 
+        await saveTaskDB(draggingCardInfo.task);
+
+        if (draggingCardInfo.children) {
             for(let child of draggingCardInfo.children) { child.el.style.willChange = 'auto'; syncCardViewportMetrics(child.el, child.task); await saveTaskDB(child.task); }
         } else {
             await checkGroupDrop(draggingCardInfo);
         }
-        draggingCardInfo = null; 
+        draggingCardInfo = null;
         scheduleViewportCulling(40);
         updateSelectionToolbar();
-        renderMinimap(); 
-    } 
+        renderMinimap();
+    }
     if (activeFrameResize) {
         syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
-        await saveTaskDB(activeFrameResize.task); 
+        await saveTaskDB(activeFrameResize.task);
         activeFrameResize = null;
         scheduleViewportCulling(40);
         updateSelectionToolbar();
@@ -2259,7 +2264,7 @@ viewport.addEventListener('wheel', (e) => {
     const wheelTarget = e.target && typeof e.target.closest === 'function' ? e.target : null;
     if (wheelTarget && wheelTarget.closest('.img-gen-preview-panel')) return;
     if (e.target.tagName === 'TEXTAREA' || e.target.closest('textarea')) return;
-    if (draggingCardInfo) return; 
+    if (draggingCardInfo) return;
     e.preventDefault();
     cancelCameraAnimation();
     cancelCanvasInertia();
@@ -2295,20 +2300,20 @@ window.addEventListener('resize', () => {
 });
 
 function startFrameResize(e, id) {
-    e.stopPropagation(); 
+    e.stopPropagation();
     isPanning = false; setCanvasMoving(false);
     const el = document.getElementById('card-' + id);
     const task = el.__veoTask;
-    
-    let minW = 340; 
-    let minH = 140; 
-    
+
+    let minW = 340;
+    let minH = 140;
+
     if (task) {
         document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
             if (childEl.__veoTask && childEl.__veoTask.parentId === id) {
                 const childTask = childEl.__veoTask;
-                const childRight = (childTask.x - task.x) + (childTask.width || 340) + 40; 
-                const childBottom = (childTask.y - task.y) + (childTask.height || 400) + 40; 
+                const childRight = (childTask.x - task.x) + (childTask.width || 340) + 40;
+                const childBottom = (childTask.y - task.y) + (childTask.height || 400) + 40;
                 if (childRight > minW) minW = childRight;
                 if (childBottom > minH) minH = childBottom;
             }
@@ -2318,19 +2323,19 @@ function startFrameResize(e, id) {
     activeFrameResize = {
         id: id, startX: e.clientX, startY: e.clientY,
         startW: el.offsetWidth, startH: el.offsetHeight, el: el, task: task,
-        minW: minW, minH: minH  
+        minW: minW, minH: minH
     };
 }
 
 // ✅ 替换为支持 Alt 克隆的拖拽绑定引擎
 function bindCardDrag(cardEl, task) {
-    cardEl.__veoTask = task; 
-    cardEl.onmousedown = (e) => { 
-        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) { 
-            highestZIndex++; cardEl.style.zIndex = highestZIndex; 
-        } 
+    cardEl.__veoTask = task;
+    cardEl.onmousedown = (e) => {
+        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) {
+            highestZIndex++; cardEl.style.zIndex = highestZIndex;
+        }
     };
-    
+
     const header = cardEl.querySelector('.card-header') || cardEl.querySelector('.frame-header');
     if(header) {
         // 🌟 改为 async 函数，因为克隆需要查库
@@ -2349,7 +2354,7 @@ function bindCardDrag(cardEl, task) {
                 return;
             }
 
-            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform'; 
+            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             } else {
@@ -2362,8 +2367,8 @@ function bindCardDrag(cardEl, task) {
                 startMouseY: e.clientY,
                 initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
                 initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0)
-            }; 
-            
+            };
+
             if (task.type === 'frame') {
                 draggingCardInfo.children = [];
                 document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
@@ -2378,10 +2383,10 @@ function bindCardDrag(cardEl, task) {
                     }
                 });
             }
-            e.stopPropagation(); 
+            e.stopPropagation();
         };
     }
-    
+
     const resizeHandle = cardEl.querySelector('.frame-resize-handle');
     if (resizeHandle) {
         resizeHandle.onmousedown = (e) => {
@@ -2529,8 +2534,8 @@ let mapMeta = { minX: 0, minY: 0, mapScale: 0, offsetX: 0, offsetY: 0 };
 
 async function renderMinimap() {
     const container = document.getElementById('minimap-container');
-    if (!container || container.classList.contains('is-minimized')) return; 
-    
+    if (!container || container.classList.contains('is-minimized')) return;
+
     const canvas = document.getElementById('minimap-canvas'), viewBox = document.getElementById('minimap-viewport-box');
     if (!canvas || !viewBox) return;
     const ctx = canvas.getContext('2d'), cw = container.clientWidth, ch = container.clientHeight;
@@ -2541,8 +2546,8 @@ async function renderMinimap() {
 
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
-    let minX = Math.min(...boardTasks.map(t => t.x)), maxX = Math.max(...boardTasks.map(t => t.x + (t.width || 340))); 
-    let minY = Math.min(...boardTasks.map(t => t.y)), maxY = Math.max(...boardTasks.map(t => t.y + (t.height || 400))); 
+    let minX = Math.min(...boardTasks.map(t => t.x)), maxX = Math.max(...boardTasks.map(t => t.x + (t.width || 340)));
+    let minY = Math.min(...boardTasks.map(t => t.y)), maxY = Math.max(...boardTasks.map(t => t.y + (t.height || 400)));
 
     const viewMinX = -transform.x / transform.scale, viewMaxX = viewMinX + window.innerWidth / transform.scale;
     const viewMinY = -transform.y / transform.scale, viewMaxY = viewMinY + window.innerHeight / transform.scale;
@@ -2560,8 +2565,8 @@ async function renderMinimap() {
         if (t.parentId && frameMap[t.parentId] && frameMap[t.parentId].isCollapsed) return;
         const px = offsetX + (t.x - minX) * mapScale, py = offsetY + (t.y - minY) * mapScale, pw = (t.width || 340) * mapScale, ph = (t.height || 400) * mapScale;
         ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(px, py, pw, Math.max(ph, 5), 3); else ctx.rect(px, py, pw, Math.max(ph, 5));
-        
-        if (t.type === 'frame') ctx.fillStyle = 'rgba(167, 139, 250, 0.15)'; 
+
+        if (t.type === 'frame') ctx.fillStyle = 'rgba(167, 139, 250, 0.15)';
         else if (t.type === 'note') ctx.fillStyle = 'rgba(255, 202, 40, 0.8)'; else if (t.type === 'tool_generator') ctx.fillStyle = 'rgba(129, 140, 248, 0.8)'; else if (t.type === 'tool_image_gen') ctx.fillStyle = 'rgba(10, 132, 255, 0.8)'; else if (t.type === 'tool_cropper') ctx.fillStyle = 'rgba(50, 215, 75, 0.8)'; else ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.fill();
     });
@@ -2581,9 +2586,9 @@ function syncMinimapViewport() {
 }
 
 function handleMinimapClick(e) {
-    const container = document.getElementById('minimap-container'); 
-    if (container.classList.contains('is-minimized')) return; 
-    
+    const container = document.getElementById('minimap-container');
+    if (container.classList.contains('is-minimized')) return;
+
     const rect = container.getBoundingClientRect();
     const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
     const targetWorldX = (clickX - mapMeta.offsetX) / mapMeta.mapScale + mapMeta.minX, targetWorldY = (clickY - mapMeta.offsetY) / mapMeta.mapScale + mapMeta.minY;
@@ -2851,7 +2856,7 @@ async function parseDroppedImage(e) {
         const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
         if (file) srcToUse = await compressImageToBlob(file, 1024);
     }
-    
+
     return srcToUse;
 }
 
@@ -2952,15 +2957,15 @@ async function renderCard(taskId, taskOverride = null) {
 // ==========================================
 async function handleCropperDrop(e, taskId) {
     e.preventDefault(); e.stopPropagation();
-    const srcToUse = await parseDroppedImage(e); 
+    const srcToUse = await parseDroppedImage(e);
     if (srcToUse) {
         const task = await getTaskDB(taskId);
-        if (task) { 
+        if (task) {
             task.state.sourceBlob = srcToUse;
             task.timestamp = Date.now();
-            await saveTaskDB(task); 
-            renderCard(taskId); 
-            showToast("✅ 成功导入待裁切素材", "success"); 
+            await saveTaskDB(task);
+            renderCard(taskId);
+            showToast("✅ 成功导入待裁切素材", "success");
         }
     }
 }
@@ -2969,44 +2974,44 @@ async function handleCropperUpload(input, taskId) {
     if (!input.files || input.files.length === 0) return;
     const blob = await compressImageToBlob(input.files[0], 1024);
     const task = await getTaskDB(taskId);
-    if (task) { 
-        task.state.sourceBlob = blob; 
+    if (task) {
+        task.state.sourceBlob = blob;
         task.timestamp = Date.now();
-        await saveTaskDB(task); 
-        renderCard(taskId); 
+        await saveTaskDB(task);
+        renderCard(taskId);
     }
     input.value = '';
 }
 
 async function resetCropper(taskId) {
     const task = await getTaskDB(taskId);
-    if (task) { 
-        task.state.sourceBlob = null; 
-        task.state.resultBlob = null; 
-        await saveTaskDB(task); 
-        renderCard(taskId); 
+    if (task) {
+        task.state.sourceBlob = null;
+        task.state.resultBlob = null;
+        await saveTaskDB(task);
+        renderCard(taskId);
     }
 }
 
 // ✅ 替换为：带状态重置的返回重选器
 async function reEditCropper(taskId) {
     const task = await getTaskDB(taskId);
-    if (task) { 
-        task.state.resultBlob = null; 
-        
+    if (task) {
+        task.state.resultBlob = null;
+
         // 🌟 补上这一行，清理掉上次裁切的残留指纹
-        task.timestamp = Date.now(); 
-        
-        await saveTaskDB(task); 
-        renderCard(taskId); 
+        task.timestamp = Date.now();
+
+        await saveTaskDB(task);
+        renderCard(taskId);
     }
 }
 
 // ✅ 替换为：带“时间戳击穿缓存”功能的裁切生成器
 async function generateCrop(taskId) {
-    const task = await getTaskDB(taskId); 
+    const task = await getTaskDB(taskId);
     if (!task || !task.state.sourceBlob) return;
-    
+
     const imgEl = document.getElementById(`crop-img-${taskId}`);
     const boxEl = document.getElementById(`crop-box-${taskId}`);
     if (!imgEl || !boxEl) return;
@@ -3029,10 +3034,10 @@ async function generateCrop(taskId) {
         ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
         canvas.toBlob(async (blob) => {
             task.state.resultBlob = blob;
-            
+
             // 🌟 核心修复：强制更新时间戳，让浏览器明白这是一张全新的图
-            task.timestamp = Date.now(); 
-            
+            task.timestamp = Date.now();
+
             await saveTaskDB(task);
             renderCard(taskId); // 局部重绘
             showToast("✂️ 裁切提取完成！可按住新图片拖拽复用", "success");
@@ -3045,17 +3050,17 @@ function bindMainConsoleDrop(slotId, stateKey) {
     slot.addEventListener('drop', async (e) => {
         e.preventDefault(); slot.classList.remove('drag-over'); const srcToUse = await parseDroppedImage(e);
         if (srcToUse) {
-            if (stateKey === 'references') { 
-                if (globalStore.getState().references.length < 3) globalStore.getState().references.push(srcToUse); 
-                renderReferences(); 
-                document.getElementById('ref-popover').style.display = 'flex'; 
-            } 
-            else { 
-                globalStore.getState()[stateKey] = srcToUse; 
-                const t = stateKey === 'firstFrame' ? 'first' : 'last'; 
+            if (stateKey === 'references') {
+                if (globalStore.getState().references.length < 3) globalStore.getState().references.push(srcToUse);
+                renderReferences();
+                document.getElementById('ref-popover').style.display = 'flex';
+            }
+            else {
+                globalStore.getState()[stateKey] = srcToUse;
+                const t = stateKey === 'firstFrame' ? 'first' : 'last';
                 // 🌟 核心：加上 Date.now() 打破缓存
-                document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}_${Date.now()}`, srcToUse); 
-                document.getElementById(`slot-${t}-box`).classList.add('has-img'); 
+                document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}_${Date.now()}`, srcToUse);
+                document.getElementById(`slot-${t}-box`).classList.add('has-img');
             }
         }
     });
@@ -3076,6 +3081,22 @@ async function applyGeneratorToPrompt(id, btnElement) {
     const originalText = btnElement.innerHTML; btnElement.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">check_circle</span> 已应用`; btnElement.style.color = 'var(--success)'; setTimeout(() => { btnElement.innerHTML = originalText; btnElement.style.color = ''; }, 1500);
 }
 function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>请选择...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
+
+function switchMode(mode) {
+    const safeMode = mode === 'frame' ? 'frame' : 'ref';
+    globalStore.dispatch('SET_MODE', safeMode);
+}
+function updateInputMode(select) { if (select) switchMode(select.value); }
+function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); }
+function updateRatio(select) { globalStore.dispatch('SET_RATIO', { value: select.value, text: select.options[select.selectedIndex].text }); }
+function updateEnhance(select) { globalStore.dispatch('SET_ENHANCE', { value: select.value, text: select.options[select.selectedIndex].text }); }
+function updateUpsample(select) { globalStore.getState().enableUpsample = select.value === 'true'; document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
+function updateAutoRetry(select) { globalStore.getState().autoRetry = select.value === 'true'; document.getElementById('retry-text').innerText = select.options[select.selectedIndex].text; }
+function formatImgGenMoney(amount) {
+    const value = toFiniteNumber(amount, NaN);
+    if (!Number.isFinite(value) || value < 0) return '';
+    return `￥${value.toFixed(4)}`;
+}
 
 function getVideoInputModeLabel(mode) {
     return mode === 'frame' ? '首尾帧' : '参考图';
@@ -3104,20 +3125,114 @@ function buildVideoSubmitModel(modelValue, inputMode) {
 function getVideoModelDisplayName(modelValue, inputMode) {
     const raw = String(modelValue || '').toLowerCase();
     if (raw.includes('lite')) return '极速特惠版';
-    const modelName = getVideoQualityModel(modelValue) === 'veo3.1-4k' ? 'Veo 3.1 4K' : 'Veo 3.1';
+    const modelName = getVideoQualityModel(modelValue) === 'veo3.1-4k' ? 'Veo 3.1 4K' : 'Veo 3.1 普通';
     return `${modelName} · ${getVideoInputModeLabel(inputMode)}`;
 }
 
-function switchMode(mode) {
-    const safeMode = mode === 'frame' ? 'frame' : 'ref';
-    globalStore.dispatch('SET_MODE', safeMode);
+function extractImgGenUsage(rawData) {
+    const roots = [];
+    const queue = [];
+    const seen = typeof WeakSet === 'function' ? new WeakSet() : null;
+    const pushCandidate = (candidate) => {
+        if (!candidate || typeof candidate !== 'object') return;
+        queue.push(candidate);
+    };
+    if (Array.isArray(rawData)) rawData.forEach(pushCandidate);
+    else pushCandidate(rawData);
+
+    while (queue.length > 0 && roots.length < 24) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object') continue;
+        if (seen) {
+            if (seen.has(current)) continue;
+            seen.add(current);
+        }
+        roots.push(current);
+        if (current.json && typeof current.json === 'object') queue.push(current.json);
+        if (current.body && typeof current.body === 'object') queue.push(current.body);
+        if (current.result && typeof current.result === 'object') queue.push(current.result);
+        if (current.response && typeof current.response === 'object') queue.push(current.response);
+        if (current.data && typeof current.data === 'object' && !Array.isArray(current.data)) queue.push(current.data);
+    }
+
+    const pickNumber = (obj, keys) => {
+        for (const key of keys) {
+            const value = obj && obj[key];
+            const num = toFiniteNumber(value, NaN);
+            if (Number.isFinite(num) && num >= 0) return num;
+        }
+        return NaN;
+    };
+
+    const normalizeDetails = (details) => {
+        if (!details || typeof details !== 'object') return { textTokens: 0, imageTokens: 0 };
+        const textTokens = pickNumber(details, ['text_tokens', 'textTokens', 'token_text', 'text']);
+        const imageTokens = pickNumber(details, ['image_tokens', 'imageTokens', 'token_image', 'image']);
+        return {
+            textTokens: Number.isFinite(textTokens) ? textTokens : 0,
+            imageTokens: Number.isFinite(imageTokens) ? imageTokens : 0
+        };
+    };
+
+    for (const root of roots) {
+        const usage = root.usage || root.token_usage || root.tokenUsage || root.usage_stats || root.usageStats || null;
+        const source = usage && typeof usage === 'object' ? usage : root;
+        const inputTokens = pickNumber(source, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens', 'input_token_count']);
+        const outputTokens = pickNumber(source, ['output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens', 'output_token_count']);
+        const totalTokens = pickNumber(source, ['total_tokens', 'totalTokens', 'tokens', 'token_count']);
+        const inputDetails = normalizeDetails(source.input_tokens_details || source.inputTokensDetails || source.prompt_tokens_details || source.promptTokensDetails);
+        const outputDetails = normalizeDetails(source.output_tokens_details || source.outputTokensDetails || source.completion_tokens_details || source.completionTokensDetails);
+        const hasAny =
+            Number.isFinite(inputTokens) || Number.isFinite(outputTokens) || Number.isFinite(totalTokens) ||
+            inputDetails.textTokens > 0 || inputDetails.imageTokens > 0 || outputDetails.textTokens > 0 || outputDetails.imageTokens > 0;
+        if (!hasAny) continue;
+
+        const resolvedInputTokens = Number.isFinite(inputTokens)
+            ? inputTokens
+            : (inputDetails.textTokens + inputDetails.imageTokens);
+        const resolvedOutputTokens = Number.isFinite(outputTokens)
+            ? outputTokens
+            : (outputDetails.textTokens + outputDetails.imageTokens);
+
+        return {
+            inputTokens: Math.max(0, Math.round(resolvedInputTokens || 0)),
+            outputTokens: Math.max(0, Math.round(resolvedOutputTokens || 0)),
+            totalTokens: Math.max(0, Math.round(Number.isFinite(totalTokens) ? totalTokens : (resolvedInputTokens + resolvedOutputTokens || 0))),
+            inputDetails,
+            outputDetails
+        };
+    }
+    return null;
 }
-function updateInputMode(select) { if (select) switchMode(select.value); }
-function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); }
-function updateRatio(select) { globalStore.dispatch('SET_RATIO', { value: select.value, text: select.options[select.selectedIndex].text }); }
-function updateEnhance(select) { globalStore.dispatch('SET_ENHANCE', { value: select.value, text: select.options[select.selectedIndex].text }); }
-function updateUpsample(select) { globalStore.getState().enableUpsample = select.value === 'true'; document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
-function updateAutoRetry(select) { globalStore.getState().autoRetry = select.value === 'true'; document.getElementById('retry-text').innerText = select.options[select.selectedIndex].text; }
+
+function calculateImgGenBilling(task, rawData) {
+    const version = task && task.state && task.state.version === 'pro' ? 'pro' : 'trial';
+    const channel = task && task.state && task.state.channel === 'channel_2' ? 'channel_2' : 'channel_1';
+    if (version === 'pro') {
+        const usage = extractImgGenUsage(rawData);
+        if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+            const officialCost = ((usage.inputTokens * IMG_GEN_PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * IMG_GEN_PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
+            const cost = officialCost * IMG_GEN_PROXY_RECHARGE_FACTOR;
+            return {
+                cost,
+                detail: `AI生图 专业版 GPT Image 2 · 输入 ${usage.inputTokens} / 输出 ${usage.outputTokens} tokens · 中转半价`,
+                usage
+            };
+        }
+        return {
+            cost: IMG_GEN_PRO_FALLBACK_COST,
+            detail: 'AI生图 专业版 GPT Image 2 · usage 缺失兜底',
+            usage: null
+        };
+    }
+
+    const cost = channel === 'channel_2' ? 0.06 : 0.084;
+    return {
+        cost,
+        detail: `AI生图 试用版 (${channel})`,
+        usage: null
+    };
+}
 
 sysBus.on('UI:SWITCH_MODE', (mode) => {
     const safeMode = mode === 'frame' ? 'frame' : 'ref';
@@ -3146,15 +3261,15 @@ function removeReference(event, index) { event.stopPropagation(); globalStore.ge
 function clearReferences(e) { e.stopPropagation(); globalStore.getState().references = []; renderReferences(); document.getElementById('ref-popover').style.display = 'none'; }
 function renderReferences() {
     const box = document.getElementById('slot-ref-box'), imgEl = document.getElementById('ref-img'), countBadge = document.getElementById('ref-count-badge'), state = globalStore.getState();
-    if (state.references.length === 0) { 
-        box.classList.remove('has-img'); imgEl.src = ''; countBadge.style.display = 'none'; 
-    } 
-    else { 
-        box.classList.add('has-img'); 
+    if (state.references.length === 0) {
+        box.classList.remove('has-img'); imgEl.src = ''; countBadge.style.display = 'none';
+    }
+    else {
+        box.classList.add('has-img');
         // 🌟 核心：加上 Date.now()
-        imgEl.src = getBlobUrl(`temp_ref_main_${Date.now()}`, state.references[0]); 
-        countBadge.style.display = state.references.length > 1 ? 'flex' : 'none'; 
-        countBadge.innerText = state.references.length; 
+        imgEl.src = getBlobUrl(`temp_ref_main_${Date.now()}`, state.references[0]);
+        countBadge.style.display = state.references.length > 1 ? 'flex' : 'none';
+        countBadge.innerText = state.references.length;
     }
     // 🌟 列表渲染同样加上时间戳
     document.getElementById('ref-list-container').innerHTML = state.references.map((b, index) => `<div class="popover-img-item"><img src="${getBlobUrl(`temp_ref_${index}_${Date.now()}`, b)}"><div class="popover-rm-btn" onclick="removeReference(event, ${index})">×</div></div>`).join('');
@@ -3168,17 +3283,17 @@ async function submitBatchTask() {
     const prompt = document.getElementById('prompt-input').value.trim(); if (!prompt) return alert('请填写提示词');
     const batchCount = parseInt(document.getElementById('batch-select').value), btn = document.getElementById('generate-btn');
     btn.disabled = true; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>`;
-    
+
     const state = globalStore.getState();
     const inputMode = state.currentMode === 'frame' ? 'frame' : 'ref';
     let submitRef = [...state.references], submitFirst = state.firstFrame, submitLast = state.lastFrame;
     if (inputMode === 'ref') { submitFirst = null; submitLast = null; } else submitRef = [];
     const taskParams = { model: buildVideoSubmitModel(state.model, inputMode), inputMode, aspectRatio: state.aspectRatio, enhancePrompt: state.enhancePrompt, enableUpsample: state.enableUpsample, autoRetry: state.autoRetry, firstFrame: submitFirst, lastFrame: submitLast, references: submitRef };
     let promises = []; for(let i=0; i<batchCount; i++) promises.push(executeSubmission(taskParams, prompt, i));
-    
+
     await Promise.allSettled(promises);
-    btn.disabled = false; btn.innerHTML = `<span class="material-symbols-outlined">arrow_upward</span>`; updateEstimatedCost(); 
-    document.getElementById('prompt-input').value = ''; 
+    btn.disabled = false; btn.innerHTML = `<span class="material-symbols-outlined">arrow_upward</span>`; updateEstimatedCost();
+    document.getElementById('prompt-input').value = '';
 
     // 🌟 新增核心：发射后彻底清空控制台内存与缩略图
     globalStore.getState().firstFrame = null;
@@ -3190,7 +3305,7 @@ async function submitBatchTask() {
     document.getElementById('slot-last-box').classList.remove('has-img');
     document.getElementById('first-file').value = '';
     document.getElementById('last-file').value = '';
-    renderReferences(); 
+    renderReferences();
 }
 
 // 🌟 提交引擎 (高容错 ID 解析版)
@@ -3207,26 +3322,26 @@ async function executeSubmission(params, promptText, offsetIndex = 0) {
             references: await blobsToBase64Sequential(params.references, { mode: 'network' })
         };
         const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
-        
+
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) {
             const errText = await response.text();
             throw new Error(`API 返回异常: ${response.status} - ${errText}`);
         }
-        
+
         const data = await response.json();
         const returnedId = data.taskId || data.id || data.task_id; // 🌟 兼容各种 n8n 返回结构
-        
+
         if (returnedId) {
             const spawnX = (-transform.x + window.innerWidth/2 - 170) / transform.scale + (offsetIndex * 360), spawnY = (-transform.y + window.innerHeight/2 - 150) / transform.scale + (offsetIndex * 40);
             const taskMode = params.inputMode || (params.references && params.references.length > 0 ? 'ref' : 'frame');
             const displayModelName = getVideoModelDisplayName(params.model, taskMode);
-            
+
             const newTask = { id: returnedId, prompt: promptText, modelStr: displayModelName, modelVal: params.model, ratio: params.aspectRatio, autoRetry: params.autoRetry, retryCount: 0, rawImages: { firstFrame: params.firstFrame, lastFrame: params.lastFrame, references: params.references || [] }, mode: taskMode, inputMode: taskMode, status: 'processing', progress: null, timestamp: Date.now(), time: new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}), videoUrl: null, x: spawnX, y: spawnY, isBilled: false };
-            await saveTaskDB(newTask); await renderBoard(); 
+            await saveTaskDB(newTask); await renderBoard();
         }
-    } catch (error) { 
-        console.error('任务提交失败:', error); 
+    } catch (error) {
+        console.error('任务提交失败:', error);
         showToast('视频生成提交失败，请检查网络或余额。', 'error');
     }
 }
@@ -3250,13 +3365,13 @@ async function retryTask(taskId, btnElement) {
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) throw new Error("API 异常");
         const data = await response.json();
-        
+
         const returnedId = data.taskId || data.id || data.task_id;
-        if (returnedId) { 
+        if (returnedId) {
             clearTaskPolling(taskId);
-            await deleteTaskDB(taskId); 
-            task.id = returnedId; task.status = 'processing'; task.progress = null; task.retryCount = (task.retryCount || 0) + 1; task.timestamp = Date.now(); task.time = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}); task.isBilled = false; 
-            await saveTaskDB(task); activeRetries.delete(taskId); await renderBoard(); 
+            await deleteTaskDB(taskId);
+            task.id = returnedId; task.status = 'processing'; task.progress = null; task.retryCount = (task.retryCount || 0) + 1; task.timestamp = Date.now(); task.time = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}); task.isBilled = false;
+            await saveTaskDB(task); activeRetries.delete(taskId); await renderBoard();
         } else throw new Error("无返回 ID");
     } catch (error) { task.status = 'failed'; task.autoRetry = false; await saveTaskDB(task); activeRetries.delete(taskId); renderCard(taskId); }
 }
@@ -3284,7 +3399,7 @@ function startTaskPolling(taskId) {
             if (task.type) { clearTaskPolling(taskId); return; }
             if (!task.modelVal) { clearTaskPolling(taskId); return; }
             const currentPwd = sessionStorage.getItem('veo_admin_pwd');
-            if (!currentPwd) { scheduleNextPoll(2000); return; } 
+            if (!currentPwd) { scheduleNextPoll(2000); return; }
 
             const controller = new AbortController();
             taskPollControllers.set(taskId, controller);
@@ -3299,36 +3414,36 @@ function startTaskPolling(taskId) {
             if (!response.ok) throw new Error("API 异常");
             const data = await response.json();
             errorCount = 0;
-            
+
             // 🌟 强力兼容各种 n8n 的字段名与状态名
             const currentStatus = (data.status || data.state || 'processing').toLowerCase();
             const currentVideoUrl = data.videoUrl || data.video_url || data.url;
 
-            if (data && (currentStatus === 'success' || currentStatus === 'completed' || currentStatus === 'succeeded') && currentVideoUrl) { 
-                clearTaskPolling(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl; 
+            if (data && (currentStatus === 'success' || currentStatus === 'completed' || currentStatus === 'succeeded') && currentVideoUrl) {
+                clearTaskPolling(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl;
                 if (!task.isBilled) {
                     let cost = 0.35, detailDesc = "Veo 3.1 (首尾帧)";
-                    if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (参考图)"; } 
-                    else if (task.modelVal === 'veo3.1-4k') { cost = 0.50; detailDesc = "Veo 3.1 4K (首尾帧)"; } 
-                    else if (task.modelVal === 'veo3.1-components-4k') { cost = 0.50; detailDesc = "Veo 3.1 Cmp 4K (参考图)"; } 
+                    if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (参考图)"; }
+                    else if (task.modelVal === 'veo3.1-4k') { cost = 0.50; detailDesc = "Veo 3.1 4K (首尾帧)"; }
+                    else if (task.modelVal === 'veo3.1-components-4k') { cost = 0.50; detailDesc = "Veo 3.1 Cmp 4K (参考图)"; }
                     else if (task.modelVal.includes('lite')) { cost = 0.20; detailDesc = "极速特惠版模型"; }
-                    
-                    await addBillingRecord({ id: 'bill_' + task.id, taskId: task.id, type: 'video', cost: cost, detail: detailDesc }); 
-                    task.isBilled = true; 
+
+                    await addBillingRecord({ id: 'bill_' + task.id, taskId: task.id, type: 'video', cost: cost, detail: detailDesc });
+                    task.isBilled = true;
                     updateBillingUI();
                 }
-                await saveTaskDB(task); renderCard(taskId); return; 
+                await saveTaskDB(task); renderCard(taskId); return;
             }
-            if (data && (currentStatus === 'failed' || currentStatus === 'error' || currentStatus === 'canceled' || currentStatus === 'rejected')) { 
-                clearTaskPolling(taskId); 
-                if (task.autoRetry) retryTask(task.id, null); 
-                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); } 
-                return; 
+            if (data && (currentStatus === 'failed' || currentStatus === 'error' || currentStatus === 'canceled' || currentStatus === 'rejected')) {
+                clearTaskPolling(taskId);
+                if (task.autoRetry) retryTask(task.id, null);
+                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
+                return;
             }
-            if (data && (currentStatus === 'processing' || currentStatus === 'pending' || currentStatus === 'queued' || currentStatus === 'in_progress') && data.progress && task.progress !== data.progress) { 
-                task.progress = data.progress; await saveTaskDB(task); renderCard(taskId); 
+            if (data && (currentStatus === 'processing' || currentStatus === 'pending' || currentStatus === 'queued' || currentStatus === 'in_progress') && data.progress && task.progress !== data.progress) {
+                task.progress = data.progress; await saveTaskDB(task); renderCard(taskId);
             }
-            
+
             if (attempts < maxAttempts) scheduleNextPoll(15000);
             else {
                 clearTaskPolling(taskId);
@@ -3723,6 +3838,17 @@ function renderImgGenHelpContent() {
             <p class="img-gen-help-note">官方边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
         </section>
         <section class="img-gen-help-section">
+            <h3>价格体系</h3>
+            <div class="img-gen-help-table">
+                <div><strong>试用版通道 1</strong><span>￥0.084 / 张，适合低成本试稿。</span></div>
+                <div><strong>试用版通道 2</strong><span>￥0.06 / 张，适合更省钱的轻量出图。</span></div>
+                <div><strong>Pro 输入</strong><span>￥5.0000 / 1M tokens。</span></div>
+                <div><strong>Pro 输出</strong><span>￥30.0000 / 1M tokens。</span></div>
+                <div><strong>中转折扣</strong><span>按上述 token 价格计算后再 × 1/2 入账。</span></div>
+                <div><strong>计费方式</strong><span>按返回的 usage 里的 input_tokens / output_tokens 实时计费；示例：1643 + 1413 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。</span></div>
+            </div>
+        </section>
+        <section class="img-gen-help-section">
             <h3>输入图槽位怎么用</h3>
             <ul>
                 <li><strong>BASE / MASK SOURCE</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
@@ -3843,7 +3969,10 @@ function renderImgGenCardHTML(task) {
     const isChannel2 = task.state.channel === 'channel_2';
     const previewCollapsed = task.state.previewCollapsed === true;
     const resolvedSize = resolveImgGenSize(task.state);
-    const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
+    const lastUsageCost = isPro ? toFiniteNumber(task.state.lastUsageCost, NaN) : NaN;
+    const currentCost = isPro
+        ? (Number.isFinite(lastUsageCost) && lastUsageCost > 0 ? formatImgGenMoney(lastUsageCost) : 'Token计费')
+        : (isChannel2 ? '0.06' : '0.084');
     const previewEntries = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
     const pendingCount = previewEntries.filter((item) => item && item.status === 'pending').length;
     const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
@@ -3949,16 +4078,16 @@ function generateCardHTML(task) {
     }
 
     let statusBadge = '', mediaHtml = ''; const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0])); const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
-    if (task.status === 'processing') { 
-        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : ''; statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`; 
+    if (task.status === 'processing') {
+        const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : ''; statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`;
         let progressHtml = `
             <div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div>
             <div style="font-size: 11px; color: var(--accent); margin-top: 8px; font-weight: 600; font-family: monospace; letter-spacing: 1px;">MODELS ENGAGED...</div>
         `;
-        mediaHtml = `<div class="card-media" style="aspect-ratio: ${task.ratio.replace(':','/')}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">视频生成中...</div>${progressHtml}</div></div>`; 
-    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">失败</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${task.ratio.replace(':','/')}; font-size:12px;">生成超时或失败</div>`; 
+        mediaHtml = `<div class="card-media" style="aspect-ratio: ${task.ratio.replace(':','/')}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">视频生成中...</div>${progressHtml}</div></div>`;
+    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">失败</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${task.ratio.replace(':','/')}; font-size:12px;">生成超时或失败</div>`;
     } else { statusBadge = `<span class="status-badge success">已完成</span>`; mediaHtml = `<div class="card-media" data-tip="双击全屏播放视频"><video src="${task.videoUrl}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`; }
-    
+
     const thumbHtml = thumbImg ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">` : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
     return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size: 14px;">schedule</span> ${task.time} · ${task.modelStr}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt}">${task.prompt}</p></div><div class="card-tags"><span class="card-tag">${task.ratio}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border: 1px solid var(--success);">已开挂机重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl}')" data-tip="下载此视频到本地"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)" data-tip="原地重新发起此任务"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')" data-tip="提取该任务的所有图文参数，反填至底部控制台"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')" data-tip="删除此生成记录"><span class="material-symbols-outlined">delete</span></button></div>`;
 }
@@ -3976,7 +4105,7 @@ async function renderBoard() {
             card.remove();
         }
     });
-    
+
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
     boardTasks.forEach(task => {
@@ -3994,13 +4123,13 @@ async function renderBoard() {
         const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
         const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
         const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
-        
+
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
 
         if (!cardEl) {
             cardEl = document.createElement('div'); cardEl.id = 'card-' + task.id;
-            
+
             if (task.type === 'frame') {
                 cardEl.className = 'frame-box';
                 cardEl.style.width = `${task.width}px`;
@@ -4008,7 +4137,7 @@ async function renderBoard() {
                 if (task.isCollapsed) cardEl.style.border = 'none';
             }
             else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
-            
+
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl);
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
@@ -4017,19 +4146,19 @@ async function renderBoard() {
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
-            
+
             if (task.type === 'frame') {
                 cardEl.style.width = `${task.width}px`;
                 cardEl.style.height = task.isCollapsed ? '0px' : `${task.height}px`;
                 cardEl.style.border = task.isCollapsed ? 'none' : '';
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
-            
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height'); 
+
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
-                morphCardDOM(cardEl, generateCardHTML(task)); 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
+                morphCardDOM(cardEl, generateCardHTML(task));
             }
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
@@ -4056,7 +4185,7 @@ async function renderBoard() {
 
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);
-        
+
         cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
@@ -4076,8 +4205,11 @@ async function removeTask(id) {
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
     imgGenUpdateQueues.delete(id);
+    selectedTasks.delete(id);
     const card = document.getElementById('card-' + id);
     if (card) card.remove();
+    updateSelectionToolbar();
+    scheduleViewportCulling(40);
     renderMinimap();
 }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
@@ -4442,6 +4574,9 @@ function ensureImgGenState(task) {
         task.state.imgGenUiV2 = true;
     }
     if (typeof task.state.paramsCollapsed !== 'boolean') task.state.paramsCollapsed = true;
+    const lastUsageCost = toFiniteNumber(task.state.lastUsageCost, NaN);
+    task.state.lastUsageCost = Number.isFinite(lastUsageCost) && lastUsageCost >= 0 ? lastUsageCost : null;
+    if (!task.state.lastUsageDetail) task.state.lastUsageDetail = '';
     const openW = parseInt(task.state.cardWidthOpen, 10);
     const collapsedW = parseInt(task.state.cardWidthCollapsed, 10);
     const cardH = parseInt(task.state.cardHeight, 10);
@@ -4682,8 +4817,14 @@ function buildImgGenHeaders() {
     return headers;
 }
 
+function unwrapImgGenResponseData(rawData) {
+    const head = Array.isArray(rawData) ? rawData[0] : rawData;
+    if (head && typeof head === 'object' && head.json && typeof head.json === 'object') return head.json;
+    return head;
+}
+
 function extractImageUrlsFromResponse(rawData) {
-    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    const resData = unwrapImgGenResponseData(rawData);
     if (!resData) return [];
     const urls = [];
     const pushIf = (u) => {
@@ -4762,7 +4903,7 @@ function extractImageUrlFromResponse(rawData) {
 }
 
 function extractImgGenTaskId(rawData) {
-    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    const resData = unwrapImgGenResponseData(rawData);
     if (!resData || typeof resData !== 'object') return '';
     const picks = [
         resData.taskId, resData.task_id, resData.jobId, resData.job_id, resData.requestId, resData.request_id, resData.id,
@@ -4794,7 +4935,7 @@ function extractImgGenTaskId(rawData) {
 }
 
 function extractImgGenStatus(rawData) {
-    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    const resData = unwrapImgGenResponseData(rawData);
     if (!resData) return '';
     const candidates = [
         resData.status, resData.state, resData.phase,
@@ -4833,7 +4974,7 @@ function isImgGenPendingStatus(status) {
 }
 
 function resolveImgGenPollDelayMs(rawData, fallback = 3500) {
-    const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+    const resData = unwrapImgGenResponseData(rawData);
     const retryAfterSec = toFiniteNumber(resData && (resData.retry_after || (resData.body && resData.body.retry_after)), NaN);
     const candidateMs = toFiniteNumber(
         resData && (
@@ -5005,16 +5146,22 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             task.state.costTime = costTime;
             task.timestamp = Date.now();
             task.genTaskId = null;
+            const billingInfo = calculateImgGenBilling(task, rawData);
+            task.state.lastUsageCost = billingInfo.cost;
+            task.state.lastUsageDetail = billingInfo.detail;
+            task.state.lastUsageAt = Date.now();
             clearImgGenPolling(taskId, itemId);
-            let cost = 0.084;
-            let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
-            if (task.state.version === 'pro') {
-                cost = 0.12;
-                detail = "AI生图 专业版 GPT Image 2";
-            } else if (task.state.channel === 'channel_2') {
-                cost = 0.06;
-            }
-            await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
+            await addBillingRecord({
+                id: 'bill_img_' + task.id + '_' + Date.now(),
+                taskId: task.id,
+                type: 'image',
+                cost: billingInfo.cost,
+                detail: billingInfo.detail,
+                inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
+                outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
+                version: task.state.version || 'trial',
+                channel: task.state.channel || 'channel_1'
+            });
             updateBillingUI();
             await saveTaskDB(task);
             renderCard(taskId, task);
@@ -5317,34 +5464,34 @@ async function handleGenImageDrop(e, taskId) {
     e.preventDefault(); e.stopPropagation();
     const zone = document.getElementById(`img-gen-zone-${taskId}`);
     if (zone) zone.classList.remove('drag-over');
-    
+
     // 🌟 核心破局点：必须在任何 await (如查库) 发生之前，优先且“同步”地提取拖放数据！
     const srcToUse = await parseDroppedImage(e);
-    
+
     // 如果没有拿到有效图片，直接拦截，节约性能
-    if (!srcToUse) return; 
+    if (!srcToUse) return;
 
     // 数据落袋为安后，再从容地去查库和校验
-    const task = await getTaskDB(taskId); 
+    const task = await getTaskDB(taskId);
     if (!task) return;
     ensureImgGenState(task);
-    
+
     if (task.state.images.length >= 5) {
         return showToast("最多只能垫入 5 张图", "error");
     }
-    
+
     // 赋值并击穿缓存
     task.state.images.push(srcToUse);
     task.timestamp = Date.now();
     renderCard(taskId, task);
-    await saveTaskDB(task); 
+    await saveTaskDB(task);
 }
 
 async function removeGenImage(e, taskId, index) {
     e.stopPropagation(); const task = await getTaskDB(taskId); if (!task) return;
     ensureImgGenState(task);
     const removedBase = index === 0;
-    task.state.images.splice(index, 1); 
+    task.state.images.splice(index, 1);
     if (removedBase) {
         task.state.maskBlob = null;
         task.state.maskImage = null;
@@ -5542,7 +5689,7 @@ async function submitImgGen(taskId) {
             try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
         }
 
-        const resData = Array.isArray(rawData) ? rawData[0] : rawData;
+        const resData = unwrapImgGenResponseData(rawData);
         const returnedUrls = extractImageUrlsFromResponse(rawData);
         return { rawData, resData, returnedUrls };
     };
@@ -5571,17 +5718,23 @@ async function submitImgGen(taskId) {
                 task.state.costTime = costTime;
                 task.timestamp = Date.now();
                 task.genTaskId = null;
+                const billingInfo = calculateImgGenBilling(task, resultPack.rawData);
+                task.state.lastUsageCost = billingInfo.cost;
+                task.state.lastUsageDetail = billingInfo.detail;
+                task.state.lastUsageAt = Date.now();
                 success = true;
 
-                let cost = 0.084;
-                let detail = `AI生图 试用版 (${task.state.channel || 'channel_1'})`;
-                if (version === 'pro') {
-                    cost = 0.12;
-                    detail = "AI生图 专业版 GPT Image 2";
-                } else if (task.state.channel === 'channel_2') {
-                    cost = 0.06;
-                }
-                await addBillingRecord({ id: 'bill_img_' + task.id + '_' + Date.now(), taskId: task.id, type: 'image', cost: cost, detail: detail });
+                await addBillingRecord({
+                    id: 'bill_img_' + task.id + '_' + Date.now(),
+                    taskId: task.id,
+                    type: 'image',
+                    cost: billingInfo.cost,
+                    detail: billingInfo.detail,
+                    inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
+                    outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
+                    version: task.state.version || 'trial',
+                    channel: task.state.channel || 'channel_1'
+                });
                 updateBillingUI();
             } else {
                 const asyncTaskId = extractImgGenTaskId(resData);
@@ -5630,7 +5783,7 @@ async function submitImgGen(taskId) {
 document.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('.crop-handle'); const box = e.target.closest('.crop-box');
     if (!handle && (!box || e.target.tagName === 'BUTTON')) return;
-    
+
     e.stopPropagation(); isPanning = false; setCanvasMoving(false);
 
     const targetBox = handle ? handle.closest('.crop-box') : box;
@@ -5680,12 +5833,11 @@ setInterval(() => {
     document.querySelectorAll('.veo-dynamic-timer').forEach(el => {
         const startTime = parseInt(el.getAttribute('data-start-time'));
         if (!startTime) return;
-        
+
         const diff = Math.floor((Date.now() - startTime) / 1000);
         const m = String(Math.floor(diff / 60)).padStart(2, '0');
         const s = String(diff % 60).padStart(2, '0');
-        
+
         el.innerText = `${m}:${s}`;
     });
 }, 1000);
-

@@ -3,7 +3,7 @@
 // ==========================================
 const DB_NAME = 'VeoInfinityDB';
 let db;
-const blobUrlCache = new Map(); 
+const blobUrlCache = new Map();
 const TASK_SAVE_BATCH_WINDOW = 100;
 const taskSaveBuffer = new Map();
 const taskSaveResolvers = new Map();
@@ -13,11 +13,11 @@ let taskSaveFlushTimer = null;
 function initDB() {
     return new Promise((resolve, reject) => {
         // 🌟 数据库无损升级至版本 4，接入 Flow 工作区表
-        const request = indexedDB.open(DB_NAME, 4); 
-        
+        const request = indexedDB.open(DB_NAME, 4);
+
         request.onupgradeneeded = (e) => {
             let database = e.target.result;
-            
+
             // 1. 原卡片工作区
             if (!database.objectStoreNames.contains('tasks')) {
                 database.createObjectStore('tasks', { keyPath: 'id' });
@@ -36,7 +36,7 @@ function initDB() {
                 materialStore.createIndex('timestamp', 'timestamp', { unique: false });
             }
         };
-        
+
         request.onsuccess = (e) => { db = e.target.result; resolve(db); };
         request.onerror = (e) => reject(e);
     });
@@ -63,7 +63,7 @@ async function getBillingStats() {
                 if (r.type === 'image') imageCount++;
                 if (r.type === 'video') videoCount++;
             });
-            resolve({ totalCost: totalCost.toFixed(3), imageCount, videoCount, records });
+            resolve({ totalCost: totalCost.toFixed(4), imageCount, videoCount, records });
         };
     });
 }
@@ -71,7 +71,7 @@ async function getBillingStats() {
 // === 以下为原有逻辑，保持不变 ===
 function getBlobUrl(id, blobData) {
     if (!blobData) return '';
-    if (typeof blobData === 'string') return blobData; 
+    if (typeof blobData === 'string') return blobData;
     if (blobUrlCache.has(id)) return blobUrlCache.get(id);
     const url = URL.createObjectURL(blobData);
     blobUrlCache.set(id, url);

@@ -1,5 +1,5 @@
-﻿<!DOCTYPE html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -65,7 +65,7 @@
             <button class="top-btn top-btn-pro" onclick="openFlowWorkspace(event)" data-tip="进入高级节点工作流 (Pro)">
                 <span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> 节点流
             </button>
-           
+
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
             <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
                 <span class="material-symbols-outlined">perm_media</span>
@@ -90,8 +90,8 @@
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
 
             <button class="top-btn" id="billing-top-btn" onclick="openBillingModal()" data-tip="查看 API 消耗与账单流水" style="border-color: rgba(50,215,75,0.3); background: rgba(50,215,75,0.05);">
-                <span class="material-symbols-outlined" style="font-size: 16px; color:var(--success);">account_balance_wallet</span> 
-                <span id="top-bill-text" style="color:var(--success); font-weight: bold;">￥0.000</span>
+                <span class="material-symbols-outlined" style="font-size: 16px; color:var(--success);">account_balance_wallet</span>
+                <span id="top-bill-text" style="color:var(--success); font-weight: bold;">￥0.0000</span>
             </button>
         </div>
     </div>
@@ -100,7 +100,7 @@
         <div class="drawer-title">
             <span class="material-symbols-outlined" style="font-size:18px;">apps</span> 拖拽组件至画布
         </div>
-        
+
         <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'generator')">
             <div style="background: rgba(79, 70, 229, 0.2); color: #818cf8; padding: 6px; border-radius: 6px; display: flex;">
                 <span class="material-symbols-outlined">auto_awesome</span>
@@ -134,7 +134,7 @@
 
     <div class="canvas-viewport" id="canvas-viewport" data-tip="双击空白处：快速新建文本便签">
         <div class="canvas-board" id="canvas-board"></div>
-        <div id="selection-marquee" class="selection-marquee"></div> 
+        <div id="selection-marquee" class="selection-marquee"></div>
     </div>
 
     <div class="floating-console" id="floating-console">
@@ -176,10 +176,10 @@
         <div class="console-actions-row">
             <div class="pill-group">
                 <div class="action-pill" data-tip="切换视频生成清晰度：普通 / 4K。参考图或首尾帧请用输入模式选择。">
-                    <span class="material-symbols-outlined">model_training</span><span id="model-text">普通</span>
+                    <span class="material-symbols-outlined">model_training</span><span id="model-text">Veo 3.1 普通</span>
                     <select id="model-select" onchange="updateModel(this)">
-                        <option value="veo3.1">普通</option>
-                        <option value="veo3.1-4k">4K</option>
+                        <option value="veo3.1">Veo 3.1 普通</option>
+                        <option value="veo3.1-4k">Veo 3.1 4K</option>
                     </select>
                 </div>
                 <div class="action-pill" id="input-mode-pill" data-tip="切换输入方式：参考图走多模态参考通道，首尾帧走起止帧通道。">
@@ -210,7 +210,7 @@
                     <select id="retry-select" onchange="updateAutoRetry(this)"><option value="false">不自动重试</option><option value="true">失败自动重试</option></select>
                 </div>
             </div>
-            
+
            <button class="submit-btn" id="generate-btn" onclick="submitBatchTask()" data-tip="发送至服务器生成 | 预估: ￥0.35">
                 <span class="material-symbols-outlined">arrow_upward</span>
             </button>
@@ -224,11 +224,11 @@
             <button class="help-close" onclick="closeBillingModal()">&times;</button>
             <h2 style="justify-content: center; margin-bottom: 8px;"><span class="material-symbols-outlined" style="color:var(--success); font-size: 28px;">account_balance_wallet</span> 数据中心</h2>
             <p style="color: var(--text-sub); font-size: 12px; margin-bottom: 28px;">账单记录永久绑定浏览器，删除画布卡片不影响统计</p>
-            
+
             <div style="background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 16px; padding: 32px 24px; margin-bottom: 20px; position: relative; overflow: hidden;">
                 <div style="position:absolute; top:-20px; right:-20px; width:100px; height:100px; background:var(--success); filter:blur(60px); opacity:0.2;"></div>
                 <div style="font-size: 14px; color: var(--text-sub); margin-bottom: 8px;">累计生成消耗总额</div>
-                <div id="bill-total" style="font-size: 42px; font-family: monospace; font-weight: bold; color: var(--success); text-shadow: 0 0 20px rgba(50,215,75,0.4);">￥0.000</div>
+                <div id="bill-total" style="font-size: 42px; font-family: monospace; font-weight: bold; color: var(--success); text-shadow: 0 0 20px rgba(50,215,75,0.4);">￥0.0000</div>
             </div>
 
             <div style="display: flex; gap: 12px;">
@@ -278,7 +278,7 @@
             <button class="help-close" onclick="toggleMaterialDrawer()" style="position:static; width:24px; height:24px; margin:0;">&times;</button>
         </div>
         <p style="font-size: 11px; color: var(--text-sub); margin-bottom: 12px; line-height: 1.4;">外部拖入与 Ctrl+V 粘贴的图片会在这里统一管理，保持画布清爽。</p>
-        
+
         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
             <button class="top-btn" style="flex: 1; justify-content: center; background: rgba(10, 132, 255, 0.1); border-color: rgba(10, 132, 255, 0.3); color: var(--accent);" onclick="deduplicateMaterials(event)">
                 <span class="material-symbols-outlined" style="font-size: 16px;">filter_auto</span> 一键去重
@@ -297,7 +297,7 @@
         <div class="minimap-viewport-box" id="minimap-viewport-box"></div>
     </div>
 
-    </div> 
+    </div>
 
     <div id="announcement-modal" class="sys-modal-overlay" style="display: none;">
         <div class="sys-modal-content">
@@ -306,18 +306,27 @@
                 <span style="font-weight: 600; letter-spacing: 1px;">Infinity Flow 能力总览</span>
             </div>
             <div style="padding: 20px; font-size: 13px; line-height: 1.8; color: var(--text-main);">
-                <p style="margin-bottom: 15px; color: var(--accent); font-weight: 600;">你当前工作台已具备以下生产能力：</p>
+                <p style="margin-bottom: 15px; color: var(--accent); font-weight: 600;">你当前工作台已具备以下生产能力与计费能力：</p>
                 <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin: 15px 0; border-left: 3px solid var(--accent);">
                     <ul style="list-style: none; padding: 0; margin: 0;">
                         <li>🧭 无限平移缩放画布 + 框选/打组/解组/网格排版</li>
-                        <li>🎞️ 文生视频 + 首尾帧通道 + 自动重试轮询</li>
-                        <li>🎨 生图模块（多垫图拖拽挂载 + 局部裁切复用）</li>
+                        <li>🎞️ 文生视频 + Veo 3.1 普通 / 4K + 参考图 / 首尾帧独立切换</li>
+                        <li>🎨 生图模块（Trial 通道 + GPT Image 2 Pro + 蒙版编辑 + 预览历史）</li>
                         <li>🗂 全局素材库（拖入、Ctrl+V、去重、彻底清理）</li>
                         <li>⛓ Pro 节点流（端口校验、导入导出、调度执行）</li>
                         <li>💾 IndexedDB 本地持久化 + 账单统计与任务追踪</li>
                     </ul>
                 </div>
-                <p style="font-size: 11px; color: var(--text-sub);">建议流程：先在画布快速试产，再进入节点流固化为可复用模板。</p>
+                <div style="background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; margin: 15px 0; border-left: 3px solid var(--success);">
+                    <ul style="list-style: none; padding: 0; margin: 0;">
+                        <li>🎬 视频 Veo 3.1 普通：<span style="color: var(--accent);">￥0.35</span> /条</li>
+                        <li>🎬 视频 Veo 3.1 4K：<span style="color: var(--accent);">￥0.50</span> /条</li>
+                        <li>🎨 生图试用通道 1：<span style="color: var(--accent);">￥0.084</span> /张</li>
+                        <li>🎨 生图试用通道 2：<span style="color: var(--accent);">￥0.06</span> /张</li>
+                        <li>🎨 生图专业版：<span style="color: var(--accent);">输入 ￥5.0000 / 1M tokens</span>，<span style="color: var(--accent);">输出 ￥30.0000 / 1M tokens</span>，再按中转半价 × 1/2 入账</li>
+                    </ul>
+                </div>
+                <p style="font-size: 11px; color: var(--text-sub);">Pro 生图按 usage 实时计费；示例 1643 输入 tokens + 1413 输出 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。建议先在画布快速试产，再进入节点流固化为可复用模板。</p>
             </div>
             <button onclick="closeAnnouncement()" style="width: 100%; justify-content: center; background: var(--accent); color: white; border: none; padding: 14px; font-weight: 600; cursor: pointer; transition: 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 进入工作台
@@ -329,7 +338,7 @@
         <div class="route-transition-ring"></div>
         <div class="route-transition-label">ROUTE HANDSHAKE</div>
     </div>
-    
+
     <script>
       // 可选：覆盖前端默认生图 webhook（不填则走 app.js 内置默认地址）
       window.VEO_IMAGE_UNIFIED_WEBHOOK = window.VEO_IMAGE_UNIFIED_WEBHOOK || '';
@@ -339,7 +348,7 @@
       window.VEO_IMAGE_LEGACY_WEBHOOK = window.VEO_IMAGE_LEGACY_WEBHOOK || '';
     </script>
     <script src="js/db.js"></script>
-    <script src="js/store.js"></script> 
+    <script src="js/store.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

@@ -1,475 +1,314 @@
-﻿// ==========================================
-// Veo Studio - IndexedDB Layer V2 (no feature change)
 // ==========================================
+// 🗄️ IndexedDB 数据库封装 & Blob 内存优化核心
+// ==========================================
+const DB_NAME = 'VeoInfinityDB';
+let db;
+const blobUrlCache = new Map();
+const TASK_SAVE_BATCH_WINDOW = 100;
+const taskSaveBuffer = new Map();
+const taskSaveResolvers = new Map();
+const taskSaveRejectors = new Map();
+let taskSaveFlushTimer = null;
 
-(function initDbV2(global) {
-    'use strict';
+function initDB() {
+    return new Promise((resolve, reject) => {
+        // 🌟 数据库无损升级至版本 4，接入 Flow 工作区表
+        const request = indexedDB.open(DB_NAME, 4);
 
-    var DB_NAME = 'VeoInfinityDB';
-    var DB_VERSION = 4;
-    var db;
-    var blobUrlCache = new Map();
-    var TASK_SAVE_BATCH_WINDOW = 100;
-    var taskSaveBuffer = new Map();
-    var taskSaveResolvers = new Map();
-    var taskSaveRejectors = new Map();
-    var taskSaveFlushTimer = null;
+        request.onupgradeneeded = (e) => {
+            let database = e.target.result;
 
-    var STORE_TASKS = 'tasks';
-    var STORE_BILLING = 'billing';
-    var STORE_FLOW = 'flow_workspaces';
-    var STORE_MATERIAL = 'material_store';
-
-    function isDbReady() {
-        return !!db;
-    }
-
-    function safeSortByTimestampDesc(list) {
-        if (!Array.isArray(list)) return [];
-        return list.slice().sort(function (a, b) {
-            var ta = a && a.timestamp ? a.timestamp : 0;
-            var tb = b && b.timestamp ? b.timestamp : 0;
-            return tb - ta;
-        });
-    }
-
-    function runTx(storeName, mode, executor) {
-        return new Promise(function (resolve, reject) {
-            if (!isDbReady()) {
-                reject(new Error('DB not initialized'));
-                return;
+            // 1. 原卡片工作区
+            if (!database.objectStoreNames.contains('tasks')) {
+                database.createObjectStore('tasks', { keyPath: 'id' });
             }
-
-            try {
-                var tx = db.transaction(storeName, mode);
-                var store = tx.objectStore(storeName);
-                executor(store, tx, resolve, reject);
-                tx.onerror = function (event) {
-                    reject(event && event.target ? event.target.error : new Error('transaction failed'));
-                };
-            } catch (err) {
-                reject(err);
+            // 2. 账单中心
+            if (!database.objectStoreNames.contains('billing')) {
+                database.createObjectStore('billing', { keyPath: 'id' });
             }
-        });
-    }
-
-    function initDB() {
-        return new Promise(function (resolve, reject) {
-            try {
-                var request = indexedDB.open(DB_NAME, DB_VERSION);
-
-                request.onupgradeneeded = function (event) {
-                    var database = event.target.result;
-
-                    if (!database.objectStoreNames.contains(STORE_TASKS)) {
-                        database.createObjectStore(STORE_TASKS, { keyPath: 'id' });
-                    }
-
-                    if (!database.objectStoreNames.contains(STORE_BILLING)) {
-                        database.createObjectStore(STORE_BILLING, { keyPath: 'id' });
-                    }
-
-                    if (!database.objectStoreNames.contains(STORE_FLOW)) {
-                        database.createObjectStore(STORE_FLOW, { keyPath: 'id' });
-                    }
-
-                    if (!database.objectStoreNames.contains(STORE_MATERIAL)) {
-                        var materialStore = database.createObjectStore(STORE_MATERIAL, { keyPath: 'id' });
-                        materialStore.createIndex('timestamp', 'timestamp', { unique: false });
-                    }
-                };
-
-                request.onsuccess = function (event) {
-                    db = event.target.result;
-                    global.db = db;
-                    resolve(db);
-                };
-
-                request.onerror = function (event) {
-                    reject(event && event.target ? event.target.error : new Error('open DB failed'));
-                };
-            } catch (err) {
-                reject(err);
+            // 3. 🚀 新增：节点工作区数据表 (保存整个画布的拓扑结构)
+            if (!database.objectStoreNames.contains('flow_workspaces')) {
+                database.createObjectStore('flow_workspaces', { keyPath: 'id' });
             }
-        });
-    }
+            // 4. 🚀 新增：全局素材共享库 (打通双工作区的核心)
+            if (!database.objectStoreNames.contains('material_store')) {
+                const materialStore = database.createObjectStore('material_store', { keyPath: 'id' });
+                materialStore.createIndex('timestamp', 'timestamp', { unique: false });
+            }
+        };
 
-    async function addBillingRecord(record) {
-        var safeRecord = Object.assign({}, record || {}, { timestamp: Date.now() });
-        return runTx(STORE_BILLING, 'readwrite', function (store, tx, resolve) {
-            store.put(safeRecord);
-            tx.oncomplete = function () { resolve(); };
-        });
-    }
+        request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        request.onerror = (e) => reject(e);
+    });
+}
 
-    async function getBillingStats() {
-        return runTx(STORE_BILLING, 'readonly', function (store, tx, resolve) {
-            var request = store.getAll();
-            request.onsuccess = function () {
-                var records = request.result || [];
-                var totalCost = 0;
-                var imageCount = 0;
-                var videoCount = 0;
+// 🌟 新增：记账中心 API
+async function addBillingRecord(record) {
+    return new Promise((resolve) => {
+        const tx = db.transaction('billing', 'readwrite');
+        tx.objectStore('billing').put({ ...record, timestamp: Date.now() });
+        tx.oncomplete = () => resolve();
+    });
+}
 
-                records.forEach(function (item) {
-                    totalCost += Number(item && item.cost ? item.cost : 0);
-                    if (item && item.type === 'image') imageCount += 1;
-                    if (item && item.type === 'video') videoCount += 1;
-                });
+async function getBillingStats() {
+    return new Promise((resolve) => {
+        const tx = db.transaction('billing', 'readonly');
+        const request = tx.objectStore('billing').getAll();
+        request.onsuccess = () => {
+            const records = request.result || [];
+            let totalCost = 0, imageCount = 0, videoCount = 0;
+            records.forEach(r => {
+                totalCost += (r && r.cost != null ? r.cost : (r && r.amount ? r.amount : 0));
+                if (r.type === 'image') imageCount++;
+                if (r.type === 'video') videoCount++;
+            });
+            resolve({ totalCost: totalCost.toFixed(4), imageCount, videoCount, records });
+        };
+    });
+}
 
-                resolve({
-                    totalCost: totalCost.toFixed(3),
-                    imageCount: imageCount,
-                    videoCount: videoCount,
-                    records: records
-                });
-            };
-            tx.oncomplete = function () {
-                // handled in request.onsuccess
-            };
-        });
-    }
+// === 以下为原有逻辑，保持不变 ===
+function getBlobUrl(id, blobData) {
+    if (!blobData) return '';
+    if (typeof blobData === 'string') return blobData;
+    if (blobUrlCache.has(id)) return blobUrlCache.get(id);
+    const url = URL.createObjectURL(blobData);
+    blobUrlCache.set(id, url);
+    return url;
+}
 
-    function getBlobUrl(id, blobData) {
-        if (!blobData) return '';
-        if (typeof blobData === 'string') return blobData;
-
-        var cacheKey = String(id || 'blob_' + Date.now());
-        if (blobUrlCache.has(cacheKey)) {
-            return blobUrlCache.get(cacheKey);
-        }
-
+function readBlobAsDataUrl(blob) {
+    return new Promise((resolve) => {
         try {
-            var url = URL.createObjectURL(blobData);
-            blobUrlCache.set(cacheKey, url);
-            return url;
+            const reader = new FileReader();
+            reader.onerror = () => resolve(null);
+            reader.onloadend = () => resolve(reader.result || null);
+            reader.readAsDataURL(blob);
         } catch (err) {
-            console.error('[getBlobUrl] createObjectURL failed', err);
-            return '';
-        }
-    }
-
-    function compressImageToBlob(file, maxWidth) {
-        var targetMaxWidth = Number(maxWidth || 1024);
-
-        return new Promise(function (resolve) {
-            if (!file) {
-                resolve(null);
-                return;
-            }
-
-            var reader = new FileReader();
-            reader.onerror = function () { resolve(null); };
-
-            reader.onload = function (event) {
-                var img = new Image();
-                img.onerror = function () { resolve(null); };
-                img.onload = function () {
-                    try {
-                        var canvas = document.createElement('canvas');
-                        var ratio = Math.min(targetMaxWidth / img.width, 1);
-                        canvas.width = Math.max(1, Math.floor(img.width * ratio));
-                        canvas.height = Math.max(1, Math.floor(img.height * ratio));
-
-                        var ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            resolve(null);
-                            return;
-                        }
-
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        canvas.toBlob(function (blob) {
-                            resolve(blob || null);
-                        }, 'image/jpeg', 0.85);
-                    } catch (err) {
-                        console.error('[compressImageToBlob] failed', err);
-                        resolve(null);
-                    }
-                };
-
-                img.src = event && event.target ? event.target.result : '';
-            };
-
-            reader.readAsDataURL(file);
-        });
-    }
-
-    function readBlobAsDataUrl(blob) {
-        return new Promise(function (resolve) {
-            try {
-                var reader = new FileReader();
-                reader.onerror = function () { resolve(null); };
-                reader.onloadend = function () { resolve(reader.result || null); };
-                reader.readAsDataURL(blob);
-            } catch (err) {
-                resolve(null);
-            }
-        });
-    }
-
-    function downscaleImageBlobIfNeeded(blob, options) {
-        options = options || {};
-        if (!blob || typeof blob === 'string') return Promise.resolve(blob);
-        var type = String(blob.type || '').toLowerCase();
-        if (type.indexOf('image/') !== 0) return Promise.resolve(blob);
-
-        var maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : (8 * 1024 * 1024);
-        var maxEdge = Number.isFinite(options.maxEdge) ? options.maxEdge : 2048;
-        var maxPixels = Number.isFinite(options.maxPixels) ? options.maxPixels : (4096 * 4096);
-        if (!(blob.size > maxBytes)) return Promise.resolve(blob);
-
-        return new Promise(function (resolve) {
-            var objectUrl = '';
-            try {
-                objectUrl = URL.createObjectURL(blob);
-                var img = new Image();
-                img.onerror = function () {
-                    if (objectUrl) URL.revokeObjectURL(objectUrl);
-                    resolve(blob);
-                };
-                img.onload = function () {
-                    try {
-                        var srcW = Math.max(1, img.naturalWidth || img.width || 1);
-                        var srcH = Math.max(1, img.naturalHeight || img.height || 1);
-                        var scale = 1;
-                        if (srcW > maxEdge || srcH > maxEdge) scale = Math.min(scale, maxEdge / Math.max(srcW, srcH));
-                        if ((srcW * srcH) > maxPixels) scale = Math.min(scale, Math.sqrt(maxPixels / (srcW * srcH)));
-                        if (scale >= 0.999) {
-                            if (objectUrl) URL.revokeObjectURL(objectUrl);
-                            resolve(blob);
-                            return;
-                        }
-                        var dstW = Math.max(1, Math.floor(srcW * scale));
-                        var dstH = Math.max(1, Math.floor(srcH * scale));
-                        var canvas = document.createElement('canvas');
-                        canvas.width = dstW;
-                        canvas.height = dstH;
-                        var ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            if (objectUrl) URL.revokeObjectURL(objectUrl);
-                            resolve(blob);
-                            return;
-                        }
-                        ctx.drawImage(img, 0, 0, dstW, dstH);
-                        var outType = type === 'image/png' ? 'image/png' : 'image/jpeg';
-                        var quality = outType === 'image/png' ? undefined : 0.9;
-                        canvas.toBlob(function (nextBlob) {
-                            if (objectUrl) URL.revokeObjectURL(objectUrl);
-                            resolve(nextBlob || blob);
-                        }, outType, quality);
-                    } catch (err) {
-                        if (objectUrl) URL.revokeObjectURL(objectUrl);
-                        resolve(blob);
-                    }
-                };
-                img.src = objectUrl;
-            } catch (err) {
-                if (objectUrl) URL.revokeObjectURL(objectUrl);
-                resolve(blob);
-            }
-        });
-    }
-
-    function blobToBase64(blob, options) {
-        options = options || {};
-        if (!blob) return Promise.resolve(null);
-        if (typeof blob === 'string') return Promise.resolve(blob);
-        var mode = options && options.mode ? String(options.mode) : 'generic';
-        return Promise.resolve().then(function () {
-            if (mode === 'network') return downscaleImageBlobIfNeeded(blob, options);
-            return blob;
-        }).then(function (nextBlob) {
-            return readBlobAsDataUrl(nextBlob);
-        });
-    }
-
-    function resolveTaskSave(taskId) {
-        var list = taskSaveResolvers.get(taskId);
-        if (Array.isArray(list)) {
-            list.forEach(function (cb) { try { cb(); } catch (err) {} });
-        }
-        taskSaveResolvers.delete(taskId);
-        taskSaveRejectors.delete(taskId);
-    }
-
-    function rejectTaskSave(taskId, error) {
-        var list = taskSaveRejectors.get(taskId);
-        if (Array.isArray(list)) {
-            list.forEach(function (cb) { try { cb(error); } catch (err) {} });
-        }
-        taskSaveResolvers.delete(taskId);
-        taskSaveRejectors.delete(taskId);
-    }
-
-    function flushTaskSaveQueue() {
-        taskSaveFlushTimer = null;
-        var entries = Array.from(taskSaveBuffer.values());
-        taskSaveBuffer.clear();
-        if (entries.length === 0) return Promise.resolve();
-        return new Promise(function (resolve, reject) {
-            try {
-                var tx = db.transaction(STORE_TASKS, 'readwrite');
-                var store = tx.objectStore(STORE_TASKS);
-                entries.forEach(function (task) {
-                    if (task && task.id) store.put(task);
-                });
-                tx.oncomplete = function () {
-                    entries.forEach(function (task) {
-                        if (task && task.id) resolveTaskSave(task.id);
-                    });
-                    resolve();
-                };
-                tx.onerror = function (event) {
-                    var err = event && event.target ? event.target.error : new Error('save queue transaction failed');
-                    entries.forEach(function (task) {
-                        if (task && task.id) rejectTaskSave(task.id, err);
-                    });
-                    reject(err);
-                };
-            } catch (err) {
-                entries.forEach(function (task) {
-                    if (task && task.id) rejectTaskSave(task.id, err);
-                });
-                reject(err);
-            }
-        });
-    }
-
-    function enqueueTaskSave(task) {
-        if (!task || !task.id) return Promise.resolve();
-        return new Promise(function (resolve, reject) {
-            taskSaveBuffer.set(task.id, task);
-            if (!taskSaveResolvers.has(task.id)) taskSaveResolvers.set(task.id, []);
-            if (!taskSaveRejectors.has(task.id)) taskSaveRejectors.set(task.id, []);
-            taskSaveResolvers.get(task.id).push(resolve);
-            taskSaveRejectors.get(task.id).push(reject);
-            if (!taskSaveFlushTimer) {
-                taskSaveFlushTimer = setTimeout(function () {
-                    flushTaskSaveQueue().catch(function () {});
-                }, TASK_SAVE_BATCH_WINDOW);
-            }
-        });
-    }
-
-    async function getAllTasksDB() {
-        return runTx(STORE_TASKS, 'readonly', function (store, tx, resolve) {
-            var request = store.getAll();
-            request.onsuccess = function () {
-                var dbRows = Array.isArray(request.result) ? request.result : [];
-                var merged = new Map();
-                dbRows.forEach(function (row) {
-                    if (row && row.id) merged.set(row.id, row);
-                });
-                taskSaveBuffer.forEach(function (pendingTask, taskId) {
-                    if (pendingTask && taskId) merged.set(taskId, pendingTask);
-                });
-                resolve(safeSortByTimestampDesc(Array.from(merged.values())));
-            };
-            tx.oncomplete = function () {
-                // handled above
-            };
-        });
-    }
-
-    async function saveTaskDB(task) {
-        return enqueueTaskSave(task);
-    }
-
-    async function saveTaskBatchDB(tasks) {
-        if (!Array.isArray(tasks) || tasks.length === 0) return;
-        await Promise.all(tasks.map(function (task) { return enqueueTaskSave(task); }));
-    }
-
-    async function getTaskDB(id) {
-        if (id && taskSaveBuffer.has(id)) return taskSaveBuffer.get(id);
-        return runTx(STORE_TASKS, 'readonly', function (store, tx, resolve) {
-            var request = store.get(id);
-            request.onsuccess = function () {
-                resolve(request.result || null);
-            };
-            tx.oncomplete = function () {
-                // handled above
-            };
-        });
-    }
-
-    async function deleteTaskDB(id) {
-        if (id && taskSaveBuffer.has(id)) taskSaveBuffer.delete(id);
-        return runTx(STORE_TASKS, 'readwrite', function (store, tx, resolve) {
-            store.delete(id);
-            tx.oncomplete = function () {
-                blobUrlCache.forEach(function (url, key) {
-                    if (String(key).indexOf(String(id)) === 0) {
-                        try {
-                            URL.revokeObjectURL(url);
-                        } catch (err) {
-                            // ignore revoke error
-                        }
-                        blobUrlCache.delete(key);
-                    }
-                });
-                resolve();
-            };
-        });
-    }
-
-    // V2 repositories for future decoupling.
-    var VeoDB = {
-        getDB: function () { return db; },
-        init: initDB,
-        taskRepo: {
-            getAll: getAllTasksDB,
-            save: saveTaskDB,
-            getById: getTaskDB,
-            remove: deleteTaskDB
-        },
-        billingRepo: {
-            add: addBillingRecord,
-            stats: getBillingStats
-        },
-        flowRepo: {
-            saveWorkspace: function (workspace) {
-                return runTx(STORE_FLOW, 'readwrite', function (store, tx, resolve) {
-                    store.put(workspace);
-                    tx.oncomplete = function () { resolve(); };
-                });
-            },
-            getWorkspace: function (id) {
-                return runTx(STORE_FLOW, 'readonly', function (store, tx, resolve) {
-                    var request = store.get(id);
-                    request.onsuccess = function () {
-                        resolve(request.result || null);
-                    };
-                });
-            }
-        },
-        media: {
-            toBase64: blobToBase64,
-            getBlobUrl: getBlobUrl,
-            compressImageToBlob: compressImageToBlob
-        }
-    };
-
-    // Compatibility exports (existing code depends on these globals).
-    global.DB_NAME = DB_NAME;
-    global.db = db;
-    global.initDB = initDB;
-    global.addBillingRecord = addBillingRecord;
-    global.getBillingStats = getBillingStats;
-    global.getBlobUrl = getBlobUrl;
-    global.compressImageToBlob = compressImageToBlob;
-    global.blobToBase64 = blobToBase64;
-    global.getAllTasksDB = getAllTasksDB;
-    global.saveTaskDB = saveTaskDB;
-    global.saveTaskBatchDB = saveTaskBatchDB;
-    global.getTaskDB = getTaskDB;
-    global.deleteTaskDB = deleteTaskDB;
-    global.VeoDB = VeoDB;
-
-    window.addEventListener('beforeunload', function () {
-        if (taskSaveBuffer.size > 0) {
-            try { flushTaskSaveQueue(); } catch (err) {}
+            resolve(null);
         }
     });
-})(window);
+}
 
+async function downscaleImageBlobIfNeeded(blob, options = {}) {
+    if (!blob || typeof blob === 'string') return blob;
+    const type = String(blob.type || '').toLowerCase();
+    if (!type.startsWith('image/')) return blob;
+
+    const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : (8 * 1024 * 1024);
+    const maxEdge = Number.isFinite(options.maxEdge) ? options.maxEdge : 2048;
+    const maxPixels = Number.isFinite(options.maxPixels) ? options.maxPixels : (4096 * 4096);
+    const needDownscale = blob.size > maxBytes;
+    if (!needDownscale) return blob;
+
+    return new Promise((resolve) => {
+        let objectUrl = '';
+        try {
+            objectUrl = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onerror = () => {
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                resolve(blob);
+            };
+            img.onload = () => {
+                try {
+                    const srcW = Math.max(1, img.naturalWidth || img.width || 1);
+                    const srcH = Math.max(1, img.naturalHeight || img.height || 1);
+                    let scale = 1;
+                    if (srcW > maxEdge || srcH > maxEdge) scale = Math.min(scale, maxEdge / Math.max(srcW, srcH));
+                    if ((srcW * srcH) > maxPixels) scale = Math.min(scale, Math.sqrt(maxPixels / (srcW * srcH)));
+                    const dstW = Math.max(1, Math.floor(srcW * scale));
+                    const dstH = Math.max(1, Math.floor(srcH * scale));
+
+                    if (scale >= 0.999) {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(blob);
+                        return;
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = dstW;
+                    canvas.height = dstH;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(blob);
+                        return;
+                    }
+                    ctx.drawImage(img, 0, 0, dstW, dstH);
+                    const outType = type === 'image/png' ? 'image/png' : 'image/jpeg';
+                    const quality = outType === 'image/png' ? undefined : 0.9;
+                    canvas.toBlob((nextBlob) => {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        resolve(nextBlob || blob);
+                    }, outType, quality);
+                } catch (err) {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                    resolve(blob);
+                }
+            };
+            img.src = objectUrl;
+        } catch (err) {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            resolve(blob);
+        }
+    });
+}
+
+async function compressImageToBlob(file, maxWidth = 1024) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (e) => {
+            const img = new Image();
+            img.src = e.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ratio = Math.min(maxWidth / img.width, 1);
+                canvas.width = img.width * ratio;
+                canvas.height = img.height * ratio;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.85);
+            };
+        };
+    });
+}
+
+async function blobToBase64(blob, options = {}) {
+    if (!blob) return null;
+    if (typeof blob === 'string') return Promise.resolve(blob);
+    const mode = options && options.mode ? String(options.mode) : 'generic';
+    const sourceBlob = mode === 'network'
+        ? await downscaleImageBlobIfNeeded(blob, options)
+        : blob;
+    return readBlobAsDataUrl(sourceBlob);
+}
+
+function resolveTaskSave(taskId) {
+    const list = taskSaveResolvers.get(taskId);
+    if (Array.isArray(list)) {
+        list.forEach((resolve) => {
+            try { resolve(); } catch (err) {}
+        });
+    }
+    taskSaveResolvers.delete(taskId);
+    taskSaveRejectors.delete(taskId);
+}
+
+function rejectTaskSave(taskId, error) {
+    const list = taskSaveRejectors.get(taskId);
+    if (Array.isArray(list)) {
+        list.forEach((reject) => {
+            try { reject(error); } catch (err) {}
+        });
+    }
+    taskSaveResolvers.delete(taskId);
+    taskSaveRejectors.delete(taskId);
+}
+
+function flushTaskSaveQueue() {
+    taskSaveFlushTimer = null;
+    const entries = Array.from(taskSaveBuffer.values());
+    taskSaveBuffer.clear();
+    if (entries.length === 0) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+        try {
+            const tx = db.transaction('tasks', 'readwrite');
+            const store = tx.objectStore('tasks');
+            entries.forEach((task) => {
+                if (task && task.id) store.put(task);
+            });
+            tx.oncomplete = () => {
+                entries.forEach((task) => task && task.id && resolveTaskSave(task.id));
+                resolve();
+            };
+            tx.onerror = (event) => {
+                const err = event && event.target ? event.target.error : new Error('save queue transaction failed');
+                entries.forEach((task) => task && task.id && rejectTaskSave(task.id, err));
+                reject(err);
+            };
+        } catch (err) {
+            entries.forEach((task) => task && task.id && rejectTaskSave(task.id, err));
+            reject(err);
+        }
+    });
+}
+
+function enqueueTaskSave(task) {
+    if (!task || !task.id) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        taskSaveBuffer.set(task.id, task);
+        if (!taskSaveResolvers.has(task.id)) taskSaveResolvers.set(task.id, []);
+        if (!taskSaveRejectors.has(task.id)) taskSaveRejectors.set(task.id, []);
+        taskSaveResolvers.get(task.id).push(resolve);
+        taskSaveRejectors.get(task.id).push(reject);
+
+        if (!taskSaveFlushTimer) {
+            taskSaveFlushTimer = setTimeout(() => {
+                flushTaskSaveQueue().catch(() => {});
+            }, TASK_SAVE_BATCH_WINDOW);
+        }
+    });
+}
+
+async function getAllTasksDB() {
+    return new Promise((resolve) => {
+        const tx = db.transaction('tasks', 'readonly');
+        const request = tx.objectStore('tasks').getAll();
+        request.onsuccess = () => {
+            const dbRows = Array.isArray(request.result) ? request.result : [];
+            const merged = new Map();
+            dbRows.forEach((row) => {
+                if (row && row.id) merged.set(row.id, row);
+            });
+            taskSaveBuffer.forEach((pendingTask, taskId) => {
+                if (pendingTask && taskId) merged.set(taskId, pendingTask);
+            });
+            resolve(Array.from(merged.values()).sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0)));
+        };
+    });
+}
+
+async function saveTaskDB(task) {
+    return enqueueTaskSave(task);
+}
+
+async function saveTaskBatchDB(tasks) {
+    if (!Array.isArray(tasks) || tasks.length === 0) return;
+    await Promise.all(tasks.map((task) => enqueueTaskSave(task)));
+}
+
+async function getTaskDB(id) {
+    if (id && taskSaveBuffer.has(id)) return taskSaveBuffer.get(id);
+    return new Promise((resolve) => {
+        const tx = db.transaction('tasks', 'readonly');
+        const request = tx.objectStore('tasks').get(id);
+        request.onsuccess = () => resolve(request.result);
+    });
+}
+
+async function deleteTaskDB(id) {
+    if (id && taskSaveBuffer.has(id)) taskSaveBuffer.delete(id);
+    return new Promise((resolve) => {
+        const tx = db.transaction('tasks', 'readwrite');
+        tx.objectStore('tasks').delete(id);
+        tx.oncomplete = () => {
+            for (let [key, url] of blobUrlCache.entries()) {
+                if (key.toString().startsWith(id)) {
+                    URL.revokeObjectURL(url);
+                    blobUrlCache.delete(key);
+                }
+            }
+            resolve();
+        };
+    });
+}
+
+window.addEventListener('beforeunload', () => {
+    if (taskSaveBuffer.size > 0) {
+        try { flushTaskSaveQueue(); } catch (err) {}
+    }
+});
