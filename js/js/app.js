@@ -332,6 +332,7 @@ const imgGenPollTimers = new Map();
 const taskShadowCache = new Map();
 const imgGenUpdateQueues = new Map();
 const imgMaskEditorInstances = new Map();
+const imgGenPromptDraftTimers = new Map();
 
 function cssEscapeSafe(id) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
@@ -944,6 +945,45 @@ async function captureImgMaskFromEditor(taskId, task, options = {}) {
     return maskBlob;
 }
 
+function scheduleImgGenPromptPersist(taskId, value) {
+    if (!taskId) return;
+    const prevTimer = imgGenPromptDraftTimers.get(taskId);
+    if (prevTimer) clearTimeout(prevTimer);
+    const promptValue = typeof value === 'string' ? value : String(value || '');
+    const timer = setTimeout(() => {
+        imgGenPromptDraftTimers.delete(taskId);
+        queueImgGenTaskUpdate(taskId, async () => {
+            const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+            if (!baseTask) return;
+            const task = cloneTaskDeep(baseTask) || { ...baseTask };
+            ensureImgGenState(task);
+            task.state.prompt = promptValue;
+            task.timestamp = Date.now();
+            setTaskShadow(task);
+            await saveTaskDB(task);
+        }).catch(() => {});
+    }, 360);
+    imgGenPromptDraftTimers.set(taskId, timer);
+}
+
+function updateImgGenPromptDraft(taskId, value) {
+    const promptValue = typeof value === 'string' ? value : String(value || '');
+    const task = getTaskShadow(taskId);
+    if (task && task.type === 'tool_image_gen') {
+        ensureImgGenState(task);
+        task.state.prompt = promptValue;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+    }
+    scheduleImgGenPromptPersist(taskId, promptValue);
+}
+
+function clearImgGenPromptDraftTimer(taskId) {
+    const timer = imgGenPromptDraftTimers.get(taskId);
+    if (timer) clearTimeout(timer);
+    imgGenPromptDraftTimers.delete(taskId);
+}
+
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
 function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
 function toggleMaterialDrawer() { document.getElementById('material-drawer').classList.toggle('open'); }
@@ -1545,9 +1585,10 @@ window.addEventListener('keydown', async (e) => {
         if (selectedTasks.size > 0) {
             if (confirm(`🗑️ 确定要彻底删除选中的 ${selectedTasks.size} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) {
                 const deletePromises = Array.from(selectedTasks).map(async (id) => { 
+                    clearImgGenPromptDraftTimer(id);
                     destroyImgMaskEditor(id);
                     await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
-                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
+                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { clearImgGenPromptDraftTimer(t.id); destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
                 });
                 await Promise.all(deletePromises); showToast(`清理完成`, "success"); selectedTasks.clear(); renderMinimap();
             }
@@ -1804,6 +1845,10 @@ viewport.addEventListener('drop', async (e) => {
                 resultBlob: null,
                 resultBlobs: [],
                 previewCollapsed: false,
+                paramsCollapsed: false,
+                cardWidthOpen: 680,
+                cardWidthCollapsed: 360,
+                cardHeight: 520,
                 channel: 'channel_1',
                 autoRetry: false
             },
@@ -1878,10 +1923,44 @@ function applyImgGenCardFrame(cardEl, task) {
     if (!cardEl || !task || task.type !== 'tool_image_gen') return;
     ensureImgGenState(task);
     const isOpen = task.state.previewCollapsed !== true;
-    const collapsedWidth = 360;
-    const expandedWidth = 680;
+    const collapsedWidth = Math.max(320, Math.min(760, toFiniteNumber(task.state.cardWidthCollapsed, 360)));
+    const expandedWidth = Math.max(560, Math.min(1200, toFiniteNumber(task.state.cardWidthOpen, 680)));
+    const cardHeight = Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)));
     cardEl.classList.toggle('is-preview-open', isOpen);
+    cardEl.style.setProperty('--img-gen-card-height', `${cardHeight}px`);
     cardEl.style.width = `${isOpen ? expandedWidth : collapsedWidth}px`;
+    cardEl.style.height = `${cardHeight}px`;
+}
+
+function bindImgGenCardResizeSave(cardEl, task) {
+    if (!cardEl || !task || task.type !== 'tool_image_gen' || cardEl.__imgGenResizeBound) return;
+    cardEl.__imgGenResizeBound = true;
+    cardEl.addEventListener('mouseup', () => {
+        const liveTask = cardEl.__veoTask || getTaskShadow(task.id) || task;
+        if (!liveTask || liveTask.type !== 'tool_image_gen') return;
+        ensureImgGenState(liveTask);
+        const width = Math.round(toFiniteNumber(cardEl.offsetWidth, 0));
+        const height = Math.round(toFiniteNumber(cardEl.offsetHeight, 0));
+        if (width <= 0 || height <= 0) return;
+        const isCollapsed = liveTask.state.previewCollapsed === true;
+        const nextWidth = isCollapsed
+            ? Math.max(320, Math.min(760, width))
+            : Math.max(560, Math.min(1200, width));
+        const nextHeight = Math.max(420, Math.min(1100, height));
+        const widthKey = isCollapsed ? 'cardWidthCollapsed' : 'cardWidthOpen';
+        if (Math.abs(toFiniteNumber(liveTask.state[widthKey], 0) - nextWidth) < 2 && Math.abs(toFiniteNumber(liveTask.state.cardHeight, 0) - nextHeight) < 2) return;
+        liveTask.state[widthKey] = nextWidth;
+        liveTask.state.cardHeight = nextHeight;
+        cardEl.style.width = `${nextWidth}px`;
+        cardEl.style.height = `${nextHeight}px`;
+        cardEl.style.setProperty('--img-gen-card-height', `${nextHeight}px`);
+        liveTask.timestamp = Date.now();
+        setTaskShadow(liveTask);
+        queueImgGenTaskUpdate(liveTask.id, async () => {
+            const latest = getTaskShadow(liveTask.id) || liveTask;
+            await saveTaskDB(latest);
+        }).catch(() => {});
+    });
 }
 
 async function renderCard(taskId, taskOverride = null) {
@@ -1893,6 +1972,7 @@ async function renderCard(taskId, taskOverride = null) {
     morphCardDOM(cardEl, generateCardHTML(task));
     applyImgGenCardFrame(cardEl, task);
     syncImgMaskEditor(cardEl, task).catch(() => {});
+    bindImgGenCardResizeSave(cardEl, task);
     bindCardDrag(cardEl, task);
 
     // 同步追踪属性，防止后续被误刷
@@ -1903,6 +1983,7 @@ async function renderCard(taskId, taskOverride = null) {
     const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
     const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
+    const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
 
     cardEl.setAttribute('data-sync-status', task.status || 'static');
     cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
@@ -1913,6 +1994,7 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-channel', currentChannel);
     cardEl.setAttribute('data-sync-version', currentVersion);
     cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
+    cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
 }
@@ -2326,6 +2408,7 @@ function generateCardHTML(task) {
         const isPro = task.state.version === 'pro';
         const isChannel2 = task.state.channel === 'channel_2';
         const previewCollapsed = task.state.previewCollapsed === true;
+        const paramsCollapsed = task.state.paramsCollapsed === true;
         const resolvedSize = resolveImgGenSize(task.state);
         const currentCost = isPro ? 'PRO' : (isChannel2 ? '0.06' : '0.084');
         const previewEntries = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
@@ -2412,9 +2495,6 @@ function generateCardHTML(task) {
                 <option value="jpeg" ${task.state.format==='jpeg'?'selected':''}>JPEG</option>
                 <option value="webp" ${task.state.format==='webp'?'selected':''}>WEBP</option>
             </select>
-            <select class="img-gen-select" disabled data-tip="单次生成已锁定，每次只生成1张">
-                <option selected>单次 1 张（锁定）</option>
-            </select>
         </div>
         <div class="img-gen-controls img-gen-controls-pro">
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)" data-tip="专业版：背景模式">
@@ -2472,6 +2552,35 @@ function generateCardHTML(task) {
             </div>
         `;
 
+        const paramsPanelHtml = `
+            <div class="img-gen-param-panel ${paramsCollapsed ? 'is-collapsed' : ''}">
+                <button class="img-gen-param-head" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')" data-tip="${paramsCollapsed ? '展开参数面板' : '折叠参数面板'}">
+                    <span class="img-gen-param-title">PARAMS</span>
+                    <span class="img-gen-param-summary">${isPro ? 'PRO' : 'TRIAL'} · ${resolvedSize}</span>
+                    <span class="material-symbols-outlined" style="font-size:16px;">${paramsCollapsed ? 'expand_more' : 'expand_less'}</span>
+                </button>
+                ${paramsCollapsed ? '' : `
+                <div class="img-gen-param-body">
+                    <div class="img-gen-controls">
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                            <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
+                            <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
+                        </select>
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
+                            <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
+                            <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
+                        </select>
+                        <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
+                            <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
+                            <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
+                        </select>
+                    </div>
+                    ${proControlsHtml}
+                    ${customRatioHtml}
+                </div>`}
+            </div>
+        `;
+
         const previewRenderEntries = previewEntries.slice().sort((a, b) => {
             const aPending = a && a.status === 'pending' ? 0 : 1;
             const bPending = b && b.status === 'pending' ? 0 : 1;
@@ -2525,23 +2634,8 @@ function generateCardHTML(task) {
                         <div class="img-gen-slots" ondragover="event.preventDefault(); document.getElementById('img-gen-zone-${task.id}')?.classList.add('drag-over');" ondragleave="document.getElementById('img-gen-zone-${task.id}')?.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">${slotsHtml}</div>
                         <div class="img-gen-upload-note">拖拽或点击添加垫图，最多 5 张</div>
                         ${maskEditorHtml}
-                        <div class="img-gen-controls">
-                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
-                                <option value="trial" ${task.state.version==='trial'?'selected':''}>试用版</option>
-                                <option value="pro" ${task.state.version==='pro'?'selected':''}>专业版 GPT Image 2</option>
-                            </select>
-                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" style="flex: 1.5; ${isPro ? 'opacity:0.45;' : ''}" ${isPro ? 'disabled' : ''} data-tip="试用版可切换双通道，专业版固定走 GPT 路由">
-                                <option value="channel_1" ${task.state.channel==='channel_1' || !task.state.channel ? 'selected' : ''}>试用通道 1 (主)</option>
-                                <option value="channel_2" ${task.state.channel==='channel_2'?'selected':''}>试用通道 2 (备)</option>
-                            </select>
-                            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')" data-tip="遇网络异常是否自动重试 (最多3次)">
-                                <option value="false" ${!task.state.autoRetry?'selected':''}>单次</option>
-                                <option value="true" ${task.state.autoRetry?'selected':''}>自动重试</option>
-                            </select>
-                        </div>
-                        ${proControlsHtml}
-                        ${customRatioHtml}
-                        <textarea class="img-gen-prompt" onchange="updateImgGenState('${task.id}', 'prompt', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
+                        ${paramsPanelHtml}
+                        <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt||''}</textarea>
                         <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''} style="${isFailed && pendingCount === 0 ? 'background: var(--danger);' : ''}">${btnContent}</button>
                     </div>
                 </div>
@@ -2608,7 +2702,7 @@ async function renderBoard() {
         normalizeTaskPosition(task);
         setTaskShadow(task);
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na'; 
+        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na', currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na'; 
         
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
@@ -2627,6 +2721,7 @@ async function renderBoard() {
             cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl); 
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
+            bindImgGenCardResizeSave(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
@@ -2639,14 +2734,15 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
             
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'); 
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'); 
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
                 morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
+            bindImgGenCardResizeSave(cardEl, task);
         }
 
         if (task.type === 'tool_image_gen' && task.status === 'processing') {
@@ -2669,7 +2765,7 @@ async function renderBoard() {
 
         bindCardDrag(cardEl, task);
         
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -2680,6 +2776,7 @@ async function removeTask(id) {
     if (!confirm('确定删除这张卡片吗？')) return;
     clearTaskPolling(id);
     clearImgGenPolling(id);
+    clearImgGenPromptDraftTimer(id);
     destroyImgMaskEditor(id);
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
@@ -3029,6 +3126,13 @@ function ensureImgGenState(task) {
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
     if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
+    if (typeof task.state.paramsCollapsed !== 'boolean') task.state.paramsCollapsed = false;
+    const openW = parseInt(task.state.cardWidthOpen, 10);
+    const collapsedW = parseInt(task.state.cardWidthCollapsed, 10);
+    const cardH = parseInt(task.state.cardHeight, 10);
+    task.state.cardWidthOpen = Number.isFinite(openW) && openW >= 560 ? Math.min(1200, openW) : 680;
+    task.state.cardWidthCollapsed = Number.isFinite(collapsedW) && collapsedW >= 320 ? Math.min(760, collapsedW) : 360;
+    task.state.cardHeight = Number.isFinite(cardH) && cardH >= 420 ? Math.min(1100, cardH) : 520;
     if (typeof task.state.maskBlob === 'undefined') task.state.maskBlob = null;
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (typeof task.state.maskEditMode !== 'boolean') task.state.maskEditMode = false;
@@ -3625,7 +3729,8 @@ async function toggleImgGenPreviewPanel(e, taskId) {
         e.preventDefault();
         e.stopPropagation();
     }
-    const task = await getTaskDB(taskId);
+    const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    const task = baseTask ? (cloneTaskDeep(baseTask) || { ...baseTask }) : null;
     if (!task) return;
     ensureImgGenState(task);
     task.state.previewCollapsed = !task.state.previewCollapsed;
@@ -3633,6 +3738,26 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     setTaskShadow(task);
     renderCard(taskId, task);
     await saveTaskDB(task);
+}
+
+async function toggleImgGenParamsPanel(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.paramsCollapsed = !task.state.paramsCollapsed;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('参数面板切换失败', 'error');
+    });
 }
 
 async function toggleImgGenMaskEditor(e, taskId) {
@@ -3871,7 +3996,11 @@ async function removeGenImage(e, taskId, index) {
 // 🎨 AI 多模生图核心控制模块 (完全融合版)
 // ==========================================
 async function submitImgGen(taskId) {
-    const task = await getTaskDB(taskId);
+    clearImgGenPromptDraftTimer(taskId);
+    const shadowTask = getTaskShadow(taskId);
+    const task = (shadowTask && shadowTask.type === 'tool_image_gen')
+        ? (cloneTaskDeep(shadowTask) || { ...shadowTask })
+        : await getTaskDB(taskId);
     if (!task) return;
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
@@ -3894,6 +4023,7 @@ async function submitImgGen(taskId) {
     task.state.startTime = now;
     const previewItemId = pushImgGenPendingItem(task);
     task.timestamp = now;
+    setTaskShadow(task);
     await saveTaskDB(task);
     renderCard(taskId, task);
 
