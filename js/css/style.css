@@ -1571,6 +1571,18 @@ body.app-shell-ready .floating-console:not(.minimized) {
     padding: 8px;
     border-top: 1px solid var(--border);
 }
+.img-gen-param-body .img-gen-controls,
+.img-gen-param-body .img-gen-controls.img-gen-controls-pro {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 220px));
+    justify-content: start;
+    align-items: center;
+}
+.img-gen-param-body .img-gen-select,
+.img-gen-param-body .img-gen-size-chip {
+    width: 100%;
+    min-width: 0;
+}
 .img-gen-param-panel.is-collapsed .img-gen-param-head {
     background: rgba(94,156,255,0.055);
 }
@@ -1665,12 +1677,22 @@ body.app-shell-ready .floating-console:not(.minimized) {
     overflow: hidden;
     background: rgba(0,0,0,0.25);
     user-select: none;
+    outline: none;
+    touch-action: none;
+}
+.img-gen-mask-stage.is-space-pan .img-gen-mask-canvas {
+    cursor: grab;
+}
+.img-gen-mask-stage.is-panning .img-gen-mask-canvas {
+    cursor: grabbing;
 }
 .img-gen-mask-base {
     width: 100%;
     height: auto;
     display: block;
     pointer-events: none;
+    transform-origin: 0 0;
+    will-change: transform;
 }
 .img-gen-mask-canvas {
     position: absolute;
@@ -1680,6 +1702,8 @@ body.app-shell-ready .floating-console:not(.minimized) {
     cursor: crosshair;
     touch-action: none;
     background: transparent;
+    transform-origin: 0 0;
+    will-change: transform;
 }
 .img-gen-mask-tip {
     font-size: 10px;

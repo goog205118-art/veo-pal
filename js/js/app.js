@@ -692,6 +692,19 @@ class ImgMaskEditor {
         this.pointerId = null;
         this.hasStroke = !!options.hasStroke;
         this.listeners = [];
+        this.history = [];
+        this.maxHistory = 24;
+        this.isActive = false;
+        this.isSpaceDown = false;
+        this.isPanning = false;
+        this.panPointerId = null;
+        this.panStartX = 0;
+        this.panStartY = 0;
+        this.panStartOffsetX = 0;
+        this.panStartOffsetY = 0;
+        this.panX = 0;
+        this.panY = 0;
+        this.viewScale = 1;
     }
 
     _listen(target, type, handler, options) {
@@ -742,25 +755,134 @@ class ImgMaskEditor {
         };
     }
 
+    _setActive(active) {
+        this.isActive = !!active;
+    }
+
+    _applyViewTransform() {
+        const transformValue = `translate(${this.panX}px, ${this.panY}px) scale(${this.viewScale})`;
+        [this.baseImgEl, this.canvasEl].forEach((el) => {
+            if (!el || !el.style) return;
+            el.style.transformOrigin = '0 0';
+            el.style.transform = transformValue;
+        });
+        if (this.stageEl) {
+            this.stageEl.classList.toggle('is-space-pan', this.isSpaceDown);
+            this.stageEl.classList.toggle('is-panning', this.isPanning);
+        }
+    }
+
+    _pushHistory() {
+        if (!this.ctx || !this.canvasEl) return;
+        try {
+            const snapshot = this.hasStroke
+                ? this.ctx.getImageData(0, 0, this.canvasEl.width, this.canvasEl.height)
+                : null;
+            this.history.push(snapshot);
+            if (this.history.length > this.maxHistory) this.history.shift();
+        } catch (err) {}
+    }
+
+    undo() {
+        if (!this.ctx || !this.canvasEl || this.history.length === 0) return;
+        const snapshot = this.history.pop();
+        this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
+        if (snapshot) {
+            try {
+                this.ctx.putImageData(snapshot, 0, 0);
+                this.hasStroke = true;
+                return;
+            } catch (err) {}
+        }
+        this.hasStroke = false;
+    }
+
+    _zoomAt(event) {
+        if (!event || !this.stageEl) return;
+        const rect = this.stageEl.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        const oldScale = this.viewScale;
+        const delta = toFiniteNumber(event.deltaY, 0);
+        const factor = delta < 0 ? 1.12 : 0.88;
+        const nextScale = Math.max(0.4, Math.min(6, oldScale * factor));
+        if (Math.abs(nextScale - oldScale) < 0.001) return;
+        const mx = toFiniteNumber(event.clientX, rect.left + rect.width / 2) - rect.left;
+        const my = toFiniteNumber(event.clientY, rect.top + rect.height / 2) - rect.top;
+        const worldX = (mx - this.panX) / oldScale;
+        const worldY = (my - this.panY) / oldScale;
+        this.viewScale = nextScale;
+        this.panX = mx - worldX * nextScale;
+        this.panY = my - worldY * nextScale;
+        this._applyViewTransform();
+    }
+
     _bindDrawEvents() {
         if (!this.canvasEl || !this.ctx) return;
         const sharedStop = (event) => stopMaskEditorEvent(event, true);
 
+        this.stageEl.setAttribute('tabindex', '0');
+        this._listen(this.stageEl, 'pointerenter', () => this._setActive(true));
+        this._listen(this.stageEl, 'pointerleave', () => {
+            if (!this.isDrawing && !this.isPanning) this._setActive(false);
+        });
+        this._listen(this.stageEl, 'focusin', () => this._setActive(true));
+        this._listen(this.stageEl, 'focusout', () => {
+            if (!this.isDrawing && !this.isPanning) this._setActive(false);
+        });
         this._listen(this.stageEl, 'mousedown', (event) => stopMaskEditorEvent(event, true), true);
         this._listen(this.stageEl, 'mouseup', (event) => stopMaskEditorEvent(event, false), true);
         this._listen(this.stageEl, 'click', (event) => stopMaskEditorEvent(event, false), true);
         this._listen(this.stageEl, 'dblclick', (event) => stopMaskEditorEvent(event, false), true);
         this._listen(this.stageEl, 'contextmenu', (event) => stopMaskEditorEvent(event, true), true);
-        this._listen(this.stageEl, 'wheel', sharedStop, { capture: true, passive: false });
+        this._listen(this.stageEl, 'wheel', (event) => {
+            stopMaskEditorEvent(event, true);
+            if (event.altKey) this._zoomAt(event);
+        }, { capture: true, passive: false });
         this._listen(this.stageEl, 'touchstart', sharedStop, { capture: true, passive: false });
         this._listen(this.stageEl, 'touchmove', sharedStop, { capture: true, passive: false });
         this._listen(this.stageEl, 'touchend', sharedStop, { capture: true, passive: false });
+        this._listen(window, 'keydown', (event) => {
+            if (!this.isActive) return;
+            const tagName = event.target && event.target.tagName ? event.target.tagName : '';
+            if (tagName === 'INPUT' || tagName === 'TEXTAREA' || (event.target && event.target.isContentEditable)) return;
+            if (event.code === 'Space') {
+                stopMaskEditorEvent(event, true);
+                this.isSpaceDown = true;
+                this._applyViewTransform();
+                return;
+            }
+            if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'z') {
+                stopMaskEditorEvent(event, true);
+                this.undo();
+            }
+        }, true);
+        this._listen(window, 'keyup', (event) => {
+            if (event.code !== 'Space') return;
+            if (!this.isActive && !this.isSpaceDown) return;
+            stopMaskEditorEvent(event, true);
+            this.isSpaceDown = false;
+            this._applyViewTransform();
+        }, true);
 
         this._listen(this.canvasEl, 'pointerdown', (event) => {
             if (event.button !== undefined && event.button !== 0) return;
             stopMaskEditorEvent(event, true);
+            this._setActive(true);
+            try { this.stageEl.focus({ preventScroll: true }); } catch (err) {}
+            if (this.isSpaceDown) {
+                this.isPanning = true;
+                this.panPointerId = event.pointerId;
+                this.panStartX = event.clientX;
+                this.panStartY = event.clientY;
+                this.panStartOffsetX = this.panX;
+                this.panStartOffsetY = this.panY;
+                try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
+                this._applyViewTransform();
+                return;
+            }
             const point = this._getCanvasPoint(event);
             if (!point) return;
+            this._pushHistory();
             this.isDrawing = true;
             this.pointerId = event.pointerId;
             try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
@@ -774,6 +896,14 @@ class ImgMaskEditor {
         });
 
         this._listen(this.canvasEl, 'pointermove', (event) => {
+            if (this.isPanning) {
+                if (this.panPointerId !== null && event.pointerId !== this.panPointerId) return;
+                stopMaskEditorEvent(event, true);
+                this.panX = this.panStartOffsetX + (event.clientX - this.panStartX);
+                this.panY = this.panStartOffsetY + (event.clientY - this.panStartY);
+                this._applyViewTransform();
+                return;
+            }
             if (!this.isDrawing) return;
             if (this.pointerId !== null && event.pointerId !== this.pointerId) return;
             stopMaskEditorEvent(event, true);
@@ -785,6 +915,14 @@ class ImgMaskEditor {
         });
 
         const stopDrawing = (event) => {
+            if (this.isPanning) {
+                if (this.panPointerId !== null && event.pointerId !== undefined && event.pointerId !== this.panPointerId) return;
+                stopMaskEditorEvent(event, true);
+                this.isPanning = false;
+                this.panPointerId = null;
+                this._applyViewTransform();
+                return;
+            }
             if (!this.isDrawing) return;
             if (this.pointerId !== null && event.pointerId !== undefined && event.pointerId !== this.pointerId) return;
             stopMaskEditorEvent(event, true);
@@ -838,6 +976,7 @@ class ImgMaskEditor {
         this.ctx.clearRect(0, 0, width, height);
         this._bindDrawEvents();
         if (this.initialMask) await this._drawMaskLayer(this.initialMask);
+        this._applyViewTransform();
         return true;
     }
 
@@ -845,8 +984,9 @@ class ImgMaskEditor {
         this.brushSize = Math.max(4, Math.min(128, toFiniteNumber(size, 20)));
     }
 
-    clear() {
+    clear(recordHistory = true) {
         if (!this.ctx || !this.canvasEl) return;
+        if (recordHistory) this._pushHistory();
         this.ctx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
         this.hasStroke = false;
     }
@@ -1823,7 +1963,10 @@ viewport.addEventListener('drop', async (e) => {
             status: 'idle',
             state: {
                 version: 'trial',
-                providerSort: 'quality',
+                providerSort: 'stable',
+                modelSuffix: ':stable',
+                routeMode: 'success_rate',
+                imageModel: 'gpt-image-2:stable',
                 quality: 'auto',
                 format: 'png',
                 n: 1,
@@ -2423,7 +2566,10 @@ function generateCardHTML(task) {
         const maskBrushSize = Math.max(4, Math.min(128, parseInt(task.state.maskBrushSize, 10) || 20));
         const maskSourceUrl = hasMaskSource ? getBlobUrl(`${task.id}_mask_base_${task.timestamp || ''}`, maskBaseImage) : '';
 
-        let slotsHtml = task.state.images.map((img, i) => `<div class="img-gen-slot"><img src="${getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img)}"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`).join('');
+        let slotsHtml = task.state.images.map((img, i) => {
+            const slotUrl = getBlobUrl(task.id+'_img_'+i+'_'+(task.timestamp||''), img);
+            return `<div class="img-gen-slot"><img src="${slotUrl}" ondblclick="openLightbox(this.src)" data-tip="双击预览垫图"><div class="popover-rm-btn remove-badge" onclick="removeGenImage(event, '${task.id}', ${i})">×</div></div>`;
+        }).join('');
         if (task.state.images.length < 5) {
             slotsHtml += `<div class="img-gen-slot img-gen-slot-add" id="img-gen-zone-${task.id}" data-tip="点击上传或从画布拖入垫图 (最多5张)" onclick="document.getElementById('file-input-${task.id}').click()"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" id="file-input-${task.id}" style="display:none;" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()"></div>`;
         }
@@ -2480,9 +2626,10 @@ function generateCardHTML(task) {
                 <option value="2k" ${task.state.proResolution==='2k'?'selected':''}>2K</option>
                 <option value="4k" ${task.state.proResolution==='4k'?'selected':''}>4K</option>
             </select>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版：质量优先或速度优先">
-                <option value="quality" ${task.state.providerSort==='quality'?'selected':''}>质量优先</option>
-                <option value="speed" ${task.state.providerSort==='speed'?'selected':''}>速度优先</option>
+            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="中转站路由：切换 gpt-image-2 后缀">
+                <option value="stable" ${task.state.providerSort==='stable'?'selected':''}>:stable 成功率</option>
+                <option value="nitro" ${task.state.providerSort==='nitro'?'selected':''}>:nitro 极速</option>
+                <option value="floor" ${task.state.providerSort==='floor'?'selected':''}>:floor 低价</option>
             </select>
             <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)" data-tip="专业版：输出质量">
                 <option value="auto" ${task.state.quality==='auto'?'selected':''}>自动质量</option>
@@ -2546,7 +2693,7 @@ function generateCardHTML(task) {
                         <img class="img-gen-mask-base" id="img-mask-base-${task.id}" src="${maskSourceUrl}" alt="mask-base">
                         <canvas class="img-gen-mask-canvas" id="img-mask-canvas-${task.id}"></canvas>
                     </div>
-                    <div class="img-gen-mask-tip">红色区域=将被重绘区域。提交时会自动携带蒙版。</div>
+                    <div class="img-gen-mask-tip">红色=重绘区 · Space+左键拖动 · Alt+滚轮缩放 · Ctrl+Z 回退</div>
                     ` : `<div class="img-gen-mask-empty">请先添加至少1张垫图，再开启蒙版编辑。</div>`}
                 </div>` : ''}
             </div>
@@ -3093,12 +3240,27 @@ function resolveImgGenSize(state) {
     return enforceProSizeRules('1024x1024').size;
 }
 
+function normalizeImgGenRoute(rawValue) {
+    const raw = String(rawValue || '').trim().toLowerCase().replace(/^:/, '');
+    if (['floor', 'price', 'cheap', 'cost'].includes(raw)) {
+        return { key: 'floor', suffix: ':floor', mode: 'price', label: '价格最低' };
+    }
+    if (['nitro', 'speed', 'fast'].includes(raw)) {
+        return { key: 'nitro', suffix: ':nitro', mode: 'speed', label: '速度最快' };
+    }
+    return { key: 'stable', suffix: ':stable', mode: 'success_rate', label: '成功率最高' };
+}
+
 function ensureImgGenState(task) {
     if (!task || task.type !== 'tool_image_gen') return;
     if (!task.state || typeof task.state !== 'object') task.state = {};
     if (!Array.isArray(task.state.images)) task.state.images = [];
     if (!task.state.version) task.state.version = 'trial';
-    if (!task.state.providerSort) task.state.providerSort = 'quality';
+    const route = normalizeImgGenRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'stable');
+    task.state.providerSort = route.key;
+    task.state.modelSuffix = route.suffix;
+    task.state.routeMode = route.mode;
+    task.state.imageModel = `gpt-image-2${route.suffix}`;
     if (!task.state.quality) task.state.quality = 'auto';
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
@@ -3879,6 +4041,12 @@ async function updateImgGenState(taskId, key, val) {
         } else if (key === 'proRatio') {
             task.state.proRatio = String(val || '1:1');
             if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'providerSort') {
+            const route = normalizeImgGenRoute(val);
+            task.state.providerSort = route.key;
+            task.state.modelSuffix = route.suffix;
+            task.state.routeMode = route.mode;
+            task.state.imageModel = `gpt-image-2${route.suffix}`;
         } else if (key === 'customW' || key === 'customH') {
             const parsed = parseInt(val, 10);
             task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
@@ -4065,15 +4233,21 @@ async function submitImgGen(taskId) {
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
     const maskBase64 = maskSource ? await blobToBase64(maskSource, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
     const nValue = 1;
+    const route = normalizeImgGenRoute(task.state.providerSort);
+    const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
 
     const unifiedPayloadCore = {
         version: version,
         channel: task.state.channel || 'channel_1',
         mode: mode,
+        model: imageModel,
+        imageModel: imageModel,
+        modelSuffix: route.suffix,
+        routeMode: route.mode,
         prompt: finalPrompt,
         size: sizeToSend,
-        providerSort: task.state.providerSort || 'quality',
-        provider: { sort: task.state.providerSort || 'quality' },
+        providerSort: route.key,
+        provider: { sort: route.mode, suffix: route.suffix, model: imageModel },
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
@@ -4098,13 +4272,17 @@ async function submitImgGen(taskId) {
         prompt: finalPrompt,
         size: sizeToSend,
         channel: task.state.channel || 'channel_1',
+        model: imageModel,
+        imageModel: imageModel,
+        modelSuffix: route.suffix,
+        routeMode: route.mode,
         n: nValue,
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
-        providerSort: task.state.providerSort || 'quality',
+        providerSort: route.key,
         images: imagesBase64,
         custom_ratio: trialCustomRatio || undefined,
         custom_w: trialCustomRatio ? trialCustomW : undefined,
