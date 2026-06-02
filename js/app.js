@@ -1729,6 +1729,16 @@ let lastPointerClientY = 0;
 let toolDragSession = null;
 let lastViewportDragClientX = NaN;
 let lastViewportDragClientY = NaN;
+const CANVAS_MIN_SCALE = 0.18;
+const CANVAS_MAX_SCALE = 3.5;
+const CANVAS_GRID_BASE = 30;
+const CANVAS_CULL_PADDING = 900;
+let cameraAnimFrame = 0;
+let inertiaFrame = 0;
+let cullTimer = null;
+let minimapAwakeTimer = null;
+let panSamples = [];
+let resizeRefreshTimer = null;
 
 function clientToBoard(clientX, clientY) {
     const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
@@ -1821,13 +1831,292 @@ function detectToolPluginType(el) {
     return '';
 }
 
+function clampCanvasScale(value) {
+    return Math.min(CANVAS_MAX_SCALE, Math.max(CANVAS_MIN_SCALE, toFiniteNumber(value, 1)));
+}
+
+function cancelCameraAnimation() {
+    if (cameraAnimFrame) {
+        cancelAnimationFrame(cameraAnimFrame);
+        cameraAnimFrame = 0;
+    }
+}
+
+function cancelCanvasInertia() {
+    if (inertiaFrame) {
+        cancelAnimationFrame(inertiaFrame);
+        inertiaFrame = 0;
+    }
+    panSamples = [];
+}
+
+function setCanvasMoving(active) {
+    if (board) board.classList.toggle('is-moving', !!active);
+    if (viewport) viewport.classList.toggle('is-panning', !!active);
+    document.body.classList.toggle('canvas-camera-active', !!active);
+    if (active) wakeMinimap(900);
+}
+
+function wakeMinimap(duration = 900) {
+    const container = document.getElementById('minimap-container');
+    if (!container || container.classList.contains('is-minimized')) return;
+    container.classList.add('is-awake');
+    clearTimeout(minimapAwakeTimer);
+    minimapAwakeTimer = setTimeout(() => {
+        container.classList.remove('is-awake');
+    }, Math.max(260, duration));
+}
+
+function updateDynamicGrid() {
+    const scaleSafe = clampCanvasScale(transform.scale);
+    let gridSize = CANVAS_GRID_BASE * scaleSafe;
+    while (gridSize < 18) gridSize *= 2;
+    while (gridSize > 72) gridSize /= 2;
+    const posX = ((toFiniteNumber(transform.x, 0) % gridSize) + gridSize) % gridSize;
+    const posY = ((toFiniteNumber(transform.y, 0) % gridSize) + gridSize) % gridSize;
+    document.body.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+    document.body.style.backgroundPosition = `${posX}px ${posY}px`;
+    document.body.style.setProperty('--canvas-grid-size', `${gridSize}px`);
+    document.body.style.setProperty('--canvas-grid-opacity', `${Math.max(0.08, Math.min(0.26, 0.22 - Math.abs(scaleSafe - 1) * 0.035))}`);
+}
+
+function applyCanvasTransform(options = {}) {
+    transform.x = toFiniteNumber(transform.x, window.innerWidth / 2);
+    transform.y = toFiniteNumber(transform.y, 100);
+    transform.scale = clampCanvasScale(transform.scale);
+    if (board) {
+        board.style.transform = `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`;
+    }
+    updateDynamicGrid();
+    syncMinimapViewport();
+    updateSelectionToolbar();
+    if (options.revealMinimap !== false) wakeMinimap(options.minimapDuration || 900);
+    if (options.cull !== false) scheduleViewportCulling(options.cullDelay || 120);
+}
+
+function zoomCanvasAt(clientX, clientY, nextScale, options = {}) {
+    if (!viewport) return;
+    const rect = viewport.getBoundingClientRect();
+    const oldScale = clampCanvasScale(transform.scale);
+    const scale = clampCanvasScale(nextScale);
+    if (Math.abs(scale - oldScale) < 0.0005) return;
+    const mouseX = toFiniteNumber(clientX, rect.left + rect.width / 2) - rect.left;
+    const mouseY = toFiniteNumber(clientY, rect.top + rect.height / 2) - rect.top;
+    transform.x = mouseX - (mouseX - transform.x) * (scale / oldScale);
+    transform.y = mouseY - (mouseY - transform.y) * (scale / oldScale);
+    transform.scale = scale;
+    applyCanvasTransform(options);
+}
+
+function panCanvasBy(deltaX, deltaY, options = {}) {
+    transform.x += toFiniteNumber(deltaX, 0);
+    transform.y += toFiniteNumber(deltaY, 0);
+    applyCanvasTransform(options);
+}
+
+function animateCameraTo(target, options = {}) {
+    if (!target) return;
+    cancelCameraAnimation();
+    cancelCanvasInertia();
+    const from = { x: transform.x, y: transform.y, scale: transform.scale };
+    const to = {
+        x: toFiniteNumber(target.x, from.x),
+        y: toFiniteNumber(target.y, from.y),
+        scale: clampCanvasScale(target.scale !== undefined ? target.scale : from.scale)
+    };
+    const duration = Math.max(120, toFiniteNumber(options.duration, 420));
+    const start = performance.now();
+    setCanvasMoving(true);
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+        const p = Math.min(1, (now - start) / duration);
+        const eased = easeOutCubic(p);
+        transform.x = from.x + (to.x - from.x) * eased;
+        transform.y = from.y + (to.y - from.y) * eased;
+        transform.scale = from.scale + (to.scale - from.scale) * eased;
+        applyCanvasTransform({ cull: false, minimapDuration: 900 });
+        if (p < 1) {
+            cameraAnimFrame = requestAnimationFrame(step);
+        } else {
+            cameraAnimFrame = 0;
+            setCanvasMoving(false);
+            scheduleViewportCulling(40);
+            renderMinimap();
+        }
+    };
+    cameraAnimFrame = requestAnimationFrame(step);
+}
+
+function recordPanSample(clientX, clientY) {
+    const now = performance.now();
+    panSamples.push({ x: toFiniteNumber(clientX, 0), y: toFiniteNumber(clientY, 0), t: now });
+    panSamples = panSamples.filter((sample) => now - sample.t <= 120);
+}
+
+function startCanvasInertia() {
+    if (panSamples.length < 2) {
+        scheduleViewportCulling(60);
+        return;
+    }
+    const last = panSamples[panSamples.length - 1];
+    let first = panSamples[0];
+    for (let i = panSamples.length - 2; i >= 0; i--) {
+        if (last.t - panSamples[i].t >= 48) {
+            first = panSamples[i];
+            break;
+        }
+    }
+    const dt = Math.max(16, last.t - first.t);
+    let velocityX = (last.x - first.x) / dt;
+    let velocityY = (last.y - first.y) / dt;
+    const speed = Math.hypot(velocityX, velocityY);
+    panSamples = [];
+    if (speed < 0.05) {
+        scheduleViewportCulling(60);
+        return;
+    }
+    let prev = performance.now();
+    setCanvasMoving(true);
+    const decayPerFrame = 0.91;
+    const step = (now) => {
+        const delta = Math.min(34, Math.max(8, now - prev));
+        prev = now;
+        transform.x += velocityX * delta;
+        transform.y += velocityY * delta;
+        velocityX *= Math.pow(decayPerFrame, delta / 16.67);
+        velocityY *= Math.pow(decayPerFrame, delta / 16.67);
+        applyCanvasTransform({ cull: false, minimapDuration: 700 });
+        if (Math.hypot(velocityX, velocityY) > 0.018) {
+            inertiaFrame = requestAnimationFrame(step);
+        } else {
+            inertiaFrame = 0;
+            setCanvasMoving(false);
+            scheduleViewportCulling(40);
+            renderMinimap();
+        }
+    };
+    inertiaFrame = requestAnimationFrame(step);
+}
+
+function getCardWorldSize(cardEl, task) {
+    const fallback = getTaskFallbackSize(task);
+    const dataW = toFiniteNumber(cardEl && cardEl.dataset ? cardEl.dataset.aabbWidth : 0, 0);
+    const dataH = toFiniteNumber(cardEl && cardEl.dataset ? cardEl.dataset.aabbHeight : 0, 0);
+    return {
+        width: Math.max(1, dataW || fallback.width),
+        height: Math.max(1, dataH || fallback.height)
+    };
+}
+
+function syncCardViewportMetrics(cardEl, task) {
+    if (!cardEl || !task) return;
+    if (cardEl.classList.contains('is-viewport-culled')) return;
+    const size = measureTaskAABB(task);
+    cardEl.dataset.aabbWidth = String(size.width);
+    cardEl.dataset.aabbHeight = String(size.height);
+    cardEl.style.setProperty('--culled-width', `${size.width}px`);
+    cardEl.style.setProperty('--culled-height', `${size.height}px`);
+}
+
+function updateViewportCulling() {
+    if (!viewport || !board) return;
+    const scaleSafe = clampCanvasScale(transform.scale);
+    const padding = CANVAS_CULL_PADDING / scaleSafe;
+    const view = {
+        left: -transform.x / scaleSafe - padding,
+        top: -transform.y / scaleSafe - padding,
+        right: (-transform.x + window.innerWidth) / scaleSafe + padding,
+        bottom: (-transform.y + window.innerHeight) / scaleSafe + padding
+    };
+    document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box').forEach((cardEl) => {
+        const task = cardEl.__veoTask;
+        if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
+            cardEl.classList.remove('is-viewport-culled');
+            return;
+        }
+        const size = getCardWorldSize(cardEl, task);
+        const left = toFiniteNumber(task.x, 0);
+        const top = toFiniteNumber(task.y, 0);
+        const outside = left + size.width < view.left || left > view.right || top + size.height < view.top || top > view.bottom;
+        cardEl.classList.toggle('is-viewport-culled', outside);
+    });
+}
+
+function scheduleViewportCulling(delay = 120) {
+    clearTimeout(cullTimer);
+    cullTimer = setTimeout(updateViewportCulling, Math.max(0, delay));
+}
+
+function getSelectedCanvasElements() {
+    return Array.from(selectedTasks)
+        .map((id) => document.getElementById('card-' + id))
+        .filter((el) => el && !el.classList.contains('hidden-in-frame'));
+}
+
+function ensureSelectionToolbar() {
+    let toolbar = document.getElementById('canvas-selection-toolbar');
+    if (toolbar) return toolbar;
+    toolbar = document.createElement('div');
+    toolbar.id = 'canvas-selection-toolbar';
+    toolbar.className = 'canvas-selection-toolbar';
+    toolbar.innerHTML = `
+        <button type="button" data-action="focus" data-tip="聚焦选中节点"><span class="material-symbols-outlined">center_focus_strong</span></button>
+        <button type="button" data-action="duplicate" data-tip="复制选中节点"><span class="material-symbols-outlined">content_copy</span></button>
+        <button type="button" data-action="delete" data-tip="删除选中节点"><span class="material-symbols-outlined">delete</span></button>
+        <button type="button" data-action="clear" data-tip="取消选择"><span class="material-symbols-outlined">close</span></button>
+    `;
+    toolbar.addEventListener('mousedown', (event) => event.stopPropagation());
+    toolbar.addEventListener('click', async (event) => {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const action = button.dataset.action;
+        if (action === 'focus') focusSelectedTasks();
+        if (action === 'duplicate') await duplicateSelectedTasks();
+        if (action === 'delete') await deleteSelectedTasks();
+        if (action === 'clear') clearSelection();
+    });
+    document.body.appendChild(toolbar);
+    return toolbar;
+}
+
+function updateSelectionToolbar() {
+    const toolbar = ensureSelectionToolbar();
+    const elements = getSelectedCanvasElements().filter((el) => !el.classList.contains('is-viewport-culled'));
+    if (elements.length === 0 || isPanning || isSelecting) {
+        toolbar.classList.remove('show');
+        return;
+    }
+    const rects = elements.map((el) => el.getBoundingClientRect()).filter((rect) => rect.width > 0 && rect.height > 0);
+    if (rects.length === 0) {
+        toolbar.classList.remove('show');
+        return;
+    }
+    const bounds = rects.reduce((acc, rect) => ({
+        left: Math.min(acc.left, rect.left),
+        top: Math.min(acc.top, rect.top),
+        right: Math.max(acc.right, rect.right),
+        bottom: Math.max(acc.bottom, rect.bottom)
+    }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+    const x = Math.max(86, Math.min(window.innerWidth - 86, (bounds.left + bounds.right) / 2));
+    const y = Math.max(14, bounds.top - 48);
+    toolbar.style.transform = `translate(${x}px, ${y}px) translateX(-50%)`;
+    toolbar.classList.add('show');
+}
+
 window.addEventListener('mousedown', (e) => {
     if (e.button === 0) isPrimaryPointerDown = true;
     if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
     if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
 }, true);
 
-function clearSelection() { selectedTasks.clear(); document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected')); }
+function clearSelection() {
+    selectedTasks.clear();
+    document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected'));
+    updateSelectionToolbar();
+    scheduleViewportCulling(40);
+}
 
 window.addEventListener('mousemove', (e) => {
     if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
@@ -1835,36 +2124,49 @@ window.addEventListener('mousemove', (e) => {
     if (!ticking) {
         requestAnimationFrame(() => {
             if (isPanning) {
-                transform.x = e.clientX - startPanX; transform.y = e.clientY - startPanY; 
-                board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
-                document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`; document.body.style.backgroundSize = `${30 * transform.scale}px ${30 * transform.scale}px`;
-                syncMinimapViewport(); 
+                transform.x = e.clientX - startPanX;
+                transform.y = e.clientY - startPanY;
+                recordPanSample(e.clientX, e.clientY);
+                applyCanvasTransform({ cull: false, minimapDuration: 900 });
             } 
             else if (isSelecting) {
                 const currentX = e.clientX, currentY = e.clientY, left = Math.min(startSelX, currentX), top = Math.min(startSelY, currentY), width = Math.abs(currentX - startSelX), height = Math.abs(currentY - startSelY);
-                if(marquee) { marquee.style.left = left + 'px'; marquee.style.top = top + 'px'; marquee.style.width = width + 'px'; marquee.style.height = height + 'px'; }
+                const isCrossing = currentX < startSelX;
+                if(marquee) {
+                    marquee.style.left = left + 'px';
+                    marquee.style.top = top + 'px';
+                    marquee.style.width = width + 'px';
+                    marquee.style.height = height + 'px';
+                    marquee.classList.toggle('is-crossing', isCrossing);
+                    marquee.classList.toggle('is-window', !isCrossing);
+                }
                 const selRect = { left, top, right: left + width, bottom: top + height };
                 document.querySelectorAll('.video-card, .frame-box').forEach(card => {
                     const rect = card.getBoundingClientRect();
                     if(card.classList.contains('hidden-in-frame')) return;
-                    if (rect.left < selRect.right && rect.right > selRect.left && rect.top < selRect.bottom && rect.bottom > selRect.top) { card.classList.add('selected'); selectedTasks.add(card.id.replace('card-', '')); } 
+                    const intersects = rect.left < selRect.right && rect.right > selRect.left && rect.top < selRect.bottom && rect.bottom > selRect.top;
+                    const contains = rect.left >= selRect.left && rect.right <= selRect.right && rect.top >= selRect.top && rect.bottom <= selRect.bottom;
+                    const hit = isCrossing ? intersects : contains;
+                    if (hit) { card.classList.add('selected'); selectedTasks.add(card.id.replace('card-', '')); }
                     else { card.classList.remove('selected'); selectedTasks.delete(card.id.replace('card-', '')); }
                 });
+                updateSelectionToolbar();
             } 
             else if (draggingCardInfo) {
                 const dx = (e.clientX - draggingCardInfo.startMouseX) / transform.scale, dy = (e.clientY - draggingCardInfo.startMouseY) / transform.scale;
                 const dragBaseX = toFiniteNumber(draggingCardInfo.initialX, 0);
                 const dragBaseY = toFiniteNumber(draggingCardInfo.initialY, 0);
                 draggingCardInfo.task.x = dragBaseX + dx; draggingCardInfo.task.y = dragBaseY + dy;
-                draggingCardInfo.el.style.transform = `translate(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px)`;
+                draggingCardInfo.el.style.transform = `translate3d(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px, 0)`;
                 if (draggingCardInfo.children) {
                     draggingCardInfo.children.forEach(child => {
                         const childBaseX = toFiniteNumber(child.initialX, 0);
                         const childBaseY = toFiniteNumber(child.initialY, 0);
                         child.task.x = childBaseX + dx; child.task.y = childBaseY + dy;
-                        child.el.style.transform = `translate(${child.task.x}px, ${child.task.y}px)`;
+                        child.el.style.transform = `translate3d(${child.task.x}px, ${child.task.y}px, 0)`;
                     });
                 }
+                updateSelectionToolbar();
             }
             else if (activeFrameResize) {
                 const dx = (e.clientX - activeFrameResize.startX) / transform.scale, dy = (e.clientY - activeFrameResize.startY) / transform.scale;
@@ -1872,6 +2174,8 @@ window.addEventListener('mousemove', (e) => {
                 const newH = Math.max(activeFrameResize.minH, activeFrameResize.startH + dy);
                 activeFrameResize.el.style.width = newW + 'px'; activeFrameResize.el.style.height = newH + 'px';
                 activeFrameResize.task.width = newW; activeFrameResize.task.height = newH; 
+                syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
+                updateSelectionToolbar();
             }
             ticking = false;
         });
@@ -1881,31 +2185,71 @@ window.addEventListener('mousemove', (e) => {
 
 viewport.addEventListener('mousedown', (e) => { 
     if (e.target === viewport || e.target === board) { 
-        if (e.shiftKey) { isSelecting = true; startSelX = e.clientX; startSelY = e.clientY; if(marquee) { marquee.style.left = startSelX + 'px'; marquee.style.top = startSelY + 'px'; marquee.style.width = '0'; marquee.style.height = '0'; marquee.style.display = 'block'; } } 
-        else { clearSelection(); isPanning = true; board.classList.add('is-moving'); startPanX = e.clientX - transform.x; startPanY = e.clientY - transform.y; }
+        cancelCameraAnimation();
+        cancelCanvasInertia();
+        if (e.shiftKey) {
+            isSelecting = true;
+            startSelX = e.clientX;
+            startSelY = e.clientY;
+            if(marquee) {
+                marquee.style.left = startSelX + 'px';
+                marquee.style.top = startSelY + 'px';
+                marquee.style.width = '0';
+                marquee.style.height = '0';
+                marquee.style.display = 'block';
+                marquee.classList.add('is-window');
+                marquee.classList.remove('is-crossing');
+            }
+            updateSelectionToolbar();
+        }
+        else {
+            clearSelection();
+            isPanning = true;
+            setCanvasMoving(true);
+            startPanX = e.clientX - transform.x;
+            startPanY = e.clientY - transform.y;
+            recordPanSample(e.clientX, e.clientY);
+        }
     } 
 });
 
 window.addEventListener('mouseup', async () => { 
     isPrimaryPointerDown = false;
-    isPanning = false; board.classList.remove('is-moving'); 
-    if (isSelecting) { isSelecting = false; if(marquee) marquee.style.display = 'none'; }
+    const wasPanning = isPanning;
+    isPanning = false;
+    setCanvasMoving(false);
+    if (wasPanning) startCanvasInertia();
+    if (isSelecting) {
+        isSelecting = false;
+        if(marquee) {
+            marquee.style.display = 'none';
+            marquee.classList.remove('is-crossing', 'is-window');
+        }
+        scheduleViewportCulling(40);
+        updateSelectionToolbar();
+    }
     
     if (draggingCardInfo) { 
         draggingCardInfo.el.style.willChange = 'auto'; 
+        syncCardViewportMetrics(draggingCardInfo.el, draggingCardInfo.task);
         await saveTaskDB(draggingCardInfo.task); 
         
         if (draggingCardInfo.children) { 
-            for(let child of draggingCardInfo.children) { child.el.style.willChange = 'auto'; await saveTaskDB(child.task); }
+            for(let child of draggingCardInfo.children) { child.el.style.willChange = 'auto'; syncCardViewportMetrics(child.el, child.task); await saveTaskDB(child.task); }
         } else {
             await checkGroupDrop(draggingCardInfo);
         }
         draggingCardInfo = null; 
+        scheduleViewportCulling(40);
+        updateSelectionToolbar();
         renderMinimap(); 
     } 
     if (activeFrameResize) {
+        syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
         await saveTaskDB(activeFrameResize.task); 
         activeFrameResize = null;
+        scheduleViewportCulling(40);
+        updateSelectionToolbar();
         renderMinimap();
     }
 });
@@ -1915,25 +2259,43 @@ viewport.addEventListener('wheel', (e) => {
     if (wheelTarget && wheelTarget.closest('.img-gen-preview-panel')) return;
     if (e.target.tagName === 'TEXTAREA' || e.target.closest('textarea')) return;
     if (draggingCardInfo) return; 
-    e.preventDefault(); if (ticking) return; 
-    board.classList.add('is-moving'); clearTimeout(scrollTimeout); scrollTimeout = setTimeout(() => board.classList.remove('is-moving'), 150); 
-    const delta = e.deltaY * 0.001; let newScale = Math.min(Math.max(0.2, transform.scale - delta), 3); 
-    const mouseX = e.clientX - viewport.getBoundingClientRect().left, mouseY = e.clientY - viewport.getBoundingClientRect().top;
-    transform.x = mouseX - (mouseX - transform.x) * (newScale / transform.scale); transform.y = mouseY - (mouseY - transform.y) * (newScale / transform.scale); transform.scale = newScale;
-    
-    if (!ticking) {
-        requestAnimationFrame(() => {
-            board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
-            document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`; document.body.style.backgroundSize = `${30 * transform.scale}px ${30 * transform.scale}px`;
-            syncMinimapViewport(); ticking = false;
-        });
-        ticking = true;
+    e.preventDefault();
+    cancelCameraAnimation();
+    cancelCanvasInertia();
+    setCanvasMoving(true);
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+        setCanvasMoving(false);
+        scheduleViewportCulling(40);
+        renderMinimap();
+    }, 170);
+
+    const modeFactor = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
+    const deltaX = toFiniteNumber(e.deltaX, 0) * modeFactor;
+    const deltaY = toFiniteNumber(e.deltaY, 0) * modeFactor;
+    const trackpadPan = !e.ctrlKey && (Math.abs(deltaX) > 0.5 || (e.deltaMode === 0 && Math.abs(deltaY) < 48) || e.shiftKey);
+
+    if (trackpadPan) {
+        panCanvasBy(-deltaX, -deltaY, { cull: false, minimapDuration: 700 });
+    } else {
+        const factor = Math.exp(-deltaY * 0.0012);
+        zoomCanvasAt(e.clientX, e.clientY, transform.scale * factor, { cull: false, minimapDuration: 700 });
     }
 }, { passive: false });
 
+window.addEventListener('resize', () => {
+    clearTimeout(resizeRefreshTimer);
+    resizeRefreshTimer = setTimeout(() => {
+        applyCanvasTransform({ cull: false, revealMinimap: false });
+        scheduleViewportCulling(60);
+        renderMinimap();
+        updateSelectionToolbar();
+    }, 90);
+});
+
 function startFrameResize(e, id) {
     e.stopPropagation(); 
-    isPanning = false; board.classList.remove('is-moving');
+    isPanning = false; setCanvasMoving(false);
     const el = document.getElementById('card-' + id);
     const task = el.__veoTask;
     
@@ -1973,6 +2335,9 @@ function bindCardDrag(cardEl, task) {
         // 🌟 改为 async 函数，因为克隆需要查库
         header.onmousedown = async (e) => {
             if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            cancelCameraAnimation();
+            cancelCanvasInertia();
+            setCanvasMoving(false);
 
             // 🌟🌟🌟 新增：侦测到按住 Alt 键，直接执行克隆并阻断原卡片的拖拽
             if (e.altKey) {
@@ -2019,34 +2384,147 @@ function bindCardDrag(cardEl, task) {
     const resizeHandle = cardEl.querySelector('.frame-resize-handle');
     if (resizeHandle) {
         resizeHandle.onmousedown = (e) => {
-            e.stopPropagation(); isPanning = false; if(board) board.classList.remove('is-moving');
+            e.stopPropagation(); isPanning = false; setCanvasMoving(false);
             startFrameResize(e, task.id);
         };
     }
 }
 
+function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
+    if (!originalTask || typeof originalTask !== 'object') return null;
+    const baseType = originalTask.type ? originalTask.type : 'task';
+    const clone = cloneTaskDeep(originalTask) || { ...originalTask };
+    clone.id = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    clone.timestamp = Date.now();
+    delete clone.parentId;
+
+    if (clone.type === 'tool_image_gen') {
+        ensureImgGenState(clone);
+        clone.status = 'idle';
+        clone.state.resultBlob = null;
+        clone.state.resultBlobs = [];
+        clone.state.resultUrl = null;
+        clone.state.maskImage = null;
+        clone.state.maskBlob = null;
+        clone.state.maskEditMode = false;
+        clone.retryCount = 0;
+    }
+    if (clone.type === 'tool_cropper' && clone.state) clone.state.resultBlob = null;
+
+    normalizeTaskPosition(clone);
+    clone.x += offsetX;
+    clone.y += offsetY;
+    return clone;
+}
+
+async function duplicateSelectedTasks() {
+    const ids = Array.from(selectedTasks);
+    if (ids.length === 0) return;
+    const clones = [];
+    for (let i = 0; i < ids.length; i++) {
+        const original = getTaskShadow(ids[i]) || await getTaskDB(ids[i]);
+        if (!original) continue;
+        const offset = 44 + i * 14;
+        const clone = buildDuplicateTaskPayload(original, offset, offset);
+        if (!clone) continue;
+        clones.push(clone);
+        await saveTaskDB(clone);
+    }
+    if (clones.length === 0) return;
+    await renderBoard();
+    clearSelection();
+    clones.forEach((clone) => {
+        selectedTasks.add(clone.id);
+        const el = document.getElementById('card-' + clone.id);
+        if (el) {
+            el.classList.add('selected');
+            el.classList.remove('is-viewport-culled');
+            highestZIndex++;
+            el.style.zIndex = highestZIndex;
+        }
+    });
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
+    showToast(`已复制 ${clones.length} 个节点`, 'success');
+}
+
+function getSelectedWorldBounds() {
+    const elements = getSelectedCanvasElements();
+    if (elements.length === 0) return null;
+    return elements.reduce((acc, el) => {
+        const task = el.__veoTask;
+        if (!task) return acc;
+        const size = getCardWorldSize(el, task);
+        const left = toFiniteNumber(task.x, 0);
+        const top = toFiniteNumber(task.y, 0);
+        return {
+            left: Math.min(acc.left, left),
+            top: Math.min(acc.top, top),
+            right: Math.max(acc.right, left + size.width),
+            bottom: Math.max(acc.bottom, top + size.height)
+        };
+    }, { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+}
+
+function focusSelectedTasks() {
+    const bounds = getSelectedWorldBounds();
+    if (!bounds || !Number.isFinite(bounds.left) || !Number.isFinite(bounds.right)) return;
+    const width = Math.max(1, bounds.right - bounds.left);
+    const height = Math.max(1, bounds.bottom - bounds.top);
+    const marginX = Math.min(260, Math.max(120, window.innerWidth * 0.18));
+    const marginY = Math.min(220, Math.max(110, window.innerHeight * 0.18));
+    const nextScale = clampCanvasScale(Math.min((window.innerWidth - marginX) / width, (window.innerHeight - marginY) / height, 1.55));
+    const centerX = bounds.left + width / 2;
+    const centerY = bounds.top + height / 2;
+    animateCameraTo({
+        x: window.innerWidth / 2 - centerX * nextScale,
+        y: window.innerHeight / 2 - centerY * nextScale,
+        scale: nextScale
+    }, { duration: 430 });
+}
+
+async function deleteSelectedTasks() {
+    if (selectedTasks.size === 0) return;
+    const ids = Array.from(selectedTasks);
+    if (!confirm(`🗑️ 确定要彻底删除选中的 ${ids.length} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) return;
+    const deletePromises = ids.map(async (id) => {
+        clearImgGenPromptDraftTimer(id);
+        destroyImgMaskStudio(id);
+        destroyImgMaskEditor(id);
+        await deleteTaskDB(id);
+        const card = document.getElementById('card-' + id);
+        if (card) card.remove();
+        const allTasks = await getAllTasksDB();
+        for(let t of allTasks) {
+            if(t.parentId === id) {
+                clearImgGenPromptDraftTimer(t.id);
+                destroyImgMaskStudio(t.id);
+                destroyImgMaskEditor(t.id);
+                await deleteTaskDB(t.id);
+                const childEl = document.getElementById('card-' + t.id);
+                if(childEl) childEl.remove();
+            }
+        }
+    });
+    await Promise.all(deletePromises);
+    selectedTasks.clear();
+    updateSelectionToolbar();
+    scheduleViewportCulling(40);
+    renderMinimap();
+    showToast(`清理完成`, "success");
+}
+
 window.addEventListener('keydown', async (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); showToast(`已全选可视节点`, "info");
+        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
     }
     if (e.key === 'Backspace' || e.key === 'Delete') {
-        if (selectedTasks.size > 0) {
-            if (confirm(`🗑️ 确定要彻底删除选中的 ${selectedTasks.size} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) {
-                const deletePromises = Array.from(selectedTasks).map(async (id) => { 
-                    clearImgGenPromptDraftTimer(id);
-                    destroyImgMaskStudio(id);
-                    destroyImgMaskEditor(id);
-                    await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
-                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { clearImgGenPromptDraftTimer(t.id); destroyImgMaskStudio(t.id); destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
-                });
-                await Promise.all(deletePromises); showToast(`清理完成`, "success"); selectedTasks.clear(); renderMinimap();
-            }
-        }
+        await deleteSelectedTasks();
     }
 });
 
-let mapMeta = { minX: 0, minY: 0, mapScale: 1, offsetX: 0, offsetY: 0 };
+let mapMeta = { minX: 0, minY: 0, mapScale: 0, offsetX: 0, offsetY: 0 };
 
 async function renderMinimap() {
     const container = document.getElementById('minimap-container');
@@ -2091,6 +2569,10 @@ async function renderMinimap() {
 
 function syncMinimapViewport() {
     const viewBox = document.getElementById('minimap-viewport-box'); if (!viewBox) return;
+    if (!mapMeta || !Number.isFinite(mapMeta.mapScale) || mapMeta.mapScale <= 0) {
+        viewBox.style.display = 'none';
+        return;
+    }
     const viewMinX = -transform.x / transform.scale, viewMinY = -transform.y / transform.scale;
     const vPx = mapMeta.offsetX + (viewMinX - mapMeta.minX) * mapMeta.mapScale, vPy = mapMeta.offsetY + (viewMinY - mapMeta.minY) * mapMeta.mapScale;
     const vPw = (window.innerWidth / transform.scale) * mapMeta.mapScale, vPh = (window.innerHeight / transform.scale) * mapMeta.mapScale;
@@ -2104,10 +2586,11 @@ function handleMinimapClick(e) {
     const rect = container.getBoundingClientRect();
     const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
     const targetWorldX = (clickX - mapMeta.offsetX) / mapMeta.mapScale + mapMeta.minX, targetWorldY = (clickY - mapMeta.offsetY) / mapMeta.mapScale + mapMeta.minY;
-    transform.x = -targetWorldX * transform.scale + window.innerWidth / 2; transform.y = -targetWorldY * transform.scale + window.innerHeight / 2;
-    board.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
-    board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`; document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
-    syncMinimapViewport(); setTimeout(() => { board.style.transition = 'none'; renderMinimap(); }, 400);
+    animateCameraTo({
+        x: -targetWorldX * transform.scale + window.innerWidth / 2,
+        y: -targetWorldY * transform.scale + window.innerHeight / 2,
+        scale: transform.scale
+    }, { duration: 420 });
 }
 
 let lightboxEl = null;
@@ -2429,6 +2912,9 @@ async function renderCard(taskId, taskOverride = null) {
     syncImgMaskEditor(cardEl, task).catch(() => {});
     bindImgGenCardResizeSave(cardEl, task);
     bindCardDrag(cardEl, task);
+    syncCardViewportMetrics(cardEl, task);
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
 
     // 同步追踪属性，防止后续被误刷
     const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
@@ -3479,14 +3965,14 @@ async function renderBoard() {
             }
             else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
             
-            cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl); 
+            cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl);
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
             bindImgGenCardResizeSave(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
         } else {
-            cardEl.style.transform = `translate(${task.x}px, ${task.y}px)`;
+            cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
             
             if (task.type === 'frame') {
                 cardEl.style.width = `${task.width}px`;
@@ -3525,12 +4011,15 @@ async function renderBoard() {
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
 
         bindCardDrag(cardEl, task);
+        syncCardViewportMetrics(cardEl, task);
         
         cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
     renderMinimap();
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
 }
 
 async function removeTask(id) {
@@ -3543,8 +4032,11 @@ async function removeTask(id) {
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
     imgGenUpdateQueues.delete(id);
+    selectedTasks.delete(id);
     const card = document.getElementById('card-' + id);
     if (card) card.remove();
+    updateSelectionToolbar();
+    scheduleViewportCulling(40);
     renderMinimap();
 }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
@@ -3552,8 +4044,7 @@ function downloadVideo(url) { const a = document.createElement('a'); a.href = ur
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         await initDB();
-        board.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
-        document.body.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
+        applyCanvasTransform({ cull: false, revealMinimap: false });
         await renderBoard(); await renderMaterialLibrary();
         bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
         await updateBillingUI(); updateEstimatedCost();
@@ -3630,12 +4121,14 @@ async function duplicateTask(originalTask, mouseEvent) {
     highestZIndex++;
     newCardEl.style.zIndex = highestZIndex;
     newCardEl.style.willChange = 'transform';
-    newCardEl.style.transform = `translate(${clone.x}px, ${clone.y}px)`;
+    newCardEl.style.transform = `translate3d(${clone.x}px, ${clone.y}px, 0)`;
     newCardEl.classList.remove('hidden-in-frame');
 
     clearSelection();
     selectedTasks.add(newId);
     newCardEl.classList.add('selected');
+    updateSelectionToolbar();
+    scheduleViewportCulling(40);
 
     // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
     if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
@@ -5097,7 +5590,7 @@ document.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('.crop-handle'); const box = e.target.closest('.crop-box');
     if (!handle && (!box || e.target.tagName === 'BUTTON')) return;
     
-    e.stopPropagation(); isPanning = false; if (document.getElementById('canvas-board')) document.getElementById('canvas-board').classList.remove('is-moving');
+    e.stopPropagation(); isPanning = false; setCanvasMoving(false);
 
     const targetBox = handle ? handle.closest('.crop-box') : box;
     const taskId = targetBox.getAttribute('data-task-id');
