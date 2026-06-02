@@ -781,7 +781,6 @@ class ImgMaskEditor {
         this.history = [];
         this.maxHistory = 24;
         this.isActive = false;
-        this.isSpaceDown = false;
         this.isPanning = false;
         this.panPointerId = null;
         this.panStartX = 0;
@@ -791,13 +790,6 @@ class ImgMaskEditor {
         this.panX = 0;
         this.panY = 0;
         this.viewScale = 1;
-        this.isBrushSizing = false;
-        this.brushPointerId = null;
-        this.brushStartX = 0;
-        this.brushStartY = 0;
-        this.brushStartSize = this.brushSize;
-        this.brushHudEl = null;
-        this.brushHudTimer = null;
     }
 
     _listen(target, type, handler, options) {
@@ -887,7 +879,6 @@ class ImgMaskEditor {
             el.style.transform = transformValue;
         });
         if (this.stageEl) {
-            this.stageEl.classList.toggle('is-space-pan', this.isSpaceDown);
             this.stageEl.classList.toggle('is-panning', this.isPanning);
         }
     }
@@ -898,69 +889,6 @@ class ImgMaskEditor {
             try { this.onBrushSizePreview(this.brushSize); } catch (err) {}
         }
         return this.brushSize;
-    }
-
-    _showBrushHud(size, event) {
-        if (!this.stageEl) return;
-        if (!this.brushHudEl) {
-            this.brushHudEl = document.createElement('div');
-            this.brushHudEl.className = 'img-gen-mask-brush-hud';
-            this.stageEl.appendChild(this.brushHudEl);
-        }
-        const safeSize = clampImgMaskBrushSize(size);
-        const rect = this.stageEl.getBoundingClientRect();
-        const x = event ? toFiniteNumber(event.clientX, rect.left + rect.width / 2) - rect.left : rect.width / 2;
-        const y = event ? toFiniteNumber(event.clientY, rect.top + rect.height / 2) - rect.top : rect.height / 2;
-        this.brushHudEl.textContent = `${safeSize}px`;
-        this.brushHudEl.style.left = `${Math.max(42, Math.min(rect.width - 42, x))}px`;
-        this.brushHudEl.style.top = `${Math.max(28, Math.min(rect.height - 28, y))}px`;
-        this.brushHudEl.classList.add('show');
-        if (this.brushHudTimer) clearTimeout(this.brushHudTimer);
-    }
-
-    _hideBrushHudSoon() {
-        if (this.brushHudTimer) clearTimeout(this.brushHudTimer);
-        this.brushHudTimer = setTimeout(() => {
-            if (this.brushHudEl) this.brushHudEl.classList.remove('show');
-        }, 520);
-    }
-
-    _startBrushSizing(event) {
-        if (!event || !this.canvasEl) return;
-        stopMaskEditorEvent(event, true);
-        this._setActive(true);
-        this.isBrushSizing = true;
-        this.brushPointerId = event.pointerId;
-        this.brushStartX = event.clientX;
-        this.brushStartY = event.clientY;
-        this.brushStartSize = this.brushSize;
-        try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
-        if (this.stageEl) this.stageEl.classList.add('is-brush-sizing');
-        this._showBrushHud(this.brushSize, event);
-    }
-
-    _updateBrushSizing(event) {
-        if (!this.isBrushSizing) return;
-        if (this.brushPointerId !== null && event.pointerId !== this.brushPointerId) return;
-        stopMaskEditorEvent(event, true);
-        const dx = toFiniteNumber(event.clientX, this.brushStartX) - this.brushStartX;
-        const dy = toFiniteNumber(event.clientY, this.brushStartY) - this.brushStartY;
-        const nextSize = this._setBrushSize(this.brushStartSize + ((dx + dy) / 2.6), true);
-        this._showBrushHud(nextSize, event);
-    }
-
-    _stopBrushSizing(event) {
-        if (!this.isBrushSizing) return false;
-        if (this.brushPointerId !== null && event && event.pointerId !== undefined && event.pointerId !== this.brushPointerId) return true;
-        stopMaskEditorEvent(event, true);
-        this.isBrushSizing = false;
-        this.brushPointerId = null;
-        if (this.stageEl) this.stageEl.classList.remove('is-brush-sizing');
-        this._hideBrushHudSoon();
-        if (this.onBrushSizeCommit) {
-            try { this.onBrushSizeCommit(this.brushSize); } catch (err) {}
-        }
-        return true;
     }
 
     _pushHistory() {
@@ -1032,7 +960,7 @@ class ImgMaskEditor {
         this._listen(this.stageEl, 'contextmenu', (event) => stopMaskEditorEvent(event, true), true);
         this._listen(this.stageEl, 'wheel', (event) => {
             stopMaskEditorEvent(event, true);
-            if (event.altKey) this._zoomAt(event);
+            this._zoomAt(event);
         }, { capture: true, passive: false });
         this._listen(this.stageEl, 'touchstart', sharedStop, { capture: true, passive: false });
         this._listen(this.stageEl, 'touchmove', sharedStop, { capture: true, passive: false });
@@ -1041,35 +969,17 @@ class ImgMaskEditor {
             if (!this.isActive) return;
             const tagName = event.target && event.target.tagName ? event.target.tagName : '';
             if (tagName === 'INPUT' || tagName === 'TEXTAREA' || (event.target && event.target.isContentEditable)) return;
-            if (event.code === 'Space') {
-                stopMaskEditorEvent(event, true);
-                this.isSpaceDown = true;
-                this._applyViewTransform();
-                return;
-            }
             if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'z') {
                 stopMaskEditorEvent(event, true);
                 this.undo();
             }
         }, true);
-        this._listen(window, 'keyup', (event) => {
-            if (event.code !== 'Space') return;
-            if (!this.isActive && !this.isSpaceDown) return;
-            stopMaskEditorEvent(event, true);
-            this.isSpaceDown = false;
-            this._applyViewTransform();
-        }, true);
 
         this._listen(this.canvasEl, 'pointerdown', (event) => {
-            if (event.altKey && event.button === 2) {
-                this._startBrushSizing(event);
-                return;
-            }
-            if (event.button !== undefined && event.button !== 0) return;
             stopMaskEditorEvent(event, true);
             this._setActive(true);
             try { this.stageEl.focus({ preventScroll: true }); } catch (err) {}
-            if (this.isSpaceDown) {
+            if (event.button === 2) {
                 this.isPanning = true;
                 this.panPointerId = event.pointerId;
                 this.panStartX = event.clientX;
@@ -1080,6 +990,7 @@ class ImgMaskEditor {
                 this._applyViewTransform();
                 return;
             }
+            if (event.button !== undefined && event.button !== 0) return;
             const point = this._getCanvasPoint(event);
             if (!point) return;
             this._pushHistory();
@@ -1096,10 +1007,6 @@ class ImgMaskEditor {
         });
 
         this._listen(this.canvasEl, 'pointermove', (event) => {
-            if (this.isBrushSizing) {
-                this._updateBrushSizing(event);
-                return;
-            }
             if (this.isPanning) {
                 if (this.panPointerId !== null && event.pointerId !== this.panPointerId) return;
                 stopMaskEditorEvent(event, true);
@@ -1119,10 +1026,6 @@ class ImgMaskEditor {
         });
 
         const stopDrawing = (event) => {
-            if (this.isBrushSizing) {
-                this._stopBrushSizing(event);
-                return;
-            }
             if (this.isPanning) {
                 if (this.panPointerId !== null && event.pointerId !== undefined && event.pointerId !== this.panPointerId) return;
                 stopMaskEditorEvent(event, true);
@@ -1378,7 +1281,7 @@ async function openImgGenMaskStudio(e, taskId) {
             </div>
             <footer class="img-gen-mask-studio-foot">
                 <span>红色区域会作为重绘蒙版发送到后端。</span>
-                <span>Space+左键拖动画布 · Alt+滚轮缩放 · Alt+右键拖拽调笔刷 · Ctrl+Z 回退</span>
+                <span>左键涂抹 · 右键拖动画布 · 鼠标滚轮缩放 · Ctrl+Z 回退</span>
             </footer>
         </section>
     `;
@@ -3232,6 +3135,103 @@ function renderImgGenPreviewFeed(task, previewEntries) {
     }</div>`;
 }
 
+function renderImgGenHelpContent() {
+    return `
+        <section class="img-gen-help-section">
+            <p class="img-gen-help-kicker">Veo Studio AI 生图指南</p>
+            <h3>核心能力速览</h3>
+            <p>我们将行业顶尖的 AI 绘图引擎接入工作流，主要提供三类能力：</p>
+            <ul>
+                <li><strong>无中生有（文生图）</strong>：输入文字描述，AI 直接生成高清图片。</li>
+                <li><strong>风格灵感（垫图变体）</strong>：加入参考图，让 AI 参考风格、色调或构图生成新图。</li>
+                <li><strong>魔法重绘（蒙版修改）</strong>：涂抹不满意的局部，再用提示词告诉 AI 要替换成什么。</li>
+            </ul>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>快速上手</h3>
+            <ol>
+                <li><strong>创建节点</strong>：在画布上右键选择“添加生图节点”。</li>
+                <li><strong>选择模型</strong>：日常测试用 Trial，便宜且快；终稿输出切换 Pro，画质更精细。</li>
+                <li><strong>选择画幅</strong>：16:9 适合横屏，9:16 适合手机和短视频素材。</li>
+                <li><strong>输入 Prompt</strong>：例如“一只穿着宇航服的柴犬，赛博朋克城市背景，电影级光影”。</li>
+            </ol>
+            <p>需要调整分辨率、输出格式或路由策略时，点击卡片里的 <strong>Advanced Settings</strong>。</p>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>添加参考图</h3>
+            <p>你可以直接从电脑桌面或素材库拖拽图片到节点下方的网格区域。</p>
+            <ul>
+                <li><strong>左侧大格 Base Image</strong>：主控图。做局部修改时，它就是底图。</li>
+                <li><strong>右侧小格 Style Reference</strong>：风格参考图，AI 会提取色调和感觉融合到新图里。</li>
+            </ul>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>局部重绘：蒙版工作室</h3>
+            <ol>
+                <li>把要修改的底图拖入左侧 Base 大格。</li>
+                <li>切换到 Pro 版本，点击 <strong>编辑蒙版</strong> 打开大画布工作室。</li>
+                <li>在大画布中用<strong>左键涂抹</strong>需要修改的区域。</li>
+                <li>用<strong>右键拖动</strong>移动画布，用<strong>鼠标滚轮</strong>缩放视图。</li>
+                <li>在 Prompt 里写清楚希望涂抹区域变成什么，再点击生成。</li>
+            </ol>
+            <p>AI 会尽量保留未涂抹区域，只在红色蒙版区域内进行替换。</p>
+        </section>
+    `;
+}
+
+function closeImgGenHelp(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const existing = document.getElementById('img-gen-help-drawer');
+    if (!existing) return;
+    existing.classList.remove('show');
+    setTimeout(() => {
+        if (existing.parentNode) existing.remove();
+    }, 220);
+}
+
+function openImgGenHelp(e, taskId = '') {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    closeImgGenHelp();
+    const drawer = document.createElement('div');
+    drawer.id = 'img-gen-help-drawer';
+    drawer.className = 'img-gen-help-drawer';
+    drawer.innerHTML = `
+        <div class="img-gen-help-backdrop" onclick="closeImgGenHelp(event)"></div>
+        <aside class="img-gen-help-panel" role="dialog" aria-modal="true" aria-label="AI 生图节点说明书">
+            <header class="img-gen-help-head">
+                <div>
+                    <span class="img-gen-help-eyebrow">NODE MANUAL</span>
+                    <h2>AI 生图节点说明书</h2>
+                </div>
+                <button class="img-gen-help-close" type="button" onclick="closeImgGenHelp(event)" data-tip="关闭说明">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </header>
+            <div class="img-gen-help-body">
+                ${renderImgGenHelpContent()}
+            </div>
+        </aside>
+    `;
+    document.body.appendChild(drawer);
+    drawer.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeImgGenHelp(event);
+    }, true);
+    setTimeout(() => {
+        drawer.classList.add('show');
+        const panel = drawer.querySelector('.img-gen-help-panel');
+        if (panel) {
+            panel.setAttribute('tabindex', '-1');
+            try { panel.focus({ preventScroll: true }); } catch (err) {}
+        }
+    }, 20);
+}
+
 function renderImgGenCardHTML(task) {
     ensureImgGenState(task);
     const isFailed = task.status === 'failed';
@@ -3271,7 +3271,7 @@ function renderImgGenCardHTML(task) {
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
 
-    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图</span><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div>
+    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
         <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
             <div class="img-gen-left">
