@@ -3381,3 +3381,44 @@ body.app-shell-ready .floating-console:not(.minimized) {
         margin-bottom: 30px;
     }
 }
+
+/* Override legacy light-theme login masks so the right operation side stays white. */
+:root[data-theme='light'] .login-gate {
+    background: #ffffff !important;
+    background-image: none !important;
+}
+
+:root[data-theme='light'] .login-gate::before {
+    background: linear-gradient(90deg, #050505 0%, #050505 45vw, #ffffff 45vw, #ffffff 100%) !important;
+}
+
+:root[data-theme='light'] .login-gate::after {
+    width: 45vw;
+}
+
+:root[data-theme='light'] .login-form-box {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+}
+
+:root[data-theme='light'] .login-form-box h2,
+:root[data-theme='light'] .login-form-box .inputbox input {
+    color: #111111 !important;
+}
+
+:root[data-theme='light'] .login-form-box .inputbox label,
+:root[data-theme='light'] .login-form-box .inputbox ion-icon,
+:root[data-theme='light'] .login-form-box .forget {
+    color: #71717a !important;
+}
+
+@media (max-width: 980px) {
+    :root[data-theme='light'] .login-gate::before {
+        background: linear-gradient(180deg, #050505 0%, #050505 46vh, #ffffff 46vh, #ffffff 100%) !important;
+    }
+
+    :root[data-theme='light'] .login-gate::after {
+        width: 100vw;
+    }
+}
