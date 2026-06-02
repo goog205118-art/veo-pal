@@ -861,6 +861,47 @@ body {
     transition: all 0.3s;
 }
 .form-box button:hover { background: var(--accent); color: #fff; box-shadow: 0 0 20px var(--accent); }
+
+.login-register-row {
+    margin-top: 16px;
+    text-align: center;
+}
+
+.login-register-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.62);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    transition: color 0.25s ease, letter-spacing 0.25s ease;
+}
+
+.login-register-link::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -6px;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.25;
+    transform: scaleX(0.42);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.login-register-link:hover {
+    color: #fff;
+    letter-spacing: 0.19em;
+}
+
+.login-register-link:hover::after {
+    opacity: 0.78;
+    transform: scaleX(1);
+}
 /* ============================== */
 /* 🚫 错误弹窗震动特效 */
 /* ============================== */
