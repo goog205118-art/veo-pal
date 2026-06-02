@@ -678,6 +678,89 @@ function stopMaskEditorEvent(event, needPreventDefault = false) {
     if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
 }
 
+function clampImgMaskBrushSize(size) {
+    return Math.max(4, Math.min(192, Math.round(toFiniteNumber(size, 20))));
+}
+
+function clampImgMaskStageHeight(size) {
+    return Math.max(140, Math.min(560, Math.round(toFiniteNumber(size, 220))));
+}
+
+function syncImgGenMaskBrushControls(taskId, nextSize) {
+    if (!taskId || !document) return;
+    const safeSize = clampImgMaskBrushSize(nextSize);
+    document.querySelectorAll(`[data-mask-brush-input="${cssEscapeSafe(taskId)}"]`).forEach((input) => {
+        input.value = String(safeSize);
+    });
+    document.querySelectorAll(`[data-mask-brush-label="${cssEscapeSafe(taskId)}"]`).forEach((label) => {
+        label.textContent = `${safeSize}px`;
+    });
+}
+
+function syncImgGenMaskStageSizeControls(taskId, nextHeight) {
+    if (!taskId || !document) return;
+    const safeHeight = clampImgMaskStageHeight(nextHeight);
+    document.querySelectorAll(`[data-mask-stage-input="${cssEscapeSafe(taskId)}"]`).forEach((input) => {
+        input.value = String(safeHeight);
+    });
+    document.querySelectorAll(`[data-mask-stage-label="${cssEscapeSafe(taskId)}"]`).forEach((label) => {
+        label.textContent = `${safeHeight}px`;
+    });
+    document.querySelectorAll(`[data-mask-stage-size="${cssEscapeSafe(taskId)}"]`).forEach((stage) => {
+        stage.style.height = `${safeHeight}px`;
+    });
+}
+
+async function persistImgGenMaskBrushSize(taskId, size) {
+    const nextSize = clampImgMaskBrushSize(size);
+    syncImgGenMaskBrushControls(taskId, nextSize);
+    const cardEl = document.getElementById('card-' + taskId);
+    if (cardEl) cardEl.setAttribute('data-sync-mask-brush', String(nextSize));
+    const liveTask = getTaskShadow(taskId);
+    if (liveTask && liveTask.type === 'tool_image_gen') {
+        ensureImgGenState(liveTask);
+        liveTask.state.maskBrushSize = nextSize;
+        liveTask.timestamp = Date.now();
+        setTaskShadow(liveTask);
+    }
+    const editor = imgMaskEditorInstances.get(taskId);
+    if (editor) editor.setBrushSize(nextSize);
+    return queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskBrushSize = nextSize;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        await saveTaskDB(task);
+    }).catch(() => {});
+}
+
+async function persistImgGenMaskStageHeight(taskId, height) {
+    const nextHeight = clampImgMaskStageHeight(height);
+    syncImgGenMaskStageSizeControls(taskId, nextHeight);
+    const cardEl = document.getElementById('card-' + taskId);
+    if (cardEl) cardEl.setAttribute('data-sync-mask-height', String(nextHeight));
+    const liveTask = getTaskShadow(taskId);
+    if (liveTask && liveTask.type === 'tool_image_gen') {
+        ensureImgGenState(liveTask);
+        liveTask.state.maskStageHeight = nextHeight;
+        liveTask.timestamp = Date.now();
+        setTaskShadow(liveTask);
+    }
+    return queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskStageHeight = nextHeight;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        await saveTaskDB(task);
+    }).catch(() => {});
+}
+
 class ImgMaskEditor {
     constructor(options = {}) {
         this.taskId = options.taskId || '';
@@ -686,7 +769,10 @@ class ImgMaskEditor {
         this.canvasEl = options.canvasEl || null;
         this.sourceRef = options.sourceRef || null;
         this.initialMask = options.initialMask || null;
-        this.brushSize = Math.max(4, Math.min(128, toFiniteNumber(options.brushSize, 20)));
+        this.brushSize = clampImgMaskBrushSize(options.brushSize);
+        this.onBrushSizePreview = typeof options.onBrushSizePreview === 'function' ? options.onBrushSizePreview : null;
+        this.onBrushSizeCommit = typeof options.onBrushSizeCommit === 'function' ? options.onBrushSizeCommit : null;
+        this.onStageDblClick = typeof options.onStageDblClick === 'function' ? options.onStageDblClick : null;
         this.ctx = null;
         this.isDrawing = false;
         this.pointerId = null;
@@ -705,6 +791,13 @@ class ImgMaskEditor {
         this.panX = 0;
         this.panY = 0;
         this.viewScale = 1;
+        this.isBrushSizing = false;
+        this.brushPointerId = null;
+        this.brushStartX = 0;
+        this.brushStartY = 0;
+        this.brushStartSize = this.brushSize;
+        this.brushHudEl = null;
+        this.brushHudTimer = null;
     }
 
     _listen(target, type, handler, options) {
@@ -744,19 +837,46 @@ class ImgMaskEditor {
             ? this.canvasEl.getBoundingClientRect()
             : null;
         if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        const displayRect = this._getCanvasDisplayRect(rect);
+        if (!displayRect || displayRect.width <= 0 || displayRect.height <= 0) return null;
         const clientX = toFiniteNumber(event && event.clientX, NaN);
         const clientY = toFiniteNumber(event && event.clientY, NaN);
         if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
-        const scaleX = this.canvasEl.width / rect.width;
-        const scaleY = this.canvasEl.height / rect.height;
+        if (clientX < displayRect.left || clientX > displayRect.left + displayRect.width || clientY < displayRect.top || clientY > displayRect.top + displayRect.height) return null;
+        const scaleX = this.canvasEl.width / displayRect.width;
+        const scaleY = this.canvasEl.height / displayRect.height;
         return {
-            x: Math.max(0, Math.min(this.canvasEl.width, (clientX - rect.left) * scaleX)),
-            y: Math.max(0, Math.min(this.canvasEl.height, (clientY - rect.top) * scaleY))
+            x: Math.max(0, Math.min(this.canvasEl.width, (clientX - displayRect.left) * scaleX)),
+            y: Math.max(0, Math.min(this.canvasEl.height, (clientY - displayRect.top) * scaleY))
         };
     }
 
     _setActive(active) {
         this.isActive = !!active;
+    }
+
+    _getCanvasDisplayRect(rect) {
+        if (!this.canvasEl || !rect || rect.width <= 0 || rect.height <= 0) return rect;
+        const canvasW = toFiniteNumber(this.canvasEl.width, 0);
+        const canvasH = toFiniteNumber(this.canvasEl.height, 0);
+        if (canvasW <= 0 || canvasH <= 0) return rect;
+        const canvasRatio = canvasW / canvasH;
+        const boxRatio = rect.width / rect.height;
+        if (!Number.isFinite(canvasRatio) || canvasRatio <= 0 || !Number.isFinite(boxRatio) || boxRatio <= 0) return rect;
+        let width = rect.width;
+        let height = rect.height;
+        let left = rect.left;
+        let top = rect.top;
+        if (boxRatio > canvasRatio) {
+            height = rect.height;
+            width = height * canvasRatio;
+            left = rect.left + (rect.width - width) / 2;
+        } else {
+            width = rect.width;
+            height = width / canvasRatio;
+            top = rect.top + (rect.height - height) / 2;
+        }
+        return { left, top, width, height };
     }
 
     _applyViewTransform() {
@@ -770,6 +890,77 @@ class ImgMaskEditor {
             this.stageEl.classList.toggle('is-space-pan', this.isSpaceDown);
             this.stageEl.classList.toggle('is-panning', this.isPanning);
         }
+    }
+
+    _setBrushSize(size, notifyPreview = false) {
+        this.brushSize = clampImgMaskBrushSize(size);
+        if (notifyPreview && this.onBrushSizePreview) {
+            try { this.onBrushSizePreview(this.brushSize); } catch (err) {}
+        }
+        return this.brushSize;
+    }
+
+    _showBrushHud(size, event) {
+        if (!this.stageEl) return;
+        if (!this.brushHudEl) {
+            this.brushHudEl = document.createElement('div');
+            this.brushHudEl.className = 'img-gen-mask-brush-hud';
+            this.stageEl.appendChild(this.brushHudEl);
+        }
+        const safeSize = clampImgMaskBrushSize(size);
+        const rect = this.stageEl.getBoundingClientRect();
+        const x = event ? toFiniteNumber(event.clientX, rect.left + rect.width / 2) - rect.left : rect.width / 2;
+        const y = event ? toFiniteNumber(event.clientY, rect.top + rect.height / 2) - rect.top : rect.height / 2;
+        this.brushHudEl.textContent = `${safeSize}px`;
+        this.brushHudEl.style.left = `${Math.max(42, Math.min(rect.width - 42, x))}px`;
+        this.brushHudEl.style.top = `${Math.max(28, Math.min(rect.height - 28, y))}px`;
+        this.brushHudEl.classList.add('show');
+        if (this.brushHudTimer) clearTimeout(this.brushHudTimer);
+    }
+
+    _hideBrushHudSoon() {
+        if (this.brushHudTimer) clearTimeout(this.brushHudTimer);
+        this.brushHudTimer = setTimeout(() => {
+            if (this.brushHudEl) this.brushHudEl.classList.remove('show');
+        }, 520);
+    }
+
+    _startBrushSizing(event) {
+        if (!event || !this.canvasEl) return;
+        stopMaskEditorEvent(event, true);
+        this._setActive(true);
+        this.isBrushSizing = true;
+        this.brushPointerId = event.pointerId;
+        this.brushStartX = event.clientX;
+        this.brushStartY = event.clientY;
+        this.brushStartSize = this.brushSize;
+        try { this.canvasEl.setPointerCapture(event.pointerId); } catch (err) {}
+        if (this.stageEl) this.stageEl.classList.add('is-brush-sizing');
+        this._showBrushHud(this.brushSize, event);
+    }
+
+    _updateBrushSizing(event) {
+        if (!this.isBrushSizing) return;
+        if (this.brushPointerId !== null && event.pointerId !== this.brushPointerId) return;
+        stopMaskEditorEvent(event, true);
+        const dx = toFiniteNumber(event.clientX, this.brushStartX) - this.brushStartX;
+        const dy = toFiniteNumber(event.clientY, this.brushStartY) - this.brushStartY;
+        const nextSize = this._setBrushSize(this.brushStartSize + ((dx + dy) / 2.6), true);
+        this._showBrushHud(nextSize, event);
+    }
+
+    _stopBrushSizing(event) {
+        if (!this.isBrushSizing) return false;
+        if (this.brushPointerId !== null && event && event.pointerId !== undefined && event.pointerId !== this.brushPointerId) return true;
+        stopMaskEditorEvent(event, true);
+        this.isBrushSizing = false;
+        this.brushPointerId = null;
+        if (this.stageEl) this.stageEl.classList.remove('is-brush-sizing');
+        this._hideBrushHudSoon();
+        if (this.onBrushSizeCommit) {
+            try { this.onBrushSizeCommit(this.brushSize); } catch (err) {}
+        }
+        return true;
     }
 
     _pushHistory() {
@@ -832,7 +1023,12 @@ class ImgMaskEditor {
         this._listen(this.stageEl, 'mousedown', (event) => stopMaskEditorEvent(event, true), true);
         this._listen(this.stageEl, 'mouseup', (event) => stopMaskEditorEvent(event, false), true);
         this._listen(this.stageEl, 'click', (event) => stopMaskEditorEvent(event, false), true);
-        this._listen(this.stageEl, 'dblclick', (event) => stopMaskEditorEvent(event, false), true);
+        this._listen(this.stageEl, 'dblclick', (event) => {
+            stopMaskEditorEvent(event, true);
+            if (this.onStageDblClick) {
+                try { this.onStageDblClick(event); } catch (err) {}
+            }
+        }, true);
         this._listen(this.stageEl, 'contextmenu', (event) => stopMaskEditorEvent(event, true), true);
         this._listen(this.stageEl, 'wheel', (event) => {
             stopMaskEditorEvent(event, true);
@@ -865,6 +1061,10 @@ class ImgMaskEditor {
         }, true);
 
         this._listen(this.canvasEl, 'pointerdown', (event) => {
+            if (event.altKey && event.button === 2) {
+                this._startBrushSizing(event);
+                return;
+            }
             if (event.button !== undefined && event.button !== 0) return;
             stopMaskEditorEvent(event, true);
             this._setActive(true);
@@ -896,6 +1096,10 @@ class ImgMaskEditor {
         });
 
         this._listen(this.canvasEl, 'pointermove', (event) => {
+            if (this.isBrushSizing) {
+                this._updateBrushSizing(event);
+                return;
+            }
             if (this.isPanning) {
                 if (this.panPointerId !== null && event.pointerId !== this.panPointerId) return;
                 stopMaskEditorEvent(event, true);
@@ -915,6 +1119,10 @@ class ImgMaskEditor {
         });
 
         const stopDrawing = (event) => {
+            if (this.isBrushSizing) {
+                this._stopBrushSizing(event);
+                return;
+            }
             if (this.isPanning) {
                 if (this.panPointerId !== null && event.pointerId !== undefined && event.pointerId !== this.panPointerId) return;
                 stopMaskEditorEvent(event, true);
@@ -981,7 +1189,7 @@ class ImgMaskEditor {
     }
 
     setBrushSize(size) {
-        this.brushSize = Math.max(4, Math.min(128, toFiniteNumber(size, 20)));
+        this._setBrushSize(size, false);
     }
 
     clear(recordHistory = true) {
@@ -1008,6 +1216,7 @@ class ImgMaskEditor {
     }
 
     destroy() {
+        if (this.brushHudTimer) clearTimeout(this.brushHudTimer);
         this._releaseAllListeners();
         this.stageEl = null;
         this.baseImgEl = null;
@@ -1015,6 +1224,7 @@ class ImgMaskEditor {
         this.ctx = null;
         this.isDrawing = false;
         this.pointerId = null;
+        this.brushHudEl = null;
     }
 }
 
@@ -1061,7 +1271,10 @@ async function syncImgMaskEditor(cardEl, task) {
         sourceRef,
         brushSize: task.state.maskBrushSize,
         initialMask: task.state.maskBlob || task.state.maskImage || null,
-        hasStroke: !!(task.state.maskBlob || task.state.maskImage)
+        hasStroke: !!(task.state.maskBlob || task.state.maskImage),
+        onBrushSizePreview: (nextSize) => syncImgGenMaskBrushControls(taskId, nextSize),
+        onBrushSizeCommit: (nextSize) => persistImgGenMaskBrushSize(taskId, nextSize),
+        onStageDblClick: (event) => openImgGenMaskStudio(event, taskId)
     });
     const ok = await editor.init();
     if (!ok) {
@@ -1083,6 +1296,158 @@ async function captureImgMaskFromEditor(taskId, task, options = {}) {
         task.state.maskImage = null;
     }
     return maskBlob;
+}
+
+function buildImgMaskStudioKey(taskId) {
+    return `studio:${taskId}`;
+}
+
+function getImgMaskStudioEl(taskId) {
+    return document.getElementById(`img-mask-studio-${taskId}`);
+}
+
+function destroyImgMaskStudio(taskId) {
+    const studioKey = buildImgMaskStudioKey(taskId);
+    destroyImgMaskEditor(studioKey);
+    const existing = getImgMaskStudioEl(taskId);
+    if (existing) existing.remove();
+}
+
+async function openImgGenMaskStudio(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    const task = baseTask ? (cloneTaskDeep(baseTask) || { ...baseTask }) : null;
+    if (!task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    if (!Array.isArray(task.state.images) || !task.state.images[0]) {
+        showToast('请先添加垫图，再打开大蒙版编辑器', 'warning');
+        return;
+    }
+
+    try {
+        await captureImgMaskFromEditor(taskId, task, { clearIfEmpty: false });
+    } catch (err) {}
+
+    task.state.maskEditMode = true;
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    await saveTaskDB(task).catch(() => {});
+    renderCard(taskId, task);
+
+    destroyImgMaskStudio(taskId);
+    const studioKey = buildImgMaskStudioKey(taskId);
+    const maskSourceUrl = getBlobUrl(`${task.id}_mask_studio_${task.timestamp || ''}`, task.state.images[0]);
+    const safeBrush = clampImgMaskBrushSize(task.state.maskBrushSize);
+    const overlay = document.createElement('div');
+    overlay.id = `img-mask-studio-${taskId}`;
+    overlay.className = 'img-gen-mask-studio';
+    overlay.innerHTML = `
+        <div class="img-gen-mask-studio-backdrop"></div>
+        <section class="img-gen-mask-studio-panel" role="dialog" aria-modal="true" aria-label="蒙版大画布编辑器">
+            <header class="img-gen-mask-studio-head">
+                <div>
+                    <div class="img-gen-mask-studio-kicker">MASK STUDIO</div>
+                    <div class="img-gen-mask-studio-title">大画布蒙版编辑</div>
+                </div>
+                <div class="img-gen-mask-studio-actions">
+                    <label class="img-gen-mask-control">
+                        <span class="material-symbols-outlined">radio_button_checked</span>
+                        <span>笔刷</span>
+                        <input type="range" min="4" max="192" step="1" value="${safeBrush}" data-mask-brush-input="${taskId}" oninput="updateImgGenMaskBrush(event, '${taskId}', this.value)">
+                        <strong data-mask-brush-label="${taskId}">${safeBrush}px</strong>
+                    </label>
+                    <button class="img-gen-mask-btn is-primary" type="button" onclick="applyImgGenMaskStudio(event, '${taskId}')">
+                        <span class="material-symbols-outlined">done_all</span>
+                        应用并返回
+                    </button>
+                    <button class="img-gen-mask-btn" type="button" onclick="closeImgGenMaskStudio(event, '${taskId}')">
+                        <span class="material-symbols-outlined">close</span>
+                        取消
+                    </button>
+                </div>
+            </header>
+            <div class="img-gen-mask-studio-body">
+                <div class="img-gen-mask-stage img-gen-mask-stage-large" id="img-mask-stage-${studioKey}">
+                    <img class="img-gen-mask-base" id="img-mask-base-${studioKey}" src="${maskSourceUrl}" alt="mask-base-large">
+                    <canvas class="img-gen-mask-canvas" id="img-mask-canvas-${studioKey}"></canvas>
+                </div>
+            </div>
+            <footer class="img-gen-mask-studio-foot">
+                <span>红色区域会作为重绘蒙版发送到后端。</span>
+                <span>Space+左键拖动画布 · Alt+滚轮缩放 · Alt+右键拖拽调笔刷 · Ctrl+Z 回退</span>
+            </footer>
+        </section>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('mousedown', (event) => {
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    });
+    overlay.addEventListener('wheel', (event) => {
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    }, { passive: false });
+    overlay.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeImgGenMaskStudio(event, taskId);
+    }, true);
+
+    const stageEl = overlay.querySelector(`#img-mask-stage-${cssEscapeSafe(studioKey)}`);
+    const baseImgEl = overlay.querySelector(`#img-mask-base-${cssEscapeSafe(studioKey)}`);
+    const canvasEl = overlay.querySelector(`#img-mask-canvas-${cssEscapeSafe(studioKey)}`);
+    const editor = new ImgMaskEditor({
+        taskId: studioKey,
+        stageEl,
+        baseImgEl,
+        canvasEl,
+        sourceRef: task.state.images[0],
+        brushSize: safeBrush,
+        initialMask: task.state.maskBlob || task.state.maskImage || null,
+        hasStroke: !!(task.state.maskBlob || task.state.maskImage),
+        onBrushSizePreview: (nextSize) => syncImgGenMaskBrushControls(taskId, nextSize),
+        onBrushSizeCommit: (nextSize) => persistImgGenMaskBrushSize(taskId, nextSize)
+    });
+    const ok = await editor.init();
+    if (!ok) {
+        editor.destroy();
+        destroyImgMaskStudio(taskId);
+        showToast('大蒙版编辑器初始化失败，请重新打开', 'error');
+        return;
+    }
+    imgMaskEditorInstances.set(studioKey, editor);
+    try { stageEl.focus({ preventScroll: true }); } catch (err) {}
+    setTimeout(() => overlay.classList.add('show'), 20);
+}
+
+async function applyImgGenMaskStudio(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    const studioKey = buildImgMaskStudioKey(taskId);
+    const editor = imgMaskEditorInstances.get(studioKey);
+    if (!editor) {
+        destroyImgMaskStudio(taskId);
+        return;
+    }
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        const maskBlob = await editor.exportMaskBlob();
+        task.state.maskBrushSize = clampImgMaskBrushSize(editor.brushSize);
+        task.state.maskEditMode = true;
+        task.state.maskBlob = maskBlob || null;
+        task.state.maskImage = maskBlob || null;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+        showToast(maskBlob ? '大蒙版已应用' : '蒙版为空，已清空', maskBlob ? 'success' : 'info');
+    }).catch(() => {
+        showToast('大蒙版应用失败', 'error');
+    });
+    destroyImgMaskStudio(taskId);
+}
+
+function closeImgGenMaskStudio(e, taskId) {
+    stopMaskEditorEvent(e, true);
+    destroyImgMaskStudio(taskId);
 }
 
 function scheduleImgGenPromptPersist(taskId, value) {
@@ -1726,9 +2091,10 @@ window.addEventListener('keydown', async (e) => {
             if (confirm(`🗑️ 确定要彻底删除选中的 ${selectedTasks.size} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) {
                 const deletePromises = Array.from(selectedTasks).map(async (id) => { 
                     clearImgGenPromptDraftTimer(id);
+                    destroyImgMaskStudio(id);
                     destroyImgMaskEditor(id);
                     await deleteTaskDB(id); const card = document.getElementById('card-' + id); if (card) card.remove(); 
-                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { clearImgGenPromptDraftTimer(t.id); destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
+                    const allTasks = await getAllTasksDB(); for(let t of allTasks) { if(t.parentId === id) { clearImgGenPromptDraftTimer(t.id); destroyImgMaskStudio(t.id); destroyImgMaskEditor(t.id); await deleteTaskDB(t.id); const childEl = document.getElementById('card-' + t.id); if(childEl) childEl.remove(); } }
                 });
                 await Promise.all(deletePromises); showToast(`清理完成`, "success"); selectedTasks.clear(); renderMinimap();
             }
@@ -1984,6 +2350,7 @@ viewport.addEventListener('drop', async (e) => {
                 maskBlob: null,
                 maskEditMode: false,
                 maskBrushSize: 20,
+                maskStageHeight: 220,
                 resultUrl: null,
                 resultBlob: null,
                 resultBlobs: [],
@@ -2127,6 +2494,9 @@ async function renderCard(taskId, taskOverride = null) {
     const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
     const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
     const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
+    const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
+    const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
+    const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
 
     cardEl.setAttribute('data-sync-status', task.status || 'static');
     cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
@@ -2138,6 +2508,9 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-version', currentVersion);
     cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
     cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
+    cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode);
+    cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize);
+    cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
 }
@@ -2563,7 +2936,8 @@ function generateCardHTML(task) {
         const hasMaskSource = !!maskBaseImage;
         const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
         const maskEditMode = task.state.maskEditMode === true;
-        const maskBrushSize = Math.max(4, Math.min(128, parseInt(task.state.maskBrushSize, 10) || 20));
+        const maskBrushSize = clampImgMaskBrushSize(task.state.maskBrushSize);
+        const maskStageHeight = clampImgMaskStageHeight(task.state.maskStageHeight);
         const maskSourceUrl = hasMaskSource ? getBlobUrl(`${task.id}_mask_base_${task.timestamp || ''}`, maskBaseImage) : '';
 
         let slotsHtml = task.state.images.map((img, i) => {
@@ -2672,28 +3046,48 @@ function generateCardHTML(task) {
         const maskEditorHtml = `
             <div class="img-gen-mask-block ${maskEditMode ? 'is-active' : ''}">
                 <div class="img-gen-mask-toolbar">
-                    <button class="img-gen-mask-btn" type="button" onclick="toggleImgGenMaskEditor(event, '${task.id}')" data-tip="开启后可在第1张垫图上涂抹蒙版">
-                        <span class="material-symbols-outlined" style="font-size:14px;">${maskEditMode ? 'close' : 'gesture'}</span>
+                    <button class="img-gen-mask-btn ${maskEditMode ? 'is-hot' : ''}" type="button" onclick="toggleImgGenMaskEditor(event, '${task.id}')" data-tip="开启后可在第1张垫图上涂抹蒙版">
+                        <span class="material-symbols-outlined">${maskEditMode ? 'close' : 'gesture'}</span>
                         ${maskEditMode ? '退出蒙版' : '蒙版编辑'}
                     </button>
-                    <label class="img-gen-mask-brush">
-                        笔刷
-                        <input type="range" min="4" max="128" step="1" value="${maskBrushSize}" oninput="updateImgGenMaskBrush(event, '${task.id}', this.value)" ${!maskEditMode ? 'disabled' : ''}>
-                        <span>${maskBrushSize}px</span>
+                    <button class="img-gen-mask-btn" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" ${!hasMaskSource ? 'disabled' : ''} data-tip="双击蒙版画布也可打开大弹窗编辑">
+                        <span class="material-symbols-outlined">open_in_full</span>
+                        大画布
+                    </button>
+                    <button class="img-gen-mask-btn is-primary" type="button" onclick="saveImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''} data-tip="把当前红色涂抹区应用为 API 蒙版">
+                        <span class="material-symbols-outlined">done</span>
+                        应用
+                    </button>
+                    <button class="img-gen-mask-btn" type="button" onclick="clearImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''} data-tip="清空当前涂抹">
+                        <span class="material-symbols-outlined">ink_eraser</span>
+                        清空
+                    </button>
+                    <button class="img-gen-mask-btn" type="button" onclick="removeImgGenMask(event, '${task.id}')" ${!hasMaskReady ? 'disabled' : ''} data-tip="移除已保存蒙版">
+                        <span class="material-symbols-outlined">layers_clear</span>
+                        移除
+                    </button>
+                    <label class="img-gen-mask-control">
+                        <span class="material-symbols-outlined">radio_button_checked</span>
+                        <span>笔刷</span>
+                        <input type="range" min="4" max="192" step="1" value="${maskBrushSize}" data-mask-brush-input="${task.id}" oninput="updateImgGenMaskBrush(event, '${task.id}', this.value)" ${!maskEditMode ? 'disabled' : ''}>
+                        <strong data-mask-brush-label="${task.id}">${maskBrushSize}px</strong>
                     </label>
-                    <button class="img-gen-mask-btn" type="button" onclick="saveImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''}>应用蒙版</button>
-                    <button class="img-gen-mask-btn" type="button" onclick="clearImgGenMask(event, '${task.id}')" ${!maskEditMode ? 'disabled' : ''}>清空</button>
-                    <button class="img-gen-mask-btn" type="button" onclick="removeImgGenMask(event, '${task.id}')" ${!hasMaskReady ? 'disabled' : ''}>移除</button>
+                    <label class="img-gen-mask-control">
+                        <span class="material-symbols-outlined">height</span>
+                        <span>区域</span>
+                        <input type="range" min="140" max="560" step="10" value="${maskStageHeight}" data-mask-stage-input="${task.id}" oninput="updateImgGenMaskStageHeight(event, '${task.id}', this.value)" ${!maskEditMode ? 'disabled' : ''}>
+                        <strong data-mask-stage-label="${task.id}">${maskStageHeight}px</strong>
+                    </label>
                     <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? 'Mask Ready' : 'No Mask'}</span>
                 </div>
                 ${maskEditMode ? `
                 <div class="img-gen-mask-editor-shell">
                     ${hasMaskSource ? `
-                    <div class="img-gen-mask-stage" id="img-mask-stage-${task.id}">
+                    <div class="img-gen-mask-stage" id="img-mask-stage-${task.id}" data-mask-stage-size="${task.id}" style="height:${maskStageHeight}px;">
                         <img class="img-gen-mask-base" id="img-mask-base-${task.id}" src="${maskSourceUrl}" alt="mask-base">
                         <canvas class="img-gen-mask-canvas" id="img-mask-canvas-${task.id}"></canvas>
                     </div>
-                    <div class="img-gen-mask-tip">红色=重绘区 · Space+左键拖动 · Alt+滚轮缩放 · Ctrl+Z 回退</div>
+                    <div class="img-gen-mask-tip">双击画布进入大弹窗 · 红色=重绘区 · Space+左键拖动 · Alt+滚轮缩放 · Alt+右键拖拽调笔刷 · Ctrl+Z 回退</div>
                     ` : `<div class="img-gen-mask-empty">请先添加至少1张垫图，再开启蒙版编辑。</div>`}
                 </div>` : ''}
             </div>
@@ -2838,7 +3232,10 @@ async function renderBoard() {
     const existingCards = Array.from(board.children); existingCards.forEach(card => {
         if (!boardTaskIds.has(card.id)) {
             const removedTaskId = resolveTaskIdFromCardElement(card);
-            if (removedTaskId) destroyImgMaskEditor(removedTaskId);
+            if (removedTaskId) {
+                destroyImgMaskStudio(removedTaskId);
+                destroyImgMaskEditor(removedTaskId);
+            }
             card.remove();
         }
     });
@@ -2849,7 +3246,17 @@ async function renderBoard() {
         normalizeTaskPosition(task);
         setTaskShadow(task);
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0, currentProgress = task.progress || '', cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc', cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes', currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1', currentVersion = (task.state && task.state.version) ? task.state.version : 'trial', currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na', currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na'; 
+        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
+        const currentProgress = task.progress || '';
+        const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
+        const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
+        const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
+        const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
+        const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
+        const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
+        const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
+        const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
+        const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
         
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
@@ -2881,10 +3288,10 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
             
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'); 
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height'); 
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) { 
                 morphCardDOM(cardEl, generateCardHTML(task)); 
             }
             applyImgGenCardFrame(cardEl, task);
@@ -2912,7 +3319,7 @@ async function renderBoard() {
 
         bindCardDrag(cardEl, task);
         
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -2924,6 +3331,7 @@ async function removeTask(id) {
     clearTaskPolling(id);
     clearImgGenPolling(id);
     clearImgGenPromptDraftTimer(id);
+    destroyImgMaskStudio(id);
     destroyImgMaskEditor(id);
     await deleteTaskDB(id);
     taskShadowCache.delete(id);
@@ -3299,7 +3707,8 @@ function ensureImgGenState(task) {
     if (typeof task.state.maskImage === 'undefined') task.state.maskImage = null;
     if (typeof task.state.maskEditMode !== 'boolean') task.state.maskEditMode = false;
     const brushVal = parseInt(task.state.maskBrushSize, 10);
-    task.state.maskBrushSize = Number.isFinite(brushVal) && brushVal > 0 ? Math.max(4, Math.min(128, brushVal)) : 20;
+    task.state.maskBrushSize = Number.isFinite(brushVal) && brushVal > 0 ? clampImgMaskBrushSize(brushVal) : 20;
+    task.state.maskStageHeight = clampImgMaskStageHeight(task.state.maskStageHeight);
     if (!task.state.maskBlob && task.state.maskImage) task.state.maskBlob = task.state.maskImage;
     if (!task.state.maskImage && task.state.maskBlob) task.state.maskImage = task.state.maskBlob;
     if (!Array.isArray(task.state.images) || task.state.images.length === 0) {
@@ -3945,20 +4354,20 @@ async function toggleImgGenMaskEditor(e, taskId) {
 
 async function updateImgGenMaskBrush(e, taskId, val) {
     stopMaskEditorEvent(e, false);
-    const nextSize = Math.max(4, Math.min(128, parseInt(val, 10) || 20));
+    const nextSize = clampImgMaskBrushSize(val);
     const editor = imgMaskEditorInstances.get(taskId);
     if (editor) editor.setBrushSize(nextSize);
-    const holder = e && e.target && e.target.parentElement ? e.target.parentElement.querySelector('span') : null;
-    if (holder) holder.innerText = `${nextSize}px`;
-    await queueImgGenTaskUpdate(taskId, async () => {
-        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
-        if (!baseTask) return;
-        const task = cloneTaskDeep(baseTask) || { ...baseTask };
-        ensureImgGenState(task);
-        task.state.maskBrushSize = nextSize;
-        setTaskShadow(task);
-        await saveTaskDB(task);
-    }).catch(() => {});
+    const studioEditor = imgMaskEditorInstances.get(buildImgMaskStudioKey(taskId));
+    if (studioEditor) studioEditor.setBrushSize(nextSize);
+    syncImgGenMaskBrushControls(taskId, nextSize);
+    await persistImgGenMaskBrushSize(taskId, nextSize);
+}
+
+async function updateImgGenMaskStageHeight(e, taskId, val) {
+    stopMaskEditorEvent(e, false);
+    const nextHeight = clampImgMaskStageHeight(val);
+    syncImgGenMaskStageSizeControls(taskId, nextHeight);
+    await persistImgGenMaskStageHeight(taskId, nextHeight);
 }
 
 async function saveImgGenMask(e, taskId, options = {}) {
@@ -4047,6 +4456,10 @@ async function updateImgGenState(taskId, key, val) {
             task.state.modelSuffix = route.suffix;
             task.state.routeMode = route.mode;
             task.state.imageModel = `gpt-image-2${route.suffix}`;
+        } else if (key === 'maskBrushSize') {
+            task.state.maskBrushSize = clampImgMaskBrushSize(val);
+        } else if (key === 'maskStageHeight') {
+            task.state.maskStageHeight = clampImgMaskStageHeight(val);
         } else if (key === 'customW' || key === 'customH') {
             const parsed = parseInt(val, 10);
             task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
@@ -4147,12 +4560,14 @@ async function removeGenImage(e, taskId, index) {
         task.state.maskBlob = null;
         task.state.maskImage = null;
         if (task.state.images.length === 0) task.state.maskEditMode = false;
+        destroyImgMaskStudio(taskId);
         destroyImgMaskEditor(taskId);
     }
     if (task.state.images.length === 0) {
         task.state.maskBlob = null;
         task.state.maskImage = null;
         task.state.maskEditMode = false;
+        destroyImgMaskStudio(taskId);
         destroyImgMaskEditor(taskId);
     }
     task.timestamp = Date.now();
