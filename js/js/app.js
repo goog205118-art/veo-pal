@@ -513,6 +513,49 @@ async function blobsToBase64Sequential(blobs, options = {}) {
     return out;
 }
 
+function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null) {
+    const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, 5) : [];
+    const baseImage = images[0] || null;
+    const referenceImages = images.slice(1, 5);
+    const fields = {
+        images,
+        inputImages: images,
+        imageInputs: images,
+        input_images: images,
+        image: baseImage,
+        inputImage: baseImage,
+        baseImage,
+        base_image: baseImage,
+        initImage: baseImage,
+        init_image: baseImage,
+        sourceImage: baseImage,
+        source_image: baseImage,
+        referenceImages,
+        reference_images: referenceImages,
+        references: referenceImages,
+        refImages: referenceImages,
+        ref_images: referenceImages,
+        mask: maskBase64 || null,
+        maskImage: maskBase64 || null,
+        mask_image: maskBase64 || null
+    };
+    images.forEach((img, index) => {
+        const imageNo = index + 1;
+        fields[`image${imageNo}`] = img;
+        fields[`image_${imageNo}`] = img;
+        fields[`inputImage${imageNo}`] = img;
+        fields[`input_image_${imageNo}`] = img;
+        if (index > 0) {
+            const refNo = index;
+            fields[`referenceImage${refNo}`] = img;
+            fields[`reference_image_${refNo}`] = img;
+            fields[`refImage${refNo}`] = img;
+            fields[`ref_image_${refNo}`] = img;
+        }
+    });
+    return fields;
+}
+
 async function buildBlobSignature(blob) {
     if (!blob) return '';
     if (typeof blob === 'string') return `str_${blob.length}_${blob.slice(-120)}`;
@@ -5637,6 +5680,7 @@ async function submitImgGen(taskId) {
     const imagesBase64 = await blobsToBase64Sequential(task.state.images, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 });
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
     const maskBase64 = maskSource ? await blobToBase64(maskSource, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
+    const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64);
     const nValue = 1;
     const route = normalizeImgGenRoute(task.state.providerSort);
     const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
@@ -5659,8 +5703,7 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         n: nValue,
-        images: imagesBase64,
-        mask: maskBase64,
+        ...imagePayloadFields,
         custom_ratio: trialCustomRatio || undefined,
         custom_w: trialCustomRatio ? trialCustomW : undefined,
         custom_h: trialCustomRatio ? trialCustomH : undefined
@@ -5668,9 +5711,7 @@ async function submitImgGen(taskId) {
 
     const unifiedPayload = {
         body: { ...unifiedPayloadCore },
-        ...unifiedPayloadCore,
-        inputImages: imagesBase64,
-        maskImage: maskBase64
+        ...unifiedPayloadCore
     };
 
     const legacyPayload = {
@@ -5688,7 +5729,7 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: route.key,
-        images: imagesBase64,
+        ...imagePayloadFields,
         custom_ratio: trialCustomRatio || undefined,
         custom_w: trialCustomRatio ? trialCustomW : undefined,
         custom_h: trialCustomRatio ? trialCustomH : undefined
