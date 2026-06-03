@@ -2763,9 +2763,9 @@ viewport.addEventListener('drop', async (e) => {
             state: {
                 version: 'trial',
                 providerSort: 'stable',
-                modelSuffix: ':stable',
+                modelSuffix: '',
                 routeMode: 'success_rate',
-                imageModel: 'gpt-image-2:stable',
+                imageModel: 'gpt-image-2',
                 quality: 'auto',
                 format: 'png',
                 n: 1,
@@ -4513,7 +4513,7 @@ function resolveImgGenSize(state) {
 }
 
 function normalizeImgGenRoute() {
-    return { key: 'stable', suffix: ':stable', mode: 'success_rate', label: '成功率最高' };
+    return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认通道' };
 }
 
 function ensureImgGenState(task) {
