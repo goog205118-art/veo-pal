@@ -2405,21 +2405,45 @@ function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
     delete clone.parentId;
 
     if (clone.type === 'tool_image_gen') {
-        ensureImgGenState(clone);
-        clone.status = 'idle';
-        clone.state.resultBlob = null;
-        clone.state.resultBlobs = [];
-        clone.state.resultUrl = null;
-        clone.state.maskImage = null;
-        clone.state.maskBlob = null;
-        clone.state.maskEditMode = false;
-        clone.retryCount = 0;
+        sanitizeImgGenCloneState(clone);
     }
     if (clone.type === 'tool_cropper' && clone.state) clone.state.resultBlob = null;
 
     normalizeTaskPosition(clone);
     clone.x += offsetX;
     clone.y += offsetY;
+    return clone;
+}
+
+function sanitizeImgGenCloneState(clone) {
+    if (!clone || clone.type !== 'tool_image_gen') return clone;
+    ensureImgGenState(clone);
+    const successHistory = Array.isArray(clone.state.previewHistory)
+        ? clone.state.previewHistory
+            .filter((item) => item && item.status === 'success' && item.image)
+            .slice(-IMG_GEN_PREVIEW_LIMIT)
+            .map((item) => ({
+                ...item,
+                id: createImgGenPreviewId(),
+                status: 'success',
+                remoteTaskId: '',
+                errorReason: ''
+            }))
+        : [];
+    clone.state.previewHistory = successHistory;
+    clone.state.resultBlobs = successHistory.map((item) => item.image).filter(Boolean);
+    clone.state.resultBlob = clone.state.resultBlobs.length ? clone.state.resultBlobs[clone.state.resultBlobs.length - 1] : null;
+    clone.state.resultUrl = null;
+    clone.state.startTime = null;
+    clone.state.nextSubmitAt = 0;
+    clone.state.maskImage = null;
+    clone.state.maskBlob = null;
+    clone.state.maskEditMode = false;
+    clone.genTaskId = null;
+    clone.retryCount = 0;
+    clone.isBilled = false;
+    recalcImgGenTaskStatus(clone);
+    if (clone.status === 'processing') clone.status = 'idle';
     return clone;
 }
 
@@ -3756,15 +3780,19 @@ function renderImgGenPendingItem(item, task) {
 
 function renderImgGenFailedItem(item, task) {
     const reason = item && item.errorReason ? item.errorReason : '通道响应异常或超时';
+    const itemId = item && item.id ? item.id : '';
     return `
         <div class="img-gen-preview-item img-gen-preview-failed">
+            <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${itemId}')" data-tip="删除这条失败记录">
+                <span class="material-symbols-outlined">close</span>
+            </button>
             <div class="img-gen-preview-pending-inner">
                 <span class="material-symbols-outlined">warning</span>
                 <div class="img-gen-preview-placeholder-title">本次失败</div>
                 <div class="img-gen-preview-placeholder-sub">${reason}</div>
-                <button class="img-gen-retry-route-btn" type="button" onclick="switchImgGenChannelAndRetry(event, '${task.id}')">
-                    <span class="material-symbols-outlined">swap_horiz</span>
-                    切换通道并重试
+                <button class="img-gen-retry-route-btn" type="button" onclick="retryImgGenPreviewItem(event, '${task.id}')">
+                    <span class="material-symbols-outlined">refresh</span>
+                    重试
                 </button>
             </div>
         </div>
@@ -3795,7 +3823,12 @@ function renderImgGenPreviewFeed(task, previewEntries) {
                 const imgKey = `${task.id}_feed_${item.id}_${task.timestamp || ''}`;
                 const safeRatio = Number.isFinite(Number(item.ratio)) && Number(item.ratio) > 0 ? Number(item.ratio) : 1;
                 const layoutClass = item.layout === 'landscape' ? 'is-landscape' : (item.layout === 'portrait' ? 'is-portrait' : 'is-square');
-                return `<div class="img-gen-preview-item ${layoutClass}" style="--preview-aspect:${safeRatio};"><img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用"></div>`;
+                return `<div class="img-gen-preview-item ${layoutClass}" style="--preview-aspect:${safeRatio};">
+                    <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${item.id}')" data-tip="删除这张预览图">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                    <img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">
+                </div>`;
             }
             return '';
         }).join('')
@@ -3864,7 +3897,7 @@ function renderImgGenHelpContent() {
                 <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
                 <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前官方支持项，如果需要抠图请后续走单独抠图/去背节点。</span></div>
                 <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
-                <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“切换通道并重试”适合通道超时或服务端偶发错误。</span></div>
+                <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
             </div>
         </section>
         <section class="img-gen-help-section">
@@ -4237,15 +4270,7 @@ async function duplicateTask(originalTask, mouseEvent) {
         if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
 
         if (clone.type === 'tool_image_gen') {
-            ensureImgGenState(clone);
-            clone.status = 'idle';
-            clone.state.resultBlob = null;
-            clone.state.resultBlobs = [];
-            clone.state.resultUrl = null;
-            clone.state.maskImage = null;
-            clone.state.maskBlob = null;
-            clone.state.maskEditMode = false;
-            clone.retryCount = 0;
+            sanitizeImgGenCloneState(clone);
         }
         if (clone.type === 'tool_cropper') clone.state.resultBlob = null;
     }
@@ -5243,6 +5268,54 @@ async function switchImgGenChannelAndRetry(e, taskId) {
         showToast('切换通道失败，请手动重试', 'error');
     });
     setTimeout(() => submitImgGen(taskId), 80);
+}
+
+async function retryImgGenPreviewItem(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.nextSubmitAt = 0;
+        task.state.previewCollapsed = false;
+        task.retryCount = 0;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('重试准备失败，请再点一次', 'error');
+    });
+    setTimeout(() => submitImgGen(taskId), 80);
+}
+
+async function removeImgGenPreviewItem(e, taskId, itemId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    if (!itemId) return;
+    clearImgGenPolling(taskId, itemId);
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.previewHistory = Array.isArray(task.state.previewHistory)
+            ? task.state.previewHistory.filter((item) => item && item.id !== itemId)
+            : [];
+        recalcImgGenTaskStatus(task);
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('删除失败记录失败，请重试', 'error');
+    });
 }
 
 async function toggleImgGenParamsPanel(e, taskId) {
