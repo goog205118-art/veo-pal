@@ -5426,6 +5426,38 @@ function buildImgGenHeaders() {
     return headers;
 }
 
+async function parseImgGenHttpResponse(response, fallbackStatus = 'accepted') {
+    if (!response) return { status: fallbackStatus, accepted: true, empty_response: true };
+    const httpStatus = response.status;
+    let rawText = '';
+    try {
+        rawText = await response.text();
+    } catch (err) {
+        return {
+            status: fallbackStatus,
+            accepted: response.ok,
+            empty_response: true,
+            http_status: httpStatus,
+            parse_warning: err && err.message ? err.message : String(err || '')
+        };
+    }
+    const text = String(rawText || '').trim();
+    if (!text) {
+        return {
+            status: fallbackStatus,
+            accepted: response.ok,
+            empty_response: true,
+            http_status: httpStatus
+        };
+    }
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        // Some n8n Respond nodes return plain text or an image URL with a JSON content-type.
+        return text;
+    }
+}
+
 function unwrapImgGenResponseData(rawData) {
     const head = Array.isArray(rawData) ? rawData[0] : rawData;
     if (head && typeof head === 'object' && head.json && typeof head.json === 'object') return head.json;
@@ -5710,12 +5742,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
                     lastHttpError = new Error(`poll http ${response.status}`);
                     continue;
                 }
-                const contentType = (response.headers.get('content-type') || '').toLowerCase();
-                if (contentType.includes('application/json')) rawData = await response.json();
-                else {
-                    const txt = await response.text();
-                    try { rawData = JSON.parse(txt); } catch (err) { rawData = txt; }
-                }
+                rawData = await parseImgGenHttpResponse(response, 'processing');
                 if (rawData !== null && rawData !== undefined) break;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
@@ -6332,6 +6359,7 @@ async function submitImgGen(taskId) {
     const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64);
     const referenceControls = buildImgGenRefControlPayload(task);
     const lockedSeed = task.state.seedLocked && task.state.seed !== '' ? parseInt(task.state.seed, 10) : null;
+    const clientRequestId = `${task.id}_${previewItemId}`;
     const nValue = 1;
     const route = normalizeImgGenRoute(task.state.providerSort);
     const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
@@ -6354,6 +6382,12 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         n: nValue,
+        clientRequestId,
+        client_request_id: clientRequestId,
+        previewItemId: previewItemId,
+        preview_item_id: previewItemId,
+        requestId: clientRequestId,
+        request_id: clientRequestId,
         seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
         seedLocked: task.state.seedLocked === true,
         seed_locked: task.state.seedLocked === true,
@@ -6390,6 +6424,12 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: route.key,
+        clientRequestId,
+        client_request_id: clientRequestId,
+        previewItemId: previewItemId,
+        preview_item_id: previewItemId,
+        requestId: clientRequestId,
+        request_id: clientRequestId,
         seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
         seedLocked: task.state.seedLocked === true,
         seed_locked: task.state.seedLocked === true,
@@ -6447,14 +6487,7 @@ async function submitImgGen(taskId) {
         }
         if (!response.ok) throw new Error("API 异常: " + response.status);
 
-        const contentType = (response.headers.get('content-type') || '').toLowerCase();
-        let rawData = null;
-        if (contentType.includes('application/json')) {
-            rawData = await response.json();
-        } else {
-            const rawText = await response.text();
-            try { rawData = JSON.parse(rawText); } catch (parseErr) { rawData = rawText; }
-        }
+        const rawData = await parseImgGenHttpResponse(response, 'processing');
 
         const resData = unwrapImgGenResponseData(rawData);
         const returnedUrls = extractImageUrlsFromResponse(rawData);
@@ -6532,7 +6565,27 @@ async function submitImgGen(taskId) {
                     startImgGenTaskPolling(taskId, asyncTaskId, previewItemId);
                     return;
                 }
-                if (isImgGenPendingStatus(status) || !status) throw new Error("后端进入异步态但未返回 taskId");
+                if (isImgGenPendingStatus(status) || !status) {
+                    if (!(await isImgGenPreviewItemStillPending(taskId, previewItemId))) {
+                        clearImgGenPolling(taskId, previewItemId);
+                        return;
+                    }
+                    const fallbackTaskId = asyncTaskId || clientRequestId;
+                    const item = task.state.previewHistory.find((entry) => entry && entry.id === previewItemId);
+                    if (item) {
+                        item.remoteTaskId = fallbackTaskId;
+                        item.errorReason = '';
+                    }
+                    task.genTaskId = fallbackTaskId;
+                    task.timestamp = Date.now();
+                    await saveTaskDB(task);
+                    renderCard(taskId, task);
+                    startImgGenTaskPolling(taskId, fallbackTaskId, previewItemId);
+                    if (resultPack.rawData && resultPack.rawData.empty_response) {
+                        showToast('后端已接收请求，但未返回任务ID，已启动兜底轮询', 'warning');
+                    }
+                    return;
+                }
                 if (isImgGenFailedStatus(status)) {
                     throw new Error(`后端返回失败状态: ${status}`);
                 }
