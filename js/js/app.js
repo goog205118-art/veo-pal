@@ -515,45 +515,12 @@ async function blobsToBase64Sequential(blobs, options = {}) {
 
 function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null) {
     const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, 5) : [];
-    const baseImage = images[0] || null;
-    const referenceImages = images.slice(1, 5);
-    const fields = {
+    return {
         images,
-        inputImages: images,
-        imageInputs: images,
-        input_images: images,
-        image: baseImage,
-        inputImage: baseImage,
-        baseImage,
-        base_image: baseImage,
-        initImage: baseImage,
-        init_image: baseImage,
-        sourceImage: baseImage,
-        source_image: baseImage,
-        referenceImages,
-        reference_images: referenceImages,
-        references: referenceImages,
-        refImages: referenceImages,
-        ref_images: referenceImages,
         mask: maskBase64 || null,
-        maskImage: maskBase64 || null,
-        mask_image: maskBase64 || null
+        image_count: images.length,
+        reference_count: Math.max(0, images.length - 1)
     };
-    images.forEach((img, index) => {
-        const imageNo = index + 1;
-        fields[`image${imageNo}`] = img;
-        fields[`image_${imageNo}`] = img;
-        fields[`inputImage${imageNo}`] = img;
-        fields[`input_image_${imageNo}`] = img;
-        if (index > 0) {
-            const refNo = index;
-            fields[`referenceImage${refNo}`] = img;
-            fields[`reference_image_${refNo}`] = img;
-            fields[`refImage${refNo}`] = img;
-            fields[`ref_image_${refNo}`] = img;
-        }
-    });
-    return fields;
 }
 
 async function buildBlobSignature(blob) {
