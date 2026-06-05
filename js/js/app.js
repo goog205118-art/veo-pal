@@ -5709,7 +5709,6 @@ async function submitImgGen(taskId) {
     };
 
     const unifiedPayload = {
-        body: { ...unifiedPayloadCore },
         ...unifiedPayloadCore
     };
 
