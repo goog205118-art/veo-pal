@@ -354,6 +354,7 @@ const imgGenPollControllers = new Map();
 const imgGenPollTimers = new Map();
 const taskShadowCache = new Map();
 const imgGenUpdateQueues = new Map();
+const imgGenPreviewGuards = new Map();
 const imgMaskEditorInstances = new Map();
 const imgGenPromptDraftTimers = new Map();
 let isSpacePanningKeyDown = false;
@@ -756,6 +757,37 @@ function getImgGenPreviewList(task) {
     return task && task.state && Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
 }
 
+function guardImgGenPreviewItem(taskId, item) {
+    if (!taskId || !item || !item.id) return;
+    const bucket = imgGenPreviewGuards.get(taskId) || new Map();
+    bucket.set(item.id, { ...item });
+    imgGenPreviewGuards.set(taskId, bucket);
+}
+
+function updateImgGenPreviewGuard(taskId, itemId, patch = {}) {
+    if (!taskId || !itemId) return;
+    const bucket = imgGenPreviewGuards.get(taskId);
+    if (!bucket || !bucket.has(itemId)) return;
+    bucket.set(itemId, { ...bucket.get(itemId), ...patch });
+}
+
+function releaseImgGenPreviewGuard(taskId, itemId) {
+    if (!taskId || !itemId) return;
+    const bucket = imgGenPreviewGuards.get(taskId);
+    if (!bucket) return;
+    bucket.delete(itemId);
+    if (bucket.size === 0) imgGenPreviewGuards.delete(taskId);
+}
+
+function getImgGenPreviewGuardItems(taskId) {
+    const bucket = imgGenPreviewGuards.get(taskId);
+    return bucket ? Array.from(bucket.values()) : [];
+}
+
+function getImgGenProtectedPreviewIds(taskId) {
+    return getImgGenPreviewGuardItems(taskId).map((item) => item && item.id).filter(Boolean);
+}
+
 function mergeImgGenPreviewHistory(primaryTask, secondaryTask, options = {}) {
     const protectedIds = new Set(Array.isArray(options.protectedIds) ? options.protectedIds.filter(Boolean) : []);
     const primaryList = getImgGenPreviewList(primaryTask);
@@ -804,6 +836,11 @@ function mergeImgGenTaskWithShadow(task, shadowTask, options = {}) {
 
     const protectedIds = Array.isArray(options.protectedIds) ? options.protectedIds : [];
     merged.state.previewHistory = mergeImgGenPreviewHistory(primary, secondary, { protectedIds });
+    getImgGenPreviewGuardItems(merged.id).forEach((guardItem) => {
+        if (!guardItem || !guardItem.id) return;
+        const exists = merged.state.previewHistory.some((item) => item && item.id === guardItem.id);
+        if (!exists) merged.state.previewHistory.push({ ...guardItem });
+    });
     normalizeImgGenPreviewHistory(merged);
 
     const pendingCount = getImgGenPendingCount(merged);
@@ -3252,7 +3289,7 @@ async function renderCard(taskId, taskOverride = null) {
     let task = taskOverride || await getTaskDB(taskId); if (!task) return;
     if (task.type === 'tool_image_gen') {
         const shadowTask = getTaskShadow(taskId);
-        task = mergeImgGenTaskWithShadow(task, shadowTask);
+        task = mergeImgGenTaskWithShadow(task, shadowTask, { protectedIds: getImgGenProtectedPreviewIds(taskId) });
     }
     setTaskShadow(task);
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
@@ -4697,7 +4734,7 @@ async function renderBoard() {
 
     boardTasks.forEach(task => {
         if (task && task.type === 'tool_image_gen') {
-            task = mergeImgGenTaskWithShadow(task, getTaskShadow(task.id));
+            task = mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) });
         }
         normalizeTaskPosition(task);
         setTaskShadow(task);
@@ -4792,6 +4829,7 @@ async function removeTask(id) {
     clearTaskPolling(id);
     clearImgGenPolling(id);
     clearImgGenPromptDraftTimer(id);
+    imgGenPreviewGuards.delete(id);
     destroyImgMaskStudio(id);
     destroyImgMaskEditor(id);
     await deleteTaskDB(id);
@@ -5320,6 +5358,40 @@ function waitNextPaint() {
     return new Promise((resolve) => scheduleNextPaint(resolve));
 }
 
+function forceRenderImgGenPreviewPanel(task, focusItemId = '') {
+    if (!task || task.type !== 'tool_image_gen') return false;
+    ensureImgGenState(task);
+    const cardEl = document.getElementById('card-' + task.id);
+    if (!cardEl) return false;
+
+    task.state.previewCollapsed = false;
+    setTaskShadow(task);
+
+    const splitEl = cardEl.querySelector('.img-gen-split');
+    const panelEl = cardEl.querySelector('.img-gen-preview-panel');
+    const bodyEl = cardEl.querySelector('.img-gen-preview-body');
+    const pendingCount = getImgGenPendingCount(task);
+
+    if (splitEl) splitEl.classList.remove('preview-collapsed');
+    if (panelEl) {
+        panelEl.classList.remove('is-collapsed');
+        panelEl.classList.toggle('is-running', pendingCount > 0);
+    }
+    if (bodyEl) {
+        bodyEl.innerHTML = renderImgGenPreviewFeed(task, task.state.previewHistory || []);
+    }
+    applyImgGenCardFrame(cardEl, task);
+
+    cardEl.setAttribute('data-sync-status', task.status || 'static');
+    cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
+    cardEl.setAttribute('data-sync-preview-collapsed', 'false');
+    cardEl.setAttribute('data-sync-preview-feed', getImgGenPreviewFingerprint(task));
+    cardEl.__veoTask = task;
+
+    if (focusItemId) scrollImgGenPreviewToItem(task.id, focusItemId);
+    return true;
+}
+
 function scrollImgGenPreviewToItem(taskId, itemId) {
     if (!taskId || !itemId) return;
     scheduleNextPaint(() => {
@@ -5346,7 +5418,9 @@ function getImgGenPendingCount(task) {
 
 async function isImgGenPreviewItemStillPending(taskId, itemId) {
     if (!taskId || !itemId) return true;
-    const liveTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    const guarded = getImgGenPreviewGuardItems(taskId).find((item) => item && item.id === itemId);
+    if (guarded && guarded.status === 'pending') return true;
+    const liveTask = mergeImgGenTaskWithShadow(await getTaskDB(taskId), getTaskShadow(taskId), { protectedIds: getImgGenProtectedPreviewIds(taskId) });
     if (!liveTask || liveTask.type !== 'tool_image_gen') return false;
     ensureImgGenState(liveTask);
     return liveTask.state.previewHistory.some((item) => item && item.id === itemId && item.status === 'pending');
@@ -5376,7 +5450,7 @@ function recalcImgGenTaskStatus(task) {
 function pushImgGenPendingItem(task) {
     normalizeImgGenPreviewHistory(task);
     const itemId = createImgGenPreviewId();
-    task.state.previewHistory.push({
+    const pendingItem = {
         id: itemId,
         status: 'pending',
         image: null,
@@ -5392,7 +5466,9 @@ function pushImgGenPendingItem(task) {
         version: task.state.version || 'trial',
         size: task.state.size || '',
         referenceControls: buildImgGenRefControlPayload(task)
-    });
+    };
+    task.state.previewHistory.push(pendingItem);
+    guardImgGenPreviewItem(task.id, pendingItem);
     recalcImgGenTaskStatus(task);
     return itemId;
 }
@@ -5400,7 +5476,6 @@ function pushImgGenPendingItem(task) {
 function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = null, meta = null) {
     normalizeImgGenPreviewHistory(task);
     const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
-    if (!item && itemId) return false;
     if (item) {
         item.status = 'success';
         item.image = imageBlobOrUrl || null;
@@ -5410,6 +5485,7 @@ function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = nu
         item.height = meta && Number.isFinite(meta.height) ? meta.height : item.height;
         item.ratio = meta && Number.isFinite(meta.ratio) ? meta.ratio : item.ratio;
         item.layout = meta && meta.layout ? meta.layout : item.layout;
+        releaseImgGenPreviewGuard(task.id, itemId);
     } else {
         task.state.previewHistory.push({
             id: itemId || createImgGenPreviewId(),
@@ -5424,6 +5500,7 @@ function markImgGenPreviewSuccess(task, itemId, imageBlobOrUrl, costTimeSec = nu
             layout: meta && meta.layout ? meta.layout : ''
         });
     }
+    releaseImgGenPreviewGuard(task.id, itemId);
     recalcImgGenTaskStatus(task);
     return true;
 }
@@ -5444,11 +5521,11 @@ function markImgGenPreviewFailed(task, itemId, reason = '') {
     normalizeImgGenPreviewHistory(task);
     const errorReason = normalizeImgGenErrorReason(reason);
     const item = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
-    if (!item && itemId) return false;
     if (item) {
         item.status = 'failed';
         item.remoteTaskId = '';
         item.errorReason = errorReason;
+        releaseImgGenPreviewGuard(task.id, itemId);
     }
     else {
         task.state.previewHistory.push({
@@ -5465,6 +5542,7 @@ function markImgGenPreviewFailed(task, itemId, reason = '') {
             errorReason
         });
     }
+    releaseImgGenPreviewGuard(task.id, itemId);
     recalcImgGenTaskStatus(task);
     return true;
 }
@@ -5847,7 +5925,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
         imgGenPollTimers.delete(pollKey);
         attempts++;
 
-        const task = await getTaskDB(taskId);
+        const task = mergeImgGenTaskWithShadow(await getTaskDB(taskId), getTaskShadow(taskId), { protectedIds: getImgGenProtectedPreviewIds(taskId) });
         if (!task) { clearImgGenPolling(taskId, itemId); return; }
         ensureImgGenState(task);
         normalizeImgGenPreviewHistory(task);
@@ -5924,6 +6002,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
                 clearImgGenPolling(taskId, itemId);
                 await saveTaskDB(task);
                 renderCard(taskId, task);
+                forceRenderImgGenPreviewPanel(task, itemId);
                 showToast('生图轮询超时，请稍后重试', 'error');
                 if (lastHttpError) console.warn('[img-poll] no valid response:', lastHttpError);
                 return;
@@ -5965,6 +6044,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             updateBillingUI();
             await saveTaskDB(task);
             renderCard(taskId, task);
+            forceRenderImgGenPreviewPanel(task, itemId);
             return;
         }
 
@@ -5979,6 +6059,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             clearImgGenPolling(taskId, itemId);
             await saveTaskDB(task);
             renderCard(taskId, task);
+            forceRenderImgGenPreviewPanel(task, itemId);
             showToast('生图任务失败，请调整参数后重试', 'error');
             return;
         }
@@ -5988,6 +6069,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             remoteTaskId = nextTaskId;
             const dynamicItem = task.state.previewHistory.find((entry) => entry && entry.id === itemId);
             if (dynamicItem) dynamicItem.remoteTaskId = nextTaskId;
+            updateImgGenPreviewGuard(taskId, itemId, { remoteTaskId: nextTaskId });
             task.genTaskId = nextTaskId;
             await saveTaskDB(task);
         }
@@ -5999,6 +6081,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
                 clearImgGenPolling(taskId, itemId);
                 await saveTaskDB(task);
                 renderCard(taskId, task);
+                forceRenderImgGenPreviewPanel(task, itemId);
                 showToast('生图轮询超时，请稍后重试', 'error');
                 return;
             }
@@ -6091,6 +6174,7 @@ async function removeImgGenPreviewItem(e, taskId, itemId) {
     }
     if (!itemId) return;
     clearImgGenPolling(taskId, itemId);
+    releaseImgGenPreviewGuard(taskId, itemId);
     await queueImgGenTaskUpdate(taskId, async () => {
         const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
         if (!baseTask) return;
@@ -6484,18 +6568,21 @@ async function submitImgGen(taskId) {
     task.timestamp = now;
     setTaskShadow(task);
     await renderCard(taskId, task);
-    scrollImgGenPreviewToItem(taskId, previewItemId);
+    forceRenderImgGenPreviewPanel(task, previewItemId);
     await waitNextPaint();
-    await saveTaskDB(task);
+    await saveTaskDB(task).catch((err) => {
+        console.warn('[submitImgGen] pending save failed, continue request:', err);
+    });
 
     setTimeout(async () => {
         try {
             const fresh = await getTaskDB(taskId);
             const live = getTaskShadow(taskId);
-            const next = fresh ? mergeImgGenTaskWithShadow(fresh, live) : live;
+            const next = fresh ? mergeImgGenTaskWithShadow(fresh, live, { protectedIds: getImgGenProtectedPreviewIds(taskId) }) : live;
             if (!next) return;
             setTaskShadow(next);
             await renderCard(taskId, next);
+            forceRenderImgGenPreviewPanel(next, previewItemId);
         } catch (err) {}
     }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
 
@@ -6513,6 +6600,7 @@ async function submitImgGen(taskId) {
             markImgGenPreviewFailed(task, previewItemId, 'Pro 尺寸不符合规则');
             await saveTaskDB(task);
             renderCard(taskId, task);
+            forceRenderImgGenPreviewPanel(task, previewItemId);
             return showToast('Pro 尺寸不符合规则，请调整比例后重试', 'error');
         }
         if (strict.changed) {
@@ -6705,6 +6793,7 @@ async function submitImgGen(taskId) {
                 task.state.lastUsageDetail = billingInfo.detail;
                 task.state.lastUsageAt = Date.now();
                 success = true;
+                forceRenderImgGenPreviewPanel(task, previewItemId);
 
                 await addBillingRecord({
                     id: 'bill_img_' + task.id + '_' + Date.now(),
@@ -6728,10 +6817,12 @@ async function submitImgGen(taskId) {
                     }
                     const item = task.state.previewHistory.find((entry) => entry && entry.id === previewItemId);
                     if (item) item.remoteTaskId = asyncTaskId;
+                    updateImgGenPreviewGuard(taskId, previewItemId, { remoteTaskId: asyncTaskId });
                     task.genTaskId = asyncTaskId;
                     task.timestamp = Date.now();
                     await saveTaskDB(task);
                     renderCard(taskId, task);
+                    forceRenderImgGenPreviewPanel(task, previewItemId);
                     startImgGenTaskPolling(taskId, asyncTaskId, previewItemId);
                     return;
                 }
@@ -6746,10 +6837,12 @@ async function submitImgGen(taskId) {
                         item.remoteTaskId = fallbackTaskId;
                         item.errorReason = '';
                     }
+                    updateImgGenPreviewGuard(taskId, previewItemId, { remoteTaskId: fallbackTaskId, errorReason: '' });
                     task.genTaskId = fallbackTaskId;
                     task.timestamp = Date.now();
                     await saveTaskDB(task);
                     renderCard(taskId, task);
+                    forceRenderImgGenPreviewPanel(task, previewItemId);
                     startImgGenTaskPolling(taskId, fallbackTaskId, previewItemId);
                     if (resultPack.rawData && resultPack.rawData.empty_response) {
                         showToast('后端已接收请求，但未返回任务ID，已启动兜底轮询', 'warning');
@@ -6769,6 +6862,7 @@ async function submitImgGen(taskId) {
                     return;
                 }
                 markImgGenPreviewFailed(task, previewItemId, err);
+                forceRenderImgGenPreviewPanel(task, previewItemId);
             } else {
                 if (!(await isImgGenPreviewItemStillPending(taskId, previewItemId))) {
                     clearImgGenPolling(taskId, previewItemId);
@@ -6777,6 +6871,7 @@ async function submitImgGen(taskId) {
                 task.retryCount = attempts;
                 await saveTaskDB(task);
                 renderCard(taskId, task);
+                forceRenderImgGenPreviewPanel(task, previewItemId);
                 await new Promise(r => setTimeout(r, 2000));
             }
         }
@@ -6784,6 +6879,7 @@ async function submitImgGen(taskId) {
 
     await saveTaskDB(task);
     renderCard(taskId, task);
+    forceRenderImgGenPreviewPanel(task, previewItemId);
     if (!success) {
         clearImgGenPolling(taskId, previewItemId);
         showToast("生图请求失败，请检查 webhook、密钥或网络", "error");
