@@ -718,6 +718,112 @@ function cloneTaskDeep(task) {
     try { return JSON.parse(JSON.stringify(task)); } catch (err) { return null; }
 }
 
+function getImgGenPreviewStatusRank(item) {
+    const status = item && item.status ? String(item.status) : '';
+    if (status === 'success') return 4;
+    if (status === 'failed') return 3;
+    if (status === 'pending') return 2;
+    return 1;
+}
+
+function mergeImgGenPreviewItem(prevItem, nextItem) {
+    if (!prevItem) return nextItem ? { ...nextItem } : null;
+    if (!nextItem) return { ...prevItem };
+    const prevRank = getImgGenPreviewStatusRank(prevItem);
+    const nextRank = getImgGenPreviewStatusRank(nextItem);
+    const prevTime = toFiniteNumber(prevItem.updatedAt || prevItem.createdAt, 0);
+    const nextTime = toFiniteNumber(nextItem.updatedAt || nextItem.createdAt, 0);
+    const winner = (nextRank > prevRank || (nextRank === prevRank && nextTime >= prevTime)) ? nextItem : prevItem;
+    const fallback = winner === nextItem ? prevItem : nextItem;
+    return {
+        ...fallback,
+        ...winner,
+        image: winner.image || fallback.image || null,
+        remoteTaskId: winner.remoteTaskId || fallback.remoteTaskId || '',
+        errorReason: winner.errorReason || fallback.errorReason || '',
+        costTime: Number.isFinite(winner.costTime) ? winner.costTime : (Number.isFinite(fallback.costTime) ? fallback.costTime : null),
+        width: toFiniteNumber(winner.width, toFiniteNumber(fallback.width, 0)),
+        height: toFiniteNumber(winner.height, toFiniteNumber(fallback.height, 0)),
+        ratio: toFiniteNumber(winner.ratio, toFiniteNumber(fallback.ratio, 0)),
+        layout: winner.layout || fallback.layout || '',
+        referenceControls: Array.isArray(winner.referenceControls) && winner.referenceControls.length
+            ? winner.referenceControls
+            : (Array.isArray(fallback.referenceControls) ? fallback.referenceControls : [])
+    };
+}
+
+function getImgGenPreviewList(task) {
+    return task && task.state && Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+}
+
+function mergeImgGenPreviewHistory(primaryTask, secondaryTask, options = {}) {
+    const protectedIds = new Set(Array.isArray(options.protectedIds) ? options.protectedIds.filter(Boolean) : []);
+    const primaryList = getImgGenPreviewList(primaryTask);
+    const secondaryList = getImgGenPreviewList(secondaryTask);
+    const primaryIds = new Set(primaryList.map((item) => item && item.id).filter(Boolean));
+    const merged = new Map();
+
+    primaryList.forEach((item) => {
+        if (!item || !item.id) return;
+        merged.set(item.id, { ...item });
+    });
+
+    secondaryList.forEach((item) => {
+        if (!item || !item.id) return;
+        const existing = merged.get(item.id);
+        if (existing) {
+            merged.set(item.id, mergeImgGenPreviewItem(existing, item));
+            return;
+        }
+
+        // Only carry missing older items when they are protected in-flight previews.
+        // This prevents stale IndexedDB reads from resurrecting images the user deleted.
+        if (protectedIds.has(item.id) && item.status === 'pending' && !primaryIds.has(item.id)) {
+            merged.set(item.id, { ...item });
+        }
+    });
+
+    return Array.from(merged.values()).sort((a, b) => toFiniteNumber(a.createdAt, 0) - toFiniteNumber(b.createdAt, 0));
+}
+
+function mergeImgGenTaskWithShadow(task, shadowTask, options = {}) {
+    if (!task || task.type !== 'tool_image_gen') return task;
+    if (!shadowTask || shadowTask.type !== 'tool_image_gen' || shadowTask.id !== task.id) return task;
+
+    const dbTask = cloneTaskDeep(task) || { ...task };
+    const liveTask = cloneTaskDeep(shadowTask) || { ...shadowTask };
+    ensureImgGenState(dbTask);
+    ensureImgGenState(liveTask);
+
+    const dbTime = toFiniteNumber(dbTask.timestamp, 0);
+    const liveTime = toFiniteNumber(liveTask.timestamp, 0);
+    const primary = liveTime >= dbTime ? liveTask : dbTask;
+    const secondary = primary === liveTask ? dbTask : liveTask;
+    const merged = cloneTaskDeep(primary) || { ...primary };
+    ensureImgGenState(merged);
+
+    const protectedIds = Array.isArray(options.protectedIds) ? options.protectedIds : [];
+    merged.state.previewHistory = mergeImgGenPreviewHistory(primary, secondary, { protectedIds });
+    normalizeImgGenPreviewHistory(merged);
+
+    const pendingCount = getImgGenPendingCount(merged);
+    if (pendingCount > 0) {
+        merged.status = 'processing';
+        merged.state.previewCollapsed = false;
+        merged.genTaskId = merged.genTaskId || secondary.genTaskId || null;
+        merged.retryCount = Math.max(toFiniteNumber(merged.retryCount, 0), toFiniteNumber(secondary.retryCount, 0));
+        merged.state.startTime = merged.state.startTime || (secondary.state && secondary.state.startTime) || Date.now();
+        merged.state.nextSubmitAt = Math.max(
+            toFiniteNumber(merged.state.nextSubmitAt, 0),
+            toFiniteNumber(secondary.state && secondary.state.nextSubmitAt, 0)
+        );
+    } else {
+        recalcImgGenTaskStatus(merged);
+    }
+    merged.timestamp = Math.max(dbTime, liveTime, toFiniteNumber(merged.timestamp, 0));
+    return merged;
+}
+
 function queueImgGenTaskUpdate(taskId, runner) {
     const prev = imgGenUpdateQueues.get(taskId) || Promise.resolve();
     const next = prev
@@ -3143,7 +3249,11 @@ function bindImgGenCardResizeSave(cardEl, task) {
 }
 
 async function renderCard(taskId, taskOverride = null) {
-    const task = taskOverride || await getTaskDB(taskId); if (!task) return;
+    let task = taskOverride || await getTaskDB(taskId); if (!task) return;
+    if (task.type === 'tool_image_gen') {
+        const shadowTask = getTaskShadow(taskId);
+        task = mergeImgGenTaskWithShadow(task, shadowTask);
+    }
     setTaskShadow(task);
     const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
 
@@ -3165,6 +3275,7 @@ async function renderCard(taskId, taskOverride = null) {
     const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
     const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
+    const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
     const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
     const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
     const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
@@ -3179,6 +3290,7 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-channel', currentChannel);
     cardEl.setAttribute('data-sync-version', currentVersion);
     cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
+    cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed);
     cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
     cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode);
     cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize);
@@ -4171,7 +4283,7 @@ function renderImgGenPendingItem(item, task) {
     const itemId = item && item.id ? item.id : '';
     const startedAt = toFiniteNumber(item && item.createdAt, Date.now());
     return `
-        <div class="img-gen-preview-item img-gen-preview-pending">
+        <div class="img-gen-preview-item img-gen-preview-pending" data-preview-id="${escapeAttr(itemId)}">
             <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${itemId}')" data-tip="删除这条生成中记录">
                 <span class="material-symbols-outlined">close</span>
             </button>
@@ -4198,7 +4310,7 @@ function renderImgGenFailedItem(item, task) {
     const reason = item && item.errorReason ? item.errorReason : '通道响应异常或超时';
     const itemId = item && item.id ? item.id : '';
     return `
-        <div class="img-gen-preview-item img-gen-preview-failed">
+        <div class="img-gen-preview-item img-gen-preview-failed" data-preview-id="${escapeAttr(itemId)}">
             <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${itemId}')" data-tip="删除这条失败记录">
                 <span class="material-symbols-outlined">close</span>
             </button>
@@ -4240,7 +4352,7 @@ function renderImgGenPreviewFeed(task, previewEntries) {
                 const imgUrl = getBlobUrl(imgKey, item.image);
                 const safeRatio = Number.isFinite(Number(item.ratio)) && Number(item.ratio) > 0 ? Number(item.ratio) : 1;
                 const layoutClass = item.layout === 'landscape' ? 'is-landscape' : (item.layout === 'portrait' ? 'is-portrait' : 'is-square');
-                return `<div class="img-gen-preview-item ${layoutClass}" style="--preview-aspect:${safeRatio};">
+                return `<div class="img-gen-preview-item ${layoutClass}" data-preview-id="${escapeAttr(item.id)}" style="--preview-aspect:${safeRatio};">
                     <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${item.id}')" data-tip="删除这张预览图">
                         <span class="material-symbols-outlined">close</span>
                     </button>
@@ -4584,6 +4696,9 @@ async function renderBoard() {
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
     boardTasks.forEach(task => {
+        if (task && task.type === 'tool_image_gen') {
+            task = mergeImgGenTaskWithShadow(task, getTaskShadow(task.id));
+        }
         normalizeTaskPosition(task);
         setTaskShadow(task);
         let cardEl = document.getElementById('card-' + task.id);
@@ -4594,6 +4709,7 @@ async function renderBoard() {
         const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
         const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
         const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
+        const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
         const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
         const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
         const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
@@ -4629,10 +4745,10 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
 
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
                 morphCardDOM(cardEl, generateCardHTML(task));
             }
             applyImgGenCardFrame(cardEl, task);
@@ -4662,7 +4778,7 @@ async function renderBoard() {
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);
 
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -5173,6 +5289,54 @@ function normalizeImgGenPreviewHistory(task) {
         .slice(-IMG_GEN_PREVIEW_LIMIT);
     task.state.resultBlobs = finalSuccessImages;
     task.state.resultBlob = finalSuccessImages.length ? finalSuccessImages[finalSuccessImages.length - 1] : null;
+}
+
+function getImgGenPreviewFingerprint(task) {
+    if (!task || task.type !== 'tool_image_gen') return 'na';
+    const list = getImgGenPreviewList(task);
+    return list.map((item) => {
+        if (!item) return 'x';
+        const imageSig = item.image ? (typeof item.image === 'string' ? `url${item.image.length}` : `blob${toFiniteNumber(item.image.size, 0)}`) : 'noimg';
+        return [
+            item.id || '',
+            item.status || '',
+            item.remoteTaskId || '',
+            item.errorReason || '',
+            imageSig,
+            toFiniteNumber(item.costTime, -1)
+        ].join(':');
+    }).join('|');
+}
+
+function scheduleNextPaint(callback) {
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(callback);
+        return;
+    }
+    setTimeout(callback, 16);
+}
+
+function waitNextPaint() {
+    return new Promise((resolve) => scheduleNextPaint(resolve));
+}
+
+function scrollImgGenPreviewToItem(taskId, itemId) {
+    if (!taskId || !itemId) return;
+    scheduleNextPaint(() => {
+        const cardEl = document.getElementById('card-' + taskId);
+        if (!cardEl) return;
+        const feed = cardEl.querySelector('.img-gen-preview-feed');
+        const target = cardEl.querySelector(`[data-preview-id="${cssEscapeSafe(itemId)}"]`) || cardEl.querySelector('.img-gen-preview-pending');
+        if (feed) {
+            try { feed.scrollTo({ top: 0, behavior: 'smooth' }); } catch (err) { feed.scrollTop = 0; }
+        }
+        if (target && typeof target.animate === 'function') {
+            target.animate([
+                { transform: 'scale(0.985)', filter: 'brightness(1.18)' },
+                { transform: 'scale(1)', filter: 'brightness(1)' }
+            ], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        }
+    });
 }
 
 function getImgGenPendingCount(task) {
@@ -6197,7 +6361,9 @@ async function appendImgGenPromptTag(event, taskId, text) {
     task.timestamp = Date.now();
     setTaskShadow(task);
     renderCard(taskId, task);
-    await saveTaskDB(task);
+    await saveTaskDB(task).catch((err) => {
+        console.warn('[submitImgGen] pending save failed, continue request:', err);
+    });
     const promptEl = document.querySelector(`#card-${cssEscapeSafe(taskId)} .img-gen-prompt`);
     if (promptEl) {
         promptEl.focus();
@@ -6313,19 +6479,23 @@ async function submitImgGen(taskId) {
     task.retryCount = 0;
     task.isBilled = false;
     task.state.startTime = now;
+    task.state.previewCollapsed = false;
     const previewItemId = pushImgGenPendingItem(task);
     task.timestamp = now;
     setTaskShadow(task);
+    await renderCard(taskId, task);
+    scrollImgGenPreviewToItem(taskId, previewItemId);
+    await waitNextPaint();
     await saveTaskDB(task);
-    renderCard(taskId, task);
 
     setTimeout(async () => {
         try {
             const fresh = await getTaskDB(taskId);
-            if (!fresh) return;
-            ensureImgGenState(fresh);
-            setTaskShadow(fresh);
-            renderCard(taskId, fresh);
+            const live = getTaskShadow(taskId);
+            const next = fresh ? mergeImgGenTaskWithShadow(fresh, live) : live;
+            if (!next) return;
+            setTaskShadow(next);
+            await renderCard(taskId, next);
         } catch (err) {}
     }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
 
