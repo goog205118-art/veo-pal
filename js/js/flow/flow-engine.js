@@ -199,6 +199,29 @@ flowStyleInj.innerHTML = `
 `; 
 document.head.appendChild(flowStyleInj);
 
+function escapeFlowHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeFlowAttr(value) {
+    return escapeFlowHtml(value);
+}
+
+function escapeFlowJsString(value) {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+}
+
 const viewport = document.getElementById('flow-viewport');
 const canvas = document.getElementById('flow-canvas');
 const svgLayer = document.getElementById('svg-layer');
@@ -401,10 +424,11 @@ function getRelatedLinkIds(nodeIds) {
 // ==========================================
 function renderPreview(node) {
     if (!node.result || !node.result.data) return '';
+    const safeSrc = escapeFlowAttr(node.result.data);
     if (node.result.type === 'image') {
-        return `<img src="${node.result.data}" style="width:100%; height:auto; display:block; border-radius: 4px;" />`;
+        return `<img src="${safeSrc}" style="width:100%; height:auto; display:block; border-radius: 4px;" />`;
     } else if (node.result.type === 'video') {
-        return `<video src="${node.result.data}" style="width:100%; height:auto; display:block; border-radius: 4px;" autoplay loop muted controls></video>`;
+        return `<video src="${safeSrc}" style="width:100%; height:auto; display:block; border-radius: 4px;" autoplay loop muted controls></video>`;
     }
     return '';
 }
@@ -423,7 +447,7 @@ function renderImageUploadInput(node, inp, val) {
              ondrop="handleNodeImageDrop(event, '${node.id}', '${inp.id}'); this.classList.remove('node-image-drag-over');">
             <input id="${uploadId}" type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
             ${hasImage
-                ? `<img src="${val}" class="img-preview-large" onmousedown="event.stopPropagation()" data-tip="已挂载图片，支持再次拖入覆盖">`
+                ? `<img src="${escapeFlowAttr(val)}" class="img-preview-large" onmousedown="event.stopPropagation()" data-tip="已挂载图片，支持再次拖入覆盖">`
                 : `<div class="node-image-upload-empty"><span class="material-symbols-outlined">image</span><span>拖入图片或点击上传</span></div>`}
             <label for="${uploadId}" class="node-image-upload-overlay" onmousedown="event.stopPropagation()">
                 <span class="material-symbols-outlined">upload</span>
@@ -441,7 +465,7 @@ function renderImageUploadInput(node, inp, val) {
             <input type="file" accept="image/*" style="display:none;" onchange="handleNodeImageUpload(event, '${node.id}', '${inp.id}')">
             <span class="material-symbols-outlined" style="font-size:14px; vertical-align:middle;">upload</span> <span class="img-upload-text">${hasImage ? '更换图片' : '点击 / 拖入图片'}</span>
         </label>
-        ${hasImage ? `<img src="${val}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
+        ${hasImage ? `<img src="${escapeFlowAttr(val)}" class="img-preview-thumb" style="width:28px; height:28px; border-radius:4px; object-fit:cover; border:1px solid rgba(255,255,255,0.2);" onmousedown="event.stopPropagation()" data-tip="已挂载本地内存">` : ''}
     </div>`;
 }
 
@@ -475,19 +499,19 @@ function renderNodes() {
                     
                 node.inputs.forEach(inp => {
                     const val = node.data && node.data[inp.id] !== undefined ? node.data[inp.id] : inp.default;
-                    inputsHtml += `<div class="node-input-group" id="group-${node.id}-${inp.id}"><div class="node-input-label">${inp.label}</div>`;
+                    inputsHtml += `<div class="node-input-group" id="group-${node.id}-${inp.id}"><div class="node-input-label">${escapeFlowHtml(inp.label)}</div>`;
                     
                     if (inp.type === 'textarea') {
                         inputsHtml += `<textarea class="node-input" rows="3" 
                             onmousedown="event.stopPropagation()" 
                             oninput="updateNodeData('${node.id}', '${inp.id}', this.value); window.AutocompleteController.listen(event, '${node.id}');"
-                            onkeydown="window.AutocompleteController.handleKeyDown(event);">${val}</textarea>`;
+                            onkeydown="window.AutocompleteController.handleKeyDown(event);">${escapeFlowHtml(val)}</textarea>`;
                     } else if (inp.type === 'select') {
                         inputsHtml += `<select class="node-input" onmousedown="event.stopPropagation()" onchange="updateNodeData('${node.id}', '${inp.id}', this.value); evaluateNodeConditions('${node.id}');">
-                            ${inp.options.map(opt => `<option value="${opt}" ${val === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+                            ${inp.options.map(opt => `<option value="${escapeFlowAttr(opt)}" ${val === opt ? 'selected' : ''}>${escapeFlowHtml(opt)}</option>`).join('')}
                         </select>`;
                     } else if (inp.type === 'number') {
-                        inputsHtml += `<input type="number" class="node-input" onmousedown="event.stopPropagation()" value="${val}" oninput="updateNodeData('${node.id}', '${inp.id}', this.value)" style="font-family: monospace; color: var(--accent);" />`;
+                        inputsHtml += `<input type="number" class="node-input" onmousedown="event.stopPropagation()" value="${escapeFlowAttr(val)}" oninput="updateNodeData('${node.id}', '${inp.id}', this.value)" style="font-family: monospace; color: var(--accent);" />`;
                     } else if (inp.type === 'image_upload') {
                         inputsHtml += renderImageUploadInput(node, inp, val);
                     }
@@ -498,7 +522,7 @@ function renderNodes() {
 
             nodeEl.innerHTML = `
                 <div class="node-header" style="background: ${node.type === 'tool_image_gen' ? 'rgba(192,132,252,0.1)' : 'rgba(56,189,248,0.1)'};">
-                    ${node.title}
+                    ${escapeFlowHtml(node.title)}
                 </div>
                 <div class="node-body">
                     ${inputsHtml}
@@ -508,12 +532,12 @@ function renderNodes() {
                                  onmousedown="startDrawLink(event, '${node.id}', '${p.id}', '${p.type}', 'in')" 
                                  onmouseup="finishDrawLink(event, '${node.id}', '${p.id}', '${p.type}', 'in')"
                                  ondblclick="disconnectPort(event, '${node.id}', '${p.id}')"></div>
-                            <span style="margin-left: 12px;">${p.label}</span>
+                            <span style="margin-left: 12px;">${escapeFlowHtml(p.label)}</span>
                         </div>
                     `).join('')}
                     ${(node.ports.out || []).map(p => `
                         <div class="port-row" style="justify-content: flex-end;">
-                            <span style="margin-right: 12px;">${p.label}</span>
+                            <span style="margin-right: 12px;">${escapeFlowHtml(p.label)}</span>
                             <div class="port port-out port-${p.type}" id="${node.id}-${p.id}" 
                                  onmousedown="startDrawLink(event, '${node.id}', '${p.id}', '${p.type}', 'out')"
                                  onmouseup="finishDrawLink(event, '${node.id}', '${p.id}', '${p.type}', 'out')"
@@ -1429,11 +1453,12 @@ viewport.addEventListener('contextmenu', (e) => {
 
     let html = `<div style="padding: 4px 8px; font-size: 11px; color: #666; border-bottom: 1px solid #333; margin-bottom: 4px;">添加节点</div>`;
     PluginManager.getAllSchemas().forEach(schema => {
+        const safeSchemaTypeJs = escapeFlowJsString(schema.type);
         html += `
             <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; gap: 8px;" 
                  onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"
-                 onclick="spawnNode('${schema.type}')">
-                ${schema.title}
+                 onclick="spawnNode('${safeSchemaTypeJs}')">
+                ${escapeFlowHtml(schema.title)}
             </div>
         `;
     });
@@ -1477,13 +1502,14 @@ window.initNodePalette = function() {
     
     let html = '';
     for (let cat in groups) {
-        html += `<div class="palette-group-title">${cat}</div>`;
+        html += `<div class="palette-group-title">${escapeFlowHtml(cat)}</div>`;
         groups[cat].forEach(s => {
+            const safeTypeJs = escapeFlowJsString(s.type);
             html += `
                 <div class="palette-item" draggable="true" 
-                     ondragstart="event.dataTransfer.setData('veo-node-type', '${s.type}')">
+                     ondragstart="event.dataTransfer.setData('veo-node-type', '${safeTypeJs}')">
                     <span class="material-symbols-outlined" style="font-size:16px;">drag_indicator</span>
-                    ${s.title}
+                    ${escapeFlowHtml(s.title)}
                 </div>
             `;
         });
@@ -2160,8 +2186,8 @@ window.AutocompleteController = {
         }
         this.dropdownEl.innerHTML = this.candidates.map((c, i) => `
             <div class="autocomplete-item ${i === this.activeIndex ? 'is-active' : ''}" 
-                 onmousedown="window.AutocompleteController.inject('${c.code}'); event.stopPropagation();">
-                <span>${c.label}</span>
+                 onmousedown="window.AutocompleteController.inject('${escapeFlowJsString(c.code)}'); event.stopPropagation();">
+                <span>${escapeFlowHtml(c.label)}</span>
                 <span class="autocomplete-tag ${c.type === 'local' ? 'tag-local' : 'tag-cross'}">${c.type === 'local' ? '引脚' : '跨节点'}</span>
             </div>
         `).join('');

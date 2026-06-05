@@ -344,6 +344,41 @@ function cssEscapeSafe(id) {
     return String(id).replace(/([!"#$%&'()*+,./:;<=>?@[\]^`{|}~\\])/g, '\\$1');
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
+function sanitizeAspectRatioCss(value, fallback = '1/1') {
+    const text = String(value || '').trim();
+    const match = text.match(/^(\d{1,4})\s*:\s*(\d{1,4})$/);
+    if (!match) return fallback;
+    const w = Math.max(1, Math.min(4096, parseInt(match[1], 10)));
+    const h = Math.max(1, Math.min(4096, parseInt(match[2], 10)));
+    return `${w}/${h}`;
+}
+
+function revokeBlobPrefixSafe(prefix) {
+    if (!prefix || typeof revokeBlobUrlsByPrefix !== 'function') return;
+    try { revokeBlobUrlsByPrefix(prefix); } catch (err) {}
+}
+
+function revokeBlobKeySafe(key) {
+    if (!key) return;
+    if (typeof revokeBlobUrl === 'function') {
+        try { revokeBlobUrl(key); return; } catch (err) {}
+    }
+    revokeBlobPrefixSafe(key);
+}
+
 function snapshotCardState(cardEl) {
     const state = { focusSelector: '', selectionStart: null, selectionEnd: null, videos: [] };
     if (!cardEl) return state;
@@ -1634,9 +1669,10 @@ async function alignSelectedCards() {
 function showToast(message, type = 'info') {
     let container = document.getElementById('toast-container');
     if (!container) { container = document.createElement('div'); container.id = 'toast-container'; document.body.appendChild(container); }
-    const toast = document.createElement('div'); toast.className = `veo-toast toast-${type}`;
-    let icon = type === 'error' ? 'error' : (type === 'success' ? 'check_circle' : 'info');
-    toast.innerHTML = `<span class="material-symbols-outlined icon" style="font-size: 16px;">${icon}</span> ${message}`;
+    const safeType = ['error', 'success', 'warning', 'info'].includes(type) ? type : 'info';
+    const toast = document.createElement('div'); toast.className = `veo-toast toast-${safeType}`;
+    let icon = safeType === 'error' ? 'error' : (safeType === 'success' ? 'check_circle' : (safeType === 'warning' ? 'warning' : 'info'));
+    toast.innerHTML = `<span class="material-symbols-outlined icon" style="font-size: 16px;">${icon}</span> <span class="toast-message">${escapeHtml(message)}</span>`;
     container.appendChild(toast); setTimeout(() => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 300); }, 3000);
 }
 window.alert = (msg) => showToast(msg, 'error');
@@ -2995,7 +3031,10 @@ async function handleCropperDrop(e, taskId) {
     if (srcToUse) {
         const task = await getTaskDB(taskId);
         if (task) {
+            revokeBlobPrefixSafe(taskId + '_src_');
+            revokeBlobPrefixSafe(taskId + '_res_');
             task.state.sourceBlob = srcToUse;
+            task.state.resultBlob = null;
             task.timestamp = Date.now();
             await saveTaskDB(task);
             renderCard(taskId);
@@ -3009,7 +3048,10 @@ async function handleCropperUpload(input, taskId) {
     const blob = await compressImageToBlob(input.files[0], 1024);
     const task = await getTaskDB(taskId);
     if (task) {
+        revokeBlobPrefixSafe(taskId + '_src_');
+        revokeBlobPrefixSafe(taskId + '_res_');
         task.state.sourceBlob = blob;
+        task.state.resultBlob = null;
         task.timestamp = Date.now();
         await saveTaskDB(task);
         renderCard(taskId);
@@ -3020,6 +3062,8 @@ async function handleCropperUpload(input, taskId) {
 async function resetCropper(taskId) {
     const task = await getTaskDB(taskId);
     if (task) {
+        revokeBlobPrefixSafe(taskId + '_src_');
+        revokeBlobPrefixSafe(taskId + '_res_');
         task.state.sourceBlob = null;
         task.state.resultBlob = null;
         await saveTaskDB(task);
@@ -3031,6 +3075,7 @@ async function resetCropper(taskId) {
 async function reEditCropper(taskId) {
     const task = await getTaskDB(taskId);
     if (task) {
+        revokeBlobPrefixSafe(taskId + '_res_');
         task.state.resultBlob = null;
 
         // 🌟 补上这一行，清理掉上次裁切的残留指纹
@@ -3560,8 +3605,8 @@ function renderImgGenSlots(task) {
             const slotUrl = getBlobUrl(`${task.id}_img_${i}_${task.timestamp || ''}`, img);
             slots.push(`
                 <div class="${slotClass}" data-slot-index="${i}">
-                    <img src="${slotUrl}" ondblclick="openLightbox(this.src)" data-tip="双击预览垫图">
-                    <span class="img-gen-slot-label">${label}</span>
+                    <img src="${escapeAttr(slotUrl)}" ondblclick="openLightbox(this.src)" data-tip="双击预览垫图">
+                    <span class="img-gen-slot-label">${escapeHtml(label)}</span>
                     ${isBase && hasMaskReady ? '<span class="img-gen-slot-mask-dot">MASK</span>' : ''}
                     <button class="popover-rm-btn remove-badge" type="button" onclick="removeGenImage(event, '${task.id}', ${i})" data-tip="移除此垫图">×</button>
                 </div>
@@ -3571,8 +3616,8 @@ function renderImgGenSlots(task) {
                 <div class="${slotClass}" data-slot-index="${i}" onclick="document.getElementById('file-input-${task.id}').click()" data-tip="点击上传或拖入图片">
                     <div class="img-gen-slot-placeholder">
                         <span class="material-symbols-outlined">${isBase ? 'add_photo_alternate' : 'image'}</span>
-                        <strong>${label}</strong>
-                        <small>${hint}</small>
+                        <strong>${escapeHtml(label)}</strong>
+                        <small>${escapeHtml(hint)}</small>
                     </div>
                 </div>
             `);
@@ -3606,10 +3651,10 @@ function renderImgGenParams(task) {
         <div class="img-gen-custom-ratio">
             <span class="material-symbols-outlined">aspect_ratio</span>
             <span class="img-gen-custom-label">自定义比例</span>
-            <input type="number" class="img-gen-select img-gen-ratio-input" value="${state.customW || 9}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
+            <input type="number" class="img-gen-select img-gen-ratio-input" value="${escapeAttr(state.customW || 9)}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
             <span class="img-gen-ratio-colon">:</span>
-            <input type="number" class="img-gen-select img-gen-ratio-input" value="${state.customH || 16}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
-            <span class="img-gen-size-hint">输出尺寸: ${resolvedSize}</span>
+            <input type="number" class="img-gen-select img-gen-ratio-input" value="${escapeAttr(state.customH || 16)}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
+            <span class="img-gen-size-hint">输出尺寸: ${escapeHtml(resolvedSize)}</span>
         </div>
     ` : '';
 
@@ -3662,7 +3707,7 @@ function renderImgGenParams(task) {
                     <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
                 </select>
             </label>
-            <div class="img-gen-size-chip">输出尺寸: ${resolvedSize}</div>
+            <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
         </div>
     ` : `
         <div class="img-gen-controls">
@@ -3686,7 +3731,7 @@ function renderImgGenParams(task) {
                     <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
                 </select>
             </label>
-            <div class="img-gen-size-chip">输出尺寸: ${resolvedSize}</div>
+            <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
         </div>
     `;
 
@@ -3714,7 +3759,7 @@ function renderImgGenParams(task) {
         <div class="img-gen-param-panel img-gen-advanced-panel ${paramsCollapsed ? 'is-collapsed' : ''}">
             <button class="img-gen-param-head" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')">
                 <span class="img-gen-param-title"><span class="material-symbols-outlined">tune</span> Advanced Settings</span>
-                <span class="img-gen-param-summary">${routeLabel}</span>
+                <span class="img-gen-param-summary">${escapeHtml(routeLabel)}</span>
                 <span class="material-symbols-outlined">${paramsCollapsed ? 'expand_more' : 'expand_less'}</span>
             </button>
             ${paramsCollapsed ? '' : `<div class="img-gen-param-body">${advancedHtml}</div>`}
@@ -3759,7 +3804,7 @@ function renderImgGenMaskPanel(task) {
                 <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? 'Mask Ready' : 'No Mask'}</span>
             </div>
             <button class="img-gen-mask-preview ${hasMaskReady ? 'has-mask' : ''}" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" ondblclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="点击进入大画布蒙版编辑">
-                <img src="${baseUrl}" alt="mask-preview">
+                <img src="${escapeAttr(baseUrl)}" alt="mask-preview">
                 <span class="img-gen-mask-preview-label">BASE / MASK SOURCE</span>
                 ${hasMaskReady ? '<span class="img-gen-mask-preview-glow">局部重绘蒙版已就绪</span>' : '<span class="img-gen-mask-preview-glow is-muted">点击开始绘制蒙版</span>'}
             </button>
@@ -3790,7 +3835,7 @@ function renderImgGenPendingItem(item, task) {
                     <span class="veo-dynamic-timer" data-start-time="${startedAt}">00:00</span>
                 </div>
                 <div class="img-gen-preview-stage-lines">
-                    ${stages.map((stage) => `<span>${stage}</span>`).join('')}
+                    ${stages.map((stage) => `<span>${escapeHtml(stage)}</span>`).join('')}
                 </div>
             </div>
         </div>
@@ -3808,7 +3853,7 @@ function renderImgGenFailedItem(item, task) {
             <div class="img-gen-preview-pending-inner">
                 <span class="material-symbols-outlined">warning</span>
                 <div class="img-gen-preview-placeholder-title">本次失败</div>
-                <div class="img-gen-preview-placeholder-sub">${reason}</div>
+                <div class="img-gen-preview-placeholder-sub">${escapeHtml(reason)}</div>
                 <button class="img-gen-retry-route-btn" type="button" onclick="retryImgGenPreviewItem(event, '${task.id}')">
                     <span class="material-symbols-outlined">refresh</span>
                     重试
@@ -3840,13 +3885,14 @@ function renderImgGenPreviewFeed(task, previewEntries) {
             if (item.status === 'success' && item.image) {
                 successDragIndex++;
                 const imgKey = `${task.id}_feed_${item.id}_${task.timestamp || ''}`;
+                const imgUrl = getBlobUrl(imgKey, item.image);
                 const safeRatio = Number.isFinite(Number(item.ratio)) && Number(item.ratio) > 0 ? Number(item.ratio) : 1;
                 const layoutClass = item.layout === 'landscape' ? 'is-landscape' : (item.layout === 'portrait' ? 'is-portrait' : 'is-square');
                 return `<div class="img-gen-preview-item ${layoutClass}" style="--preview-aspect:${safeRatio};">
                     <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${item.id}')" data-tip="删除这张预览图">
                         <span class="material-symbols-outlined">close</span>
                     </button>
-                    <img src="${getBlobUrl(imgKey, item.image)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">
+                    <img src="${escapeAttr(imgUrl)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">
                 </div>`;
             }
             return '';
@@ -4022,6 +4068,7 @@ function renderImgGenCardHTML(task) {
     const cooldownSec = Math.ceil(cooldownMs / 1000);
     const isBtnCooling = cooldownSec > 0;
     const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
+    const safePrompt = escapeHtml(task.state.prompt || '');
 
     let btnContent = `<span class="material-symbols-outlined">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span>`;
     if (pendingCount > 0) {
@@ -4066,7 +4113,7 @@ function renderImgGenCardHTML(task) {
                     <div class="img-gen-upload-note">第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。</div>
                     ${renderImgGenParams(task)}
                     ${renderImgGenMaskPanel(task)}
-                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${task.state.prompt || ''}</textarea>
+                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${safePrompt}</textarea>
                     <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''} ${isFailed && pendingCount === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
                 </div>
             </div>
@@ -4093,10 +4140,11 @@ function renderImgGenCardHTML(task) {
 
 function generateCardHTML(task) {
     if (task.type === 'frame') {
+        const safeTitle = escapeAttr(task.title || '');
         return `
         <div class="frame-header" onmousedown="event.stopPropagation()">
             <span class="material-symbols-outlined" style="font-size:18px;">view_cofy</span>
-            <input type="text" class="frame-title-input" value="${task.title || ''}" placeholder="未命名项目组" onchange="updateTaskField('${task.id}', 'title', this.value)">
+            <input type="text" class="frame-title-input" value="${safeTitle}" placeholder="未命名项目组" onchange="updateTaskField('${task.id}', 'title', this.value)">
             <div style="display:flex; gap: 4px; margin-left: auto;">
                 <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')" data-tip="折叠/展开此项目收纳"><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
                 <button class="frame-btn" onclick="removeFrame('${task.id}')" data-tip="解散该项目组"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
@@ -4105,7 +4153,7 @@ function generateCardHTML(task) {
         ${!task.isCollapsed ? `<div class="frame-resize-handle" data-tip="按住拖拽调节框架大小"></div>` : ''}
         `;
     }
-    if (task.type === 'note') return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 即时便签</span><button onclick="removeTask('${task.id}')" data-tip="删除此便签" style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="在此输入灵感、提示词或分组备注...">${task.text || ''}</textarea>`;
+    if (task.type === 'note') return `<div class="card-header"><span style="color:#ffca28; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">sticky_note_2</span> 即时便签</span><button onclick="removeTask('${task.id}')" data-tip="删除此便签" style="background:transparent; border:none; color:#ffca28; cursor:pointer; opacity:0.6;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><textarea oninput="updateNoteText('${task.id}', this.value)" placeholder="在此输入灵感、提示词或分组备注...">${escapeHtml(task.text || '')}</textarea>`;
     if (task.type === 'tool_generator') return `<div class="card-header"><span style="color:#818cf8; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:14px;">auto_awesome</span> 社媒灵感生成器</span><button onclick="removeTask('${task.id}')" data-tip="删除该组件" style="background:transparent; border:none; color:var(--text-sub); cursor:pointer;"><span class="material-symbols-outlined" style="font-size:16px;">close</span></button></div><div class="gen-grid"><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">video_camera_front</span> 带货形式</label><select onchange="updateGeneratorState('${task.id}', 'format', this.value)">${buildGeneratorOptions(genData.formats, task.state.format)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">play_circle</span> 开头节奏</label><select onchange="updateGeneratorState('${task.id}', 'opening', this.value)">${buildGeneratorOptions(genData.openings, task.state.opening)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">sell</span> 内容属性</label><select onchange="updateGeneratorState('${task.id}', 'attribute', this.value)">${buildGeneratorOptions(genData.attributes, task.state.attribute)}</select></div><div class="gen-item"><label><span class="material-symbols-outlined" style="font-size:12px;">magic_button</span> 通用调性</label><select onchange="updateGeneratorState('${task.id}', 'general', this.value)">${buildGeneratorOptions(genData.generals, task.state.general)}</select></div></div><div class="gen-actions"><button class="gen-btn shuffle" onclick="shuffleGenerator('${task.id}')" data-tip="摇骰子：随机抽取一套爆款剧本组合"><span class="material-symbols-outlined" style="font-size:16px;">shuffle</span> 随机抽取</button><button class="gen-btn copy" onclick="applyGeneratorToPrompt('${task.id}', this)" data-tip="一键将结构化剧本反填至底部 Prompt 框"><span class="material-symbols-outlined" style="font-size:16px;">move_down</span> 应用至控制台</button></div>`;
 
     if (task.type === 'tool_image_gen') return renderImgGenCardHTML(task);
@@ -4121,18 +4169,26 @@ function generateCardHTML(task) {
     }
 
     let statusBadge = '', mediaHtml = ''; const thumbImg = task.rawImages && (task.rawImages.firstFrame || (task.rawImages.references && task.rawImages.references[0])); const thumbUrl = getBlobUrl(task.id + '_thumb', thumbImg);
+    const safeVideoPrompt = escapeHtml(task.prompt || '');
+    const safeVideoPromptAttr = escapeAttr(task.prompt || '');
+    const safeVideoTime = escapeHtml(task.time || '');
+    const safeVideoModel = escapeHtml(task.modelStr || '');
+    const safeVideoRatio = escapeHtml(task.ratio || '');
+    const safeVideoAspect = sanitizeAspectRatioCss(task.ratio, '16/9');
+    const safeVideoUrl = escapeAttr(task.videoUrl || '');
+    const safeThumbUrl = escapeAttr(thumbUrl || '');
     if (task.status === 'processing') {
         const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : ''; statusBadge = `<span class="status-badge processing">生成中...${retryTxt}</span>`;
         let progressHtml = `
             <div class="cyber-scanner-box"><div class="cyber-scanner-line"></div></div>
             <div style="font-size: 11px; color: var(--accent); margin-top: 8px; font-weight: 600; font-family: monospace; letter-spacing: 1px;">MODELS ENGAGED...</div>
         `;
-        mediaHtml = `<div class="card-media" style="aspect-ratio: ${task.ratio.replace(':','/')}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">视频生成中...</div>${progressHtml}</div></div>`;
-    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">失败</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${task.ratio.replace(':','/')}; font-size:12px;">生成超时或失败</div>`;
-    } else { statusBadge = `<span class="status-badge success">已完成</span>`; mediaHtml = `<div class="card-media" data-tip="双击全屏播放视频"><video src="${task.videoUrl}" preload="none" poster="${thumbUrl || ''}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`; }
+        mediaHtml = `<div class="card-media" style="aspect-ratio: ${safeVideoAspect}; padding: 20px;"><div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; color: var(--accent);"><svg class="spinner" viewBox="0 0 50 50" style="width:36px;height:36px;"><circle cx="25" cy="25" r="20"></circle></svg><div class="generating-text" style="margin-top: 12px;">视频生成中...</div>${progressHtml}</div></div>`;
+    } else if (task.status === 'failed') { statusBadge = `<span class="status-badge failed">失败</span>`; mediaHtml = `<div class="card-media" style="background:#2c2c2e; color:var(--danger); aspect-ratio: ${safeVideoAspect}; font-size:12px;">生成超时或失败</div>`;
+    } else { statusBadge = `<span class="status-badge success">已完成</span>`; mediaHtml = `<div class="card-media" data-tip="双击全屏播放视频"><video src="${safeVideoUrl}" preload="none" poster="${safeThumbUrl}" controls playsinline ondblclick="this.requestFullscreen()"></video></div>`; }
 
-    const thumbHtml = thumbImg ? `<img src="${thumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">` : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
-    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size: 14px;">schedule</span> ${task.time} · ${task.modelStr}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${task.prompt}">${task.prompt}</p></div><div class="card-tags"><span class="card-tag">${task.ratio}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border: 1px solid var(--success);">已开挂机重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo('${task.videoUrl}')" data-tip="下载此视频到本地"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)" data-tip="原地重新发起此任务"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')" data-tip="提取该任务的所有图文参数，反填至底部控制台"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')" data-tip="删除此生成记录"><span class="material-symbols-outlined">delete</span></button></div>`;
+    const thumbHtml = thumbImg ? `<img src="${safeThumbUrl}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'thumb'}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">` : `<div style="width:44px;height:44px;border-radius:4px;background:#2c2c2e;display:flex;align-items:center;justify-content:center;"><span class="material-symbols-outlined" style="color:#666;">image</span></div>`;
+    return `<div class="card-header"><div class="time-model"><span class="material-symbols-outlined" style="font-size: 14px;">schedule</span> ${safeVideoTime} · ${safeVideoModel}</div>${statusBadge}</div><div class="card-prompt">${thumbHtml}<p title="${safeVideoPromptAttr}">${safeVideoPrompt}</p></div><div class="card-tags"><span class="card-tag">${safeVideoRatio}</span>${task.autoRetry ? `<span class="card-tag" style="color:var(--success); border: 1px solid var(--success);">已开挂机重试</span>` : ''}</div>${mediaHtml}<div class="card-actions">${task.status === 'success' ? `<button onclick="downloadVideo(this.dataset.url)" data-url="${safeVideoUrl}" data-tip="下载此视频到本地"><span class="material-symbols-outlined">download</span></button>` : ''}${task.status === 'failed' ? `<button class="retry-btn" onclick="retryTask('${task.id}', this)" data-tip="原地重新发起此任务"><span class="material-symbols-outlined">refresh</span></button>` : ''}<button class="reuse-btn" onclick="reuseTask('${task.id}')" data-tip="提取该任务的所有图文参数，反填至底部控制台"><span class="material-symbols-outlined">edit_note</span></button><button onclick="removeTask('${task.id}')" data-tip="删除此生成记录"><span class="material-symbols-outlined">delete</span></button></div>`;
 }
 
 // 🌟 初次挂载与排版专用的全局刷新函数
@@ -4620,6 +4676,10 @@ function ensureImgGenState(task) {
     if (!task.state.maskBlob && task.state.maskImage) task.state.maskBlob = task.state.maskImage;
     if (!task.state.maskImage && task.state.maskBlob) task.state.maskImage = task.state.maskBlob;
     if (task.state.version !== 'pro') {
+        if (task.id && (task.state.maskBlob || task.state.maskImage)) {
+            revokeBlobPrefixSafe(`${task.id}_mask_preview_`);
+            revokeBlobPrefixSafe(`${task.id}_mask_studio_`);
+        }
         task.state.maskEditMode = false;
         task.state.maskBlob = null;
         task.state.maskImage = null;
@@ -4629,6 +4689,10 @@ function ensureImgGenState(task) {
         }
     }
     if (!Array.isArray(task.state.images) || task.state.images.length === 0) {
+        if (task.id && (task.state.maskBlob || task.state.maskImage)) {
+            revokeBlobPrefixSafe(`${task.id}_mask_preview_`);
+            revokeBlobPrefixSafe(`${task.id}_mask_studio_`);
+        }
         task.state.maskEditMode = false;
         task.state.maskBlob = null;
         task.state.maskImage = null;
@@ -4708,6 +4772,7 @@ function normalizeImgGenPreviewHistory(task) {
         const trimmed = [];
         for (const item of task.state.previewHistory) {
             if (item.status === 'success' && item.image && dropCount > 0) {
+                if (item.id) revokeBlobPrefixSafe(`${task.id}_feed_${item.id}_`);
                 dropCount--;
                 continue;
             }
@@ -5351,6 +5416,9 @@ async function removeImgGenPreviewItem(e, taskId, itemId) {
         if (removedItem && removedItem.remoteTaskId && task.genTaskId === removedItem.remoteTaskId) {
             task.genTaskId = null;
         }
+        if (removedItem && removedItem.id) {
+            revokeBlobPrefixSafe(`${taskId}_feed_${removedItem.id}_`);
+        }
         task.timestamp = Date.now();
         setTaskShadow(task);
         renderCard(taskId, task);
@@ -5432,6 +5500,8 @@ async function clearImgGenMask(e, taskId) {
         if (!baseTask) return;
         const task = cloneTaskDeep(baseTask) || { ...baseTask };
         ensureImgGenState(task);
+        revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
+        revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
         task.state.maskBlob = null;
         task.state.maskImage = null;
         task.timestamp = Date.now();
@@ -5452,6 +5522,8 @@ async function removeImgGenMask(e, taskId) {
         if (!baseTask) return;
         const task = cloneTaskDeep(baseTask) || { ...baseTask };
         ensureImgGenState(task);
+        revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
+        revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
         task.state.maskBlob = null;
         task.state.maskImage = null;
         task.state.maskEditMode = false;
@@ -5548,6 +5620,8 @@ async function handleGenImageUpload(input, taskId) {
         task.state.images.push(await compressImageToBlob(file, 1024));
     }
     task.timestamp = Date.now();
+    revokeBlobPrefixSafe(`${taskId}_img_`);
+    revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
     renderCard(taskId, task);
     await saveTaskDB(task);
     input.value = '';
@@ -5579,6 +5653,8 @@ async function handleGenImageDrop(e, taskId) {
     // 赋值并击穿缓存
     task.state.images.push(srcToUse);
     task.timestamp = Date.now();
+    revokeBlobPrefixSafe(`${taskId}_img_`);
+    revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
     renderCard(taskId, task);
     await saveTaskDB(task);
 }
@@ -5588,6 +5664,9 @@ async function removeGenImage(e, taskId, index) {
     ensureImgGenState(task);
     const removedBase = index === 0;
     task.state.images.splice(index, 1);
+    revokeBlobPrefixSafe(`${taskId}_img_`);
+    revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
+    revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
     if (removedBase) {
         task.state.maskBlob = null;
         task.state.maskImage = null;

@@ -78,6 +78,26 @@ function getBlobUrl(id, blobData) {
     return url;
 }
 
+function revokeBlobUrl(id) {
+    if (!id) return;
+    const key = String(id);
+    const url = blobUrlCache.get(key);
+    if (!url) return;
+    try { URL.revokeObjectURL(url); } catch (err) {}
+    blobUrlCache.delete(key);
+}
+
+function revokeBlobUrlsByPrefix(prefix) {
+    if (!prefix) return;
+    const safePrefix = String(prefix);
+    for (let [key, url] of blobUrlCache.entries()) {
+        if (String(key).startsWith(safePrefix)) {
+            try { URL.revokeObjectURL(url); } catch (err) {}
+            blobUrlCache.delete(key);
+        }
+    }
+}
+
 function readBlobAsDataUrl(blob) {
     return new Promise((resolve) => {
         try {
@@ -296,12 +316,7 @@ async function deleteTaskDB(id) {
         const tx = db.transaction('tasks', 'readwrite');
         tx.objectStore('tasks').delete(id);
         tx.oncomplete = () => {
-            for (let [key, url] of blobUrlCache.entries()) {
-                if (key.toString().startsWith(id)) {
-                    URL.revokeObjectURL(url);
-                    blobUrlCache.delete(key);
-                }
-            }
+            revokeBlobUrlsByPrefix(id);
             resolve();
         };
     });
