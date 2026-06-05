@@ -338,6 +338,7 @@ const taskShadowCache = new Map();
 const imgGenUpdateQueues = new Map();
 const imgMaskEditorInstances = new Map();
 const imgGenPromptDraftTimers = new Map();
+let isSpacePanningKeyDown = false;
 
 function cssEscapeSafe(id) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
@@ -1909,6 +1910,17 @@ function setCanvasMoving(active) {
     if (active) wakeMinimap(900);
 }
 
+function beginCanvasPan(e) {
+    cancelCameraAnimation();
+    cancelCanvasInertia();
+    clearSelection();
+    isPanning = true;
+    setCanvasMoving(true);
+    startPanX = e.clientX - transform.x;
+    startPanY = e.clientY - transform.y;
+    recordPanSample(e.clientX, e.clientY);
+}
+
 function wakeMinimap(duration = 900) {
     const container = document.getElementById('minimap-container');
     if (!container || container.classList.contains('is-minimized')) return;
@@ -2236,6 +2248,18 @@ window.addEventListener('mousemove', (e) => {
 });
 
 viewport.addEventListener('mousedown', (e) => {
+    if (!isSpacePanningKeyDown) return;
+    const interactive = e.target && typeof e.target.closest === 'function'
+        ? e.target.closest('input, textarea, select, button, .img-gen-preview-panel, .cropper-workspace, .img-gen-mask-block')
+        : null;
+    if (interactive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+    beginCanvasPan(e);
+}, true);
+
+viewport.addEventListener('mousedown', (e) => {
     if (e.target === viewport || e.target === board) {
         cancelCameraAnimation();
         cancelCanvasInertia();
@@ -2255,12 +2279,7 @@ viewport.addEventListener('mousedown', (e) => {
             updateSelectionToolbar();
         }
         else {
-            clearSelection();
-            isPanning = true;
-            setCanvasMoving(true);
-            startPanX = e.clientX - transform.x;
-            startPanY = e.clientY - transform.y;
-            recordPanSample(e.clientX, e.clientY);
+            beginCanvasPan(e);
         }
     }
 });
@@ -2376,6 +2395,13 @@ function startFrameResize(e, id) {
 // ✅ 替换为支持 Alt 克隆的拖拽绑定引擎
 function bindCardDrag(cardEl, task) {
     cardEl.__veoTask = task;
+    cardEl.oncontextmenu = (e) => {
+        const interactive = e.target && typeof e.target.closest === 'function'
+            ? e.target.closest('input, textarea, select, button, video, .cropper-workspace, .img-gen-mask-block, .img-gen-preview-panel')
+            : null;
+        if (interactive) return;
+        openCanvasTaskContextMenu(e, task.id);
+    };
     cardEl.onmousedown = (e) => {
         if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) {
             highestZIndex++; cardEl.style.zIndex = highestZIndex;
@@ -2559,6 +2585,18 @@ function focusSelectedTasks() {
     }, { duration: 430 });
 }
 
+function focusTaskById(taskId) {
+    const el = document.getElementById('card-' + taskId);
+    const task = el && el.__veoTask;
+    if (!el || !task) return;
+    clearSelection();
+    selectedTasks.add(taskId);
+    el.classList.add('selected');
+    el.classList.remove('is-viewport-culled');
+    updateSelectionToolbar();
+    focusSelectedTasks();
+}
+
 async function deleteSelectedTasks() {
     if (selectedTasks.size === 0) return;
     const ids = Array.from(selectedTasks);
@@ -2592,11 +2630,28 @@ async function deleteSelectedTasks() {
 
 window.addEventListener('keydown', async (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    if (e.code === 'Space') {
+        isSpacePanningKeyDown = true;
+        document.body.classList.add('space-pan-ready');
+        e.preventDefault();
+        return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        await duplicateSelectedTasks();
+    }
     if (e.key === 'Backspace' || e.key === 'Delete') {
         await deleteSelectedTasks();
+    }
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+        isSpacePanningKeyDown = false;
+        document.body.classList.remove('space-pan-ready');
     }
 });
 
@@ -2930,6 +2985,95 @@ async function parseDroppedImage(e) {
     return srcToUse;
 }
 
+function getTaskReusableImage(task) {
+    if (!task || typeof task !== 'object') return null;
+    if (task.type === 'local_image') return task.src || null;
+    if (task.type === 'tool_cropper') return task.state && task.state.resultBlob ? task.state.resultBlob : (task.state && task.state.sourceBlob ? task.state.sourceBlob : null);
+    if (task.type === 'tool_image_gen') {
+        ensureImgGenState(task);
+        const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+        const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
+        return latest ? latest.image : (task.state.resultBlob || (Array.isArray(task.state.images) ? task.state.images[0] : null));
+    }
+    if (task.rawImages) {
+        return task.rawImages.firstFrame || (Array.isArray(task.rawImages.references) ? task.rawImages.references[0] : null) || task.rawImages.lastFrame || null;
+    }
+    return null;
+}
+
+async function sendTaskImageToConsole(taskId, target) {
+    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
+    const image = getTaskReusableImage(task);
+    if (!image) {
+        showToast('该卡片没有可复用图片', 'warning');
+        return;
+    }
+    if (target === 'lastFrame') {
+        setConsoleFrameImage('lastFrame', image);
+        showToast('已作为尾帧送入 Veo 控制台', 'success');
+    } else if (target === 'reference') {
+        if (addConsoleReferenceImage(image)) showToast('已作为参考图送入 Veo 控制台', 'success');
+    } else {
+        setConsoleFrameImage('firstFrame', image);
+        showToast('已作为首帧送入 Veo 控制台', 'success');
+    }
+}
+
+function closeCanvasContextMenu() {
+    const menu = document.getElementById('canvas-card-context-menu');
+    if (menu) menu.remove();
+}
+
+function openCanvasTaskContextMenu(e, taskId) {
+    if (!taskId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeCanvasContextMenu();
+    const task = document.getElementById('card-' + taskId)?.__veoTask || getTaskShadow(taskId);
+    const hasImage = !!getTaskReusableImage(task);
+    const menu = document.createElement('div');
+    menu.id = 'canvas-card-context-menu';
+    menu.className = 'canvas-card-context-menu';
+    menu.innerHTML = `
+        <button type="button" data-action="focus"><span class="material-symbols-outlined">center_focus_strong</span>聚焦卡片</button>
+        <button type="button" data-action="duplicate"><span class="material-symbols-outlined">content_copy</span>复制卡片</button>
+        ${hasImage ? '<div class="context-menu-divider"></div>' : ''}
+        ${hasImage ? '<button type="button" data-action="first"><span class="material-symbols-outlined">first_page</span>作为首帧发送至 Veo</button>' : ''}
+        ${hasImage ? '<button type="button" data-action="last"><span class="material-symbols-outlined">last_page</span>作为尾帧发送至 Veo</button>' : ''}
+        ${hasImage ? '<button type="button" data-action="ref"><span class="material-symbols-outlined">add_photo_alternate</span>作为参考图发送至 Veo</button>' : ''}
+        <div class="context-menu-divider"></div>
+        <button type="button" data-action="delete" class="danger"><span class="material-symbols-outlined">delete</span>删除卡片</button>
+    `;
+    menu.style.left = `${Math.min(window.innerWidth - 230, Math.max(12, e.clientX))}px`;
+    menu.style.top = `${Math.min(window.innerHeight - 280, Math.max(12, e.clientY))}px`;
+    menu.addEventListener('mousedown', (event) => event.stopPropagation());
+    menu.addEventListener('click', async (event) => {
+        const btn = event.target.closest('button[data-action]');
+        if (!btn) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const action = btn.dataset.action;
+        closeCanvasContextMenu();
+        if (action === 'focus') focusTaskById(taskId);
+        if (action === 'duplicate') {
+            const source = getTaskShadow(taskId) || await getTaskDB(taskId);
+            if (source) {
+                clearSelection();
+                selectedTasks.add(taskId);
+                await duplicateSelectedTasks();
+            }
+        }
+        if (action === 'first') await sendTaskImageToConsole(taskId, 'firstFrame');
+        if (action === 'last') await sendTaskImageToConsole(taskId, 'lastFrame');
+        if (action === 'ref') await sendTaskImageToConsole(taskId, 'reference');
+        if (action === 'delete') await removeTask(taskId);
+    });
+    document.body.appendChild(menu);
+}
+
+window.addEventListener('click', closeCanvasContextMenu);
+window.addEventListener('blur', closeCanvasContextMenu);
+
 // ==========================================
 // 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
 // ==========================================
@@ -3125,21 +3269,20 @@ async function generateCrop(taskId) {
 }
 
 function bindMainConsoleDrop(slotId, stateKey) {
-    const slot = document.getElementById(slotId); slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); }); slot.addEventListener('dragleave', (e) => { e.preventDefault(); slot.classList.remove('drag-over'); });
+    const slot = document.getElementById(slotId);
+    if (!slot) return;
+    slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
+    slot.addEventListener('dragleave', (e) => { e.preventDefault(); slot.classList.remove('drag-over'); });
     slot.addEventListener('drop', async (e) => {
         e.preventDefault(); slot.classList.remove('drag-over'); const srcToUse = await parseDroppedImage(e);
         if (srcToUse) {
             if (stateKey === 'references') {
-                if (globalStore.getState().references.length < 3) globalStore.getState().references.push(srcToUse);
-                renderReferences();
-                document.getElementById('ref-popover').style.display = 'flex';
+                addConsoleReferenceImage(srcToUse);
+                showToast('已送入 Veo 参考图槽', 'success');
             }
             else {
-                globalStore.getState()[stateKey] = srcToUse;
-                const t = stateKey === 'firstFrame' ? 'first' : 'last';
-                // 🌟 核心：加上 Date.now() 打破缓存
-                document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}_${Date.now()}`, srcToUse);
-                document.getElementById(`slot-${t}-box`).classList.add('has-img');
+                setConsoleFrameImage(stateKey, srcToUse);
+                showToast(stateKey === 'firstFrame' ? '已送入 Veo 首帧槽' : '已送入 Veo 尾帧槽', 'success');
             }
         }
     });
@@ -3161,12 +3304,77 @@ async function applyGeneratorToPrompt(id, btnElement) {
 }
 function buildGeneratorOptions(arr, selected) { let html = `<option value="" disabled ${!selected ? 'selected' : ''}>请选择...</option>`; arr.forEach(item => { html += `<option value="${item}" ${selected === item ? 'selected' : ''}>${item}</option>`; }); return html; }
 
+function syncVideoConsoleModeUI() {
+    const state = globalStore.getState();
+    const mode = state.currentMode === 'frame' ? 'frame' : 'ref';
+    const title = document.getElementById('console-mode-title');
+    const timelineModel = document.getElementById('timeline-model-label');
+    const advancedToggle = document.querySelector('.console-advanced-toggle');
+    if (title) title.textContent = mode === 'frame' ? '首尾帧时间轴' : '参考图驱动';
+    if (timelineModel) timelineModel.textContent = getVideoModelDisplayName(state.model, mode);
+    if (advancedToggle) {
+        const panel = document.getElementById('console-advanced-panel');
+        advancedToggle.classList.toggle('is-open', !!panel && !panel.classList.contains('is-collapsed'));
+    }
+}
+
+function toggleConsoleAdvanced(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const panel = document.getElementById('console-advanced-panel');
+    const toggle = document.querySelector('.console-advanced-toggle');
+    if (!panel) return;
+    const nextCollapsed = !panel.classList.contains('is-collapsed');
+    panel.classList.toggle('is-collapsed', nextCollapsed);
+    if (toggle) toggle.classList.toggle('is-open', !nextCollapsed);
+}
+
+function expandVideoConsole() {
+    const el = document.getElementById('floating-console');
+    if (el) el.classList.remove('minimized');
+}
+
+function setConsoleFrameImage(type, imageBlob, options = {}) {
+    if (!imageBlob) return false;
+    const key = type === 'lastFrame' ? 'lastFrame' : 'firstFrame';
+    const t = key === 'firstFrame' ? 'first' : 'last';
+    globalStore.getState()[key] = imageBlob;
+    const img = document.getElementById(`${t}-img`);
+    const slot = document.getElementById(`slot-${t}-box`);
+    if (img) img.src = getBlobUrl(`temp_${t}_${Date.now()}`, imageBlob);
+    if (slot) slot.classList.add('has-img', 'slot-just-filled');
+    setTimeout(() => { if (slot) slot.classList.remove('slot-just-filled'); }, 620);
+    if (options.switchMode !== false) switchMode('frame');
+    expandVideoConsole();
+    return true;
+}
+
+function addConsoleReferenceImage(imageBlob) {
+    if (!imageBlob) return false;
+    const state = globalStore.getState();
+    if (!Array.isArray(state.references)) state.references = [];
+    if (state.references.length >= 3) {
+        showToast('参考图最多 3 张', 'warning');
+        return false;
+    }
+    state.references.push(imageBlob);
+    renderReferences();
+    const popover = document.getElementById('ref-popover');
+    if (popover) popover.style.display = 'flex';
+    switchMode('ref');
+    expandVideoConsole();
+    return true;
+}
+
 function switchMode(mode) {
     const safeMode = mode === 'frame' ? 'frame' : 'ref';
     globalStore.dispatch('SET_MODE', safeMode);
+    syncVideoConsoleModeUI();
 }
 function updateInputMode(select) { if (select) switchMode(select.value); }
-function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); }
+function updateModel(select) { globalStore.dispatch('SET_MODEL', { value: select.value, text: select.options[select.selectedIndex].text }); syncVideoConsoleModeUI(); }
 function updateRatio(select) { globalStore.dispatch('SET_RATIO', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateEnhance(select) { globalStore.dispatch('SET_ENHANCE', { value: select.value, text: select.options[select.selectedIndex].text }); }
 function updateUpsample(select) { globalStore.getState().enableUpsample = select.value === 'true'; document.getElementById('upsample-text').innerText = select.options[select.selectedIndex].text; }
@@ -3325,9 +3533,13 @@ sysBus.on('UI:SWITCH_MODE', (mode) => {
     if (slotGroup) slotGroup.classList.add('active');
     if (inputModeSelect && inputModeSelect.value !== safeMode) inputModeSelect.value = safeMode;
     if (inputModeText) inputModeText.innerText = getVideoInputModeLabel(safeMode);
+    syncVideoConsoleModeUI();
     updateEstimatedCost();
 });
-sysBus.on('UI:UPDATE_MODEL_TEXT', (text) => document.getElementById('model-text').innerText = text);
+sysBus.on('UI:UPDATE_MODEL_TEXT', (text) => {
+    document.getElementById('model-text').innerText = text;
+    syncVideoConsoleModeUI();
+});
 sysBus.on('UI:UPDATE_RATIO', (data) => { document.getElementById('ratio-text').innerText = data.text; document.getElementById('ratio-icon').innerText = data.value === '16:9' ? 'crop_16_9' : 'crop_portrait'; });
 sysBus.on('UI:UPDATE_ENHANCE_TEXT', (text) => document.getElementById('enhance-text').innerText = text);
 
@@ -3355,8 +3567,22 @@ function renderReferences() {
     document.getElementById('ref-popover-add').style.display = state.references.length >= 3 ? 'none' : 'flex';
 }
 
-async function handleSingleFrame(input, type) { if (!input.files[0]) return; globalStore.getState()[type] = await compressImageToBlob(input.files[0]); const t = type === 'firstFrame' ? 'first' : 'last'; document.getElementById(`${t}-img`).src = getBlobUrl(`temp_${t}`, globalStore.getState()[type]); document.getElementById(`slot-${t}-box`).classList.add('has-img'); input.value = ''; }
-function clearFrame(event, type) { if(event) { event.preventDefault(); event.stopPropagation(); } globalStore.getState()[type] = null; const t = type === 'firstFrame' ? 'first' : 'last'; document.getElementById(`slot-${t}-box`).classList.remove('has-img'); document.getElementById(`${t}-img`).src = ''; }
+async function handleSingleFrame(input, type) {
+    if (!input.files[0]) return;
+    const blob = await compressImageToBlob(input.files[0]);
+    setConsoleFrameImage(type, blob, { switchMode: true });
+    input.value = '';
+}
+function clearFrame(event, type) {
+    if(event) { event.preventDefault(); event.stopPropagation(); }
+    globalStore.getState()[type] = null;
+    const t = type === 'firstFrame' ? 'first' : 'last';
+    const slot = document.getElementById(`slot-${t}-box`);
+    const img = document.getElementById(`${t}-img`);
+    if (slot) slot.classList.remove('has-img', 'slot-just-filled');
+    if (img) img.src = '';
+    revokeBlobPrefixSafe(`temp_${t}`);
+}
 
 async function submitBatchTask() {
     const prompt = document.getElementById('prompt-input').value.trim(); if (!prompt) return alert('请填写提示词');
@@ -3373,18 +3599,16 @@ async function submitBatchTask() {
     await Promise.allSettled(promises);
     btn.disabled = false; btn.innerHTML = `<span class="material-symbols-outlined">arrow_upward</span>`; updateEstimatedCost();
     document.getElementById('prompt-input').value = '';
-
-    // 🌟 新增核心：发射后彻底清空控制台内存与缩略图
-    globalStore.getState().firstFrame = null;
-    globalStore.getState().lastFrame = null;
-    globalStore.getState().references = [];
-    document.getElementById('first-img').src = '';
-    document.getElementById('last-img').src = '';
-    document.getElementById('slot-first-box').classList.remove('has-img');
-    document.getElementById('slot-last-box').classList.remove('has-img');
-    document.getElementById('first-file').value = '';
-    document.getElementById('last-file').value = '';
-    renderReferences();
+    // Keep all console cleanup on the same state/UI path as manual slot actions.
+    clearFrame(null, 'firstFrame');
+    clearFrame(null, 'lastFrame');
+    clearReferences({ stopPropagation() {} });
+    const firstFile = document.getElementById('first-file');
+    const lastFile = document.getElementById('last-file');
+    const refFile = document.getElementById('ref-file');
+    if (firstFile) firstFile.value = '';
+    if (lastFile) lastFile.value = '';
+    if (refFile) refFile.value = '';
 }
 
 // 🌟 提交引擎 (高容错 ID 解析版)
@@ -3561,11 +3785,15 @@ async function reuseTask(taskId) {
     if (inputModeSelect) inputModeSelect.value = restoredMode;
     switchMode(restoredMode);
     if (task.rawImages) {
-        globalStore.getState().firstFrame = task.rawImages.firstFrame || null; globalStore.getState().lastFrame = task.rawImages.lastFrame || null; globalStore.getState().references = [...(task.rawImages.references || [])];
-        if (globalStore.getState().firstFrame) { document.getElementById('first-img').src = getBlobUrl('temp_first', globalStore.getState().firstFrame); document.getElementById('slot-first-box').classList.add('has-img'); } else clearFrame(null, 'firstFrame');
-        if (globalStore.getState().lastFrame) { document.getElementById('last-img').src = getBlobUrl('temp_last', globalStore.getState().lastFrame); document.getElementById('slot-last-box').classList.add('has-img'); } else clearFrame(null, 'lastFrame');
+        const state = globalStore.getState();
+        state.references = [...(task.rawImages.references || [])];
+        if (task.rawImages.firstFrame) setConsoleFrameImage('firstFrame', task.rawImages.firstFrame, { switchMode: false });
+        else clearFrame(null, 'firstFrame');
+        if (task.rawImages.lastFrame) setConsoleFrameImage('lastFrame', task.rawImages.lastFrame, { switchMode: false });
+        else clearFrame(null, 'lastFrame');
         renderReferences();
     }
+    switchMode(restoredMode);
     document.getElementById('floating-console').classList.remove('minimized'); document.getElementById('prompt-input').focus();
 }
 
@@ -4281,6 +4509,7 @@ async function renderBoard() {
         }
 
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
+        cardEl.classList.toggle('is-auto-retrying', task.status === 'processing' && toFiniteNumber(task.retryCount, 0) > 0);
 
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);

@@ -154,6 +154,17 @@
     </div>
 
     <div class="floating-console" id="floating-console">
+        <div class="console-headline">
+            <div>
+                <span class="console-eyebrow">VEO MOTION CONSOLE</span>
+                <strong id="console-mode-title">参考图驱动</strong>
+            </div>
+            <button class="console-advanced-toggle" type="button" onclick="toggleConsoleAdvanced(event)" data-tip="展开/收纳专家参数">
+                <span class="material-symbols-outlined">tune</span>
+                Advanced
+            </button>
+        </div>
+
         <div class="prompt-container">
             <div class="input-wrapper">
                 <div class="slot-group active" id="slots-ref">
@@ -172,16 +183,24 @@
                 </div>
 
                 <div class="slot-group" id="slots-frame">
-                    <div class="img-slot" id="slot-first-box" onclick="document.getElementById('first-file').click()" data-tip="设置视频的起始画面">
-                        <span class="material-symbols-outlined">add</span><span>首帧</span>
-                        <img id="first-img"><div class="remove-badge" onclick="clearFrame(event, 'firstFrame')">×</div>
-                        <input type="file" id="first-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'firstFrame')">
-                    </div>
-                    <span class="material-symbols-outlined" style="color: #666;">swap_horiz</span>
-                    <div class="img-slot" id="slot-last-box" onclick="document.getElementById('last-file').click()" data-tip="设置视频的结束画面">
-                        <span class="material-symbols-outlined">add</span><span>尾帧</span>
-                        <img id="last-img"><div class="remove-badge" onclick="clearFrame(event, 'lastFrame')">×</div>
-                        <input type="file" id="last-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'lastFrame')">
+                    <div class="frame-timeline-widget">
+                        <div class="img-slot frame-slot start" id="slot-first-box" onclick="document.getElementById('first-file').click()" data-tip="设置视频的起始画面">
+                            <span class="frame-slot-kicker">START</span>
+                            <span class="material-symbols-outlined">add</span><span>首帧</span>
+                            <img id="first-img"><div class="remove-badge" onclick="clearFrame(event, 'firstFrame')">×</div>
+                            <input type="file" id="first-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'firstFrame')">
+                        </div>
+                        <div class="frame-timeline-rail">
+                            <span class="material-symbols-outlined">play_arrow</span>
+                            <div class="frame-rail-line"><i></i></div>
+                            <small id="timeline-model-label">Veo 3.1 普通</small>
+                        </div>
+                        <div class="img-slot frame-slot end" id="slot-last-box" onclick="document.getElementById('last-file').click()" data-tip="设置视频的结束画面">
+                            <span class="frame-slot-kicker">END</span>
+                            <span class="material-symbols-outlined">add</span><span>尾帧</span>
+                            <img id="last-img"><div class="remove-badge" onclick="clearFrame(event, 'lastFrame')">×</div>
+                            <input type="file" id="last-file" class="hidden-input" accept="image/*" onchange="handleSingleFrame(this, 'lastFrame')">
+                        </div>
                     </div>
                 </div>
 
@@ -190,7 +209,7 @@
         </div>
 
         <div class="console-actions-row">
-            <div class="pill-group">
+            <div class="pill-group console-primary-pills">
                 <div class="action-pill" data-tip="切换视频生成清晰度：普通 / 4K。参考图或首尾帧请用输入模式选择。">
                     <span class="material-symbols-outlined">model_training</span><span id="model-text">Veo 3.1 普通</span>
                     <select id="model-select" onchange="updateModel(this)">
@@ -209,6 +228,15 @@
                     <span class="material-symbols-outlined" id="ratio-icon">crop_portrait</span><span id="ratio-text">竖屏 9:16</span>
                     <select id="ratio-select" onchange="updateRatio(this)"><option value="9:16">竖屏 9:16</option><option value="16:9">横屏 16:9</option></select>
                 </div>
+            </div>
+
+            <button class="submit-btn" id="generate-btn" onclick="submitBatchTask()" data-tip="发送至服务器生成 | 预估: ￥0.35">
+                <span class="material-symbols-outlined">arrow_upward</span>
+            </button>
+        </div>
+
+        <div class="console-advanced-panel is-collapsed" id="console-advanced-panel">
+            <div class="pill-group">
                 <div class="action-pill" id="pill-enhance" data-tip="开启后，系统会自动为您扩写丰富提示词细节">
                     <span class="material-symbols-outlined">auto_fix_high</span><span id="enhance-text">AI 扩写提示词</span>
                     <select id="enhance-select" onchange="updateEnhance(this)"><option value="true">AI 扩写提示词</option><option value="false">原词生成</option></select>
@@ -226,10 +254,6 @@
                     <select id="retry-select" onchange="updateAutoRetry(this)"><option value="false">不自动重试</option><option value="true">失败自动重试</option></select>
                 </div>
             </div>
-
-           <button class="submit-btn" id="generate-btn" onclick="submitBatchTask()" data-tip="发送至服务器生成 | 预估: ￥0.35">
-                <span class="material-symbols-outlined">arrow_upward</span>
-            </button>
         </div>
     </div>
 
