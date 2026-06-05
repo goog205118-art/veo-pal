@@ -329,6 +329,24 @@ const IMG_GEN_PROXY_RECHARGE_FACTOR = 0.5;
 const IMG_GEN_PRO_FALLBACK_COST = 0.12;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
+const IMG_GEN_VARIATION_COUNT = 4;
+const IMG_GEN_REF_INTENTS = [
+    { value: 'structure', label: '结构', hint: '产品轮廓 / 深度 / 构图' },
+    { value: 'style', label: '风格', hint: '影调 / 氛围 / 电影感' },
+    { value: 'color', label: '色彩', hint: '配色 / 材质倾向' },
+    { value: 'detail', label: '细节', hint: '局部纹理 / 功能点' },
+    { value: 'layout', label: '版式', hint: '海报排版 / 留白' }
+];
+const IMG_GEN_PROMPT_TAGS = [
+    { group: '环境', text: 'rugged alpine terrain, weathered rocks, expedition campsite' },
+    { group: '环境', text: 'remote desert plateau, dust in the air, hard sunlight' },
+    { group: '光影', text: 'cinematic golden hour lighting, long shadows, premium outdoor commercial look' },
+    { group: '光影', text: 'dramatic overcast sky, high contrast rim light, volumetric atmosphere' },
+    { group: '镜头', text: '35mm product hero shot, shallow depth of field, realistic perspective' },
+    { group: '镜头', text: 'macro detail shot, tactile material texture, crisp industrial design' },
+    { group: '材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
+    { group: '社媒', text: 'clean negative space for headline, premium e-commerce hero composition' }
+];
 let activeTasks = [], activeRetries = new Set();
 const taskPollControllers = new Map();
 const taskPollTimers = new Map();
@@ -2904,6 +2922,9 @@ viewport.addEventListener('drop', async (e) => {
                 moderation: 'auto',
                 prompt: '',
                 images: [],
+                refControls: [],
+                seedLocked: false,
+                seed: '',
                 maskImage: null,
                 maskBlob: null,
                 maskEditMode: false,
@@ -3810,8 +3831,96 @@ function renderImgGenRatioOptions(selected, includeAuto = false) {
     return presets.map(([value, label]) => `<option value="${value}" ${selected === value ? 'selected' : ''}>${label}</option>`).join('');
 }
 
+function clampImgGenRefWeight(value) {
+    const num = toFiniteNumber(value, NaN);
+    if (!Number.isFinite(num)) return 0.6;
+    return Math.max(0, Math.min(1, num > 1 ? num / 100 : num));
+}
+
+function getImgGenDefaultRefIntent(index) {
+    if (index === 0) return 'structure';
+    if (index === 1) return 'style';
+    if (index === 2) return 'color';
+    if (index === 3) return 'detail';
+    return 'layout';
+}
+
+function createImgGenRefControl(index, existing = {}) {
+    const allowed = new Set(IMG_GEN_REF_INTENTS.map((item) => item.value));
+    const intent = allowed.has(existing.intent) ? existing.intent : getImgGenDefaultRefIntent(index);
+    const fallbackWeight = index === 0 ? 0.9 : (intent === 'style' ? 0.62 : 0.55);
+    const weight = clampImgGenRefWeight(typeof existing.weight === 'undefined' ? fallbackWeight : existing.weight);
+    return {
+        intent,
+        weight,
+        locked: existing.locked === true
+    };
+}
+
+function normalizeImgGenRefControls(task) {
+    if (!task || !task.state) return [];
+    const images = Array.isArray(task.state.images) ? task.state.images : [];
+    const source = Array.isArray(task.state.refControls) ? task.state.refControls : [];
+    task.state.refControls = images.map((_, index) => createImgGenRefControl(index, source[index] || {}));
+    return task.state.refControls;
+}
+
+function renderImgGenRefIntentOptions(selected) {
+    return IMG_GEN_REF_INTENTS.map((item) => (
+        `<option value="${escapeAttr(item.value)}" ${selected === item.value ? 'selected' : ''}>${escapeHtml(item.label)}</option>`
+    )).join('');
+}
+
+function renderImgGenRefControl(task, index) {
+    const controls = normalizeImgGenRefControls(task);
+    const control = createImgGenRefControl(index, controls[index] || {});
+    const percent = Math.round(control.weight * 100);
+    const hint = (IMG_GEN_REF_INTENTS.find((item) => item.value === control.intent) || IMG_GEN_REF_INTENTS[0]).hint;
+    return `
+        <div class="img-gen-ref-control" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" data-tip="${escapeAttr(hint)}">
+            <select class="img-gen-ref-intent" onchange="updateImgGenRefControl('${task.id}', ${index}, 'intent', this.value)">
+                ${renderImgGenRefIntentOptions(control.intent)}
+            </select>
+            <label class="img-gen-ref-weight">
+                <span>${percent}</span>
+                <input type="range" min="0" max="100" step="5" value="${percent}" oninput="this.previousElementSibling.textContent=this.value" onchange="updateImgGenRefControl('${task.id}', ${index}, 'weight', this.value)">
+            </label>
+        </div>
+    `;
+}
+
+function buildImgGenRefControlPayload(task) {
+    ensureImgGenState(task);
+    const controls = normalizeImgGenRefControls(task);
+    return controls.map((control, index) => ({
+        index,
+        role: index === 0 ? 'base' : 'reference',
+        intent: control.intent,
+        weight: Number(clampImgGenRefWeight(control.weight).toFixed(2)),
+        locked: control.locked === true
+    }));
+}
+
+function renderImgGenPromptChips(task) {
+    const chips = IMG_GEN_PROMPT_TAGS.map((tag, index) => `
+        <button class="img-gen-prompt-chip" type="button" onclick="appendImgGenPromptTag(event, '${task.id}', ${index})" data-tip="${escapeAttr(tag.text)}">
+            <span>${escapeHtml(tag.group)}</span>${escapeHtml(tag.text.split(',')[0])}
+        </button>
+    `).join('');
+    return `
+        <div class="img-gen-prompt-assist">
+            <div class="img-gen-prompt-assist-head">
+                <span class="material-symbols-outlined">auto_awesome</span>
+                Prompt Tags
+            </div>
+            <div class="img-gen-prompt-chip-row">${chips}</div>
+        </div>
+    `;
+}
+
 function renderImgGenSlots(task) {
     ensureImgGenState(task);
+    normalizeImgGenRefControls(task);
     const isPro = task.state.version === 'pro';
     const images = Array.isArray(task.state.images) ? task.state.images : [];
     const hasMaskReady = isPro && !!(task.state.maskBlob || task.state.maskImage);
@@ -3836,6 +3945,7 @@ function renderImgGenSlots(task) {
                     <img src="${escapeAttr(slotUrl)}" ondblclick="openLightbox(this.src)" data-tip="双击预览垫图">
                     <span class="img-gen-slot-label">${escapeHtml(label)}</span>
                     ${isBase && hasMaskReady ? '<span class="img-gen-slot-mask-dot">MASK</span>' : ''}
+                    ${renderImgGenRefControl(task, i)}
                     <button class="popover-rm-btn remove-badge" type="button" onclick="removeGenImage(event, '${task.id}', ${i})" data-tip="移除此垫图">×</button>
                 </div>
             `);
@@ -3874,6 +3984,18 @@ function renderImgGenParams(task) {
     const ratioValue = isPro ? state.proRatio : state.trialRatio;
     const showCustomRatio = ratioValue === 'custom';
     const routeLabel = isPro ? `GPT Image 2 · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
+    const seedValue = String(state.seed || '');
+    const seedControlHtml = `
+        <label class="img-gen-field img-gen-seed-field">
+            <span>Seed</span>
+            <div class="img-gen-seed-row">
+                <button class="img-gen-seed-lock ${state.seedLocked ? 'is-locked' : ''}" type="button" onclick="updateImgGenState('${task.id}', 'seedLocked', ${state.seedLocked ? 'false' : 'true'})" data-tip="${state.seedLocked ? '解除种子锁定' : '锁定种子，便于复现与变体'}">
+                    <span class="material-symbols-outlined">${state.seedLocked ? 'lock' : 'lock_open'}</span>
+                </button>
+                <input class="img-gen-select img-gen-seed-input" type="number" placeholder="auto" value="${escapeAttr(seedValue)}" onchange="updateImgGenState('${task.id}', 'seed', this.value)">
+            </div>
+        </label>
+    `;
 
     const customRatioHtml = showCustomRatio ? `
         <div class="img-gen-custom-ratio">
@@ -3888,6 +4010,7 @@ function renderImgGenParams(task) {
 
     const advancedHtml = isPro ? `
         <div class="img-gen-controls img-gen-controls-pro">
+            ${seedControlHtml}
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：分辨率档位">
@@ -3939,6 +4062,7 @@ function renderImgGenParams(task) {
         </div>
     ` : `
         <div class="img-gen-controls">
+            ${seedControlHtml}
             <label class="img-gen-field">
                 <span>试用通道</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" data-tip="试用版双通道切换">
@@ -4120,6 +4244,17 @@ function renderImgGenPreviewFeed(task, previewEntries) {
                     <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${item.id}')" data-tip="删除这张预览图">
                         <span class="material-symbols-outlined">close</span>
                     </button>
+                    <div class="img-gen-preview-actions" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
+                        <button type="button" onclick="createImgGenVariations(event, '${task.id}', '${item.id}')" data-tip="基于这张图分裂 4 个变体节点">
+                            <span class="material-symbols-outlined">hub</span> V1-4
+                        </button>
+                        <button type="button" onclick="sendImgGenPreviewToMask(event, '${task.id}', '${item.id}')" data-tip="把这张图作为 Base 打开蒙版重绘">
+                            <span class="material-symbols-outlined">gesture</span>
+                        </button>
+                        <button type="button" onclick="sendImgGenPreviewToCropper(event, '${task.id}', '${item.id}')" data-tip="发送至局部裁切器">
+                            <span class="material-symbols-outlined">crop</span>
+                        </button>
+                    </div>
                     <img src="${escapeAttr(imgUrl)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">
                 </div>`;
             }
@@ -4139,6 +4274,8 @@ function renderImgGenHelpContent() {
                 <span class="img-gen-help-tag">垫图变体</span>
                 <span class="img-gen-help-tag">蒙版重绘</span>
                 <span class="img-gen-help-tag">工作流复用</span>
+                <span class="img-gen-help-tag">参考权重</span>
+                <span class="img-gen-help-tag">V1-4 变体</span>
             </div>
         </section>
         <section class="img-gen-help-section">
@@ -4171,6 +4308,7 @@ function renderImgGenHelpContent() {
             <ul>
                 <li><strong>BASE / MASK SOURCE</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
                 <li><strong>REF 1-4</strong>：参考图槽。适合放产品细节、材质、风格、配色、版式灵感。它们会帮助 AI 理解“感觉”和“元素”，但不等于像素级复制。</li>
+                <li><strong>参考意图 / 权重</strong>：每张垫图悬停后可设置“结构、风格、色彩、细节、版式”和 0-100 权重。产品白底图建议结构 85-95；环境图建议风格 45-70；配色板建议色彩 35-60。</li>
                 <li><strong>拖放规则</strong>：可以从电脑、素材库或生成结果直接拖入槽位。第一张建议放要保留主体的图，其余放风格或局部细节参考。</li>
             </ul>
         </section>
@@ -4191,7 +4329,16 @@ function renderImgGenHelpContent() {
                 <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前官方支持项，如果需要抠图请后续走单独抠图/去背节点。</span></div>
                 <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
                 <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
+                <div><strong>Seed</strong><span>锁定后会尽量复现构图与随机性，适合在同一张产品图上连续做细节微调；点击 V1-4 时会沿用当前配置并分裂 4 个子节点。</span></div>
             </div>
+        </section>
+        <section class="img-gen-help-section">
+            <h3>结果图快捷流转</h3>
+            <ul>
+                <li><strong>V1-4</strong>：在成功图上悬停，点击 V1-4 会基于该图、原 Prompt、原配置和 Seed 生成 4 个子生图节点，适合快速找产品海报变体。</li>
+                <li><strong>蒙版</strong>：点击手势按钮会把该结果图送回当前节点作为 Base，并自动打开蒙版工作室，用于局部修瑕或换背景。</li>
+                <li><strong>裁切</strong>：点击裁切按钮会在旁边创建局部裁切器，先提取局部，再拖回生图节点做局部参考或蒙版底图。</li>
+            </ul>
         </section>
         <section class="img-gen-help-section">
             <h3>蒙版工作室</h3>
@@ -4341,6 +4488,7 @@ function renderImgGenCardHTML(task) {
                     <div class="img-gen-upload-note">第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。</div>
                     ${renderImgGenParams(task)}
                     ${renderImgGenMaskPanel(task)}
+                    ${renderImgGenPromptChips(task)}
                     <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${safePrompt}</textarea>
                     <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''} ${isFailed && pendingCount === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
                 </div>
@@ -4881,6 +5029,10 @@ function ensureImgGenState(task) {
     if (!task.state.prompt) task.state.prompt = '';
     if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
+    if (typeof task.state.seedLocked !== 'boolean') task.state.seedLocked = false;
+    const parsedSeed = parseInt(task.state.seed, 10);
+    task.state.seed = Number.isFinite(parsedSeed) && parsedSeed >= 0 ? parsedSeed : '';
+    normalizeImgGenRefControls(task);
     if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
     if (task.state.imgGenUiV2 !== true) {
         task.state.paramsCollapsed = true;
@@ -4986,7 +5138,12 @@ function normalizeImgGenPreviewHistory(task) {
             height: toFiniteNumber(item.height, 0),
             ratio: toFiniteNumber(item.ratio, 0),
             layout: item.layout || '',
-            errorReason: item.errorReason || ''
+            errorReason: item.errorReason || '',
+            seed: typeof item.seed === 'undefined' ? '' : item.seed,
+            prompt: item.prompt || '',
+            version: item.version || '',
+            size: item.size || '',
+            referenceControls: Array.isArray(item.referenceControls) ? item.referenceControls : []
         }))
         .sort((a, b) => a.createdAt - b.createdAt);
 
@@ -5065,7 +5222,12 @@ function pushImgGenPendingItem(task) {
         width: 0,
         height: 0,
         ratio: 0,
-        layout: ''
+        layout: '',
+        seed: task.state.seedLocked ? task.state.seed : '',
+        prompt: task.state.prompt || '',
+        version: task.state.version || 'trial',
+        size: task.state.size || '',
+        referenceControls: buildImgGenRefControlPayload(task)
     });
     recalcImgGenTaskStatus(task);
     return itemId;
@@ -5141,6 +5303,119 @@ function markImgGenPreviewFailed(task, itemId, reason = '') {
     }
     recalcImgGenTaskStatus(task);
     return true;
+}
+
+function findImgGenPreviewItem(task, itemId) {
+    if (!task || !task.state || !Array.isArray(task.state.previewHistory)) return null;
+    return task.state.previewHistory.find((item) => item && item.id === itemId) || null;
+}
+
+async function createImgGenVariations(event, taskId, itemId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const sourceTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!sourceTask || sourceTask.type !== 'tool_image_gen') return;
+    ensureImgGenState(sourceTask);
+    const item = findImgGenPreviewItem(sourceTask, itemId);
+    if (!item || item.status !== 'success' || !item.image) {
+        showToast('没有可衍生的成功图片', 'warning');
+        return;
+    }
+
+    const seedBase = sourceTask.state.seedLocked && sourceTask.state.seed !== ''
+        ? parseInt(sourceTask.state.seed, 10)
+        : Math.floor(Math.random() * 2147483647);
+    const clones = [];
+    for (let i = 0; i < IMG_GEN_VARIATION_COUNT; i++) {
+        const clone = cloneTaskDeep(sourceTask) || { ...sourceTask, state: { ...(sourceTask.state || {}) } };
+        clone.id = `tool_img_var_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
+        clone.x = toFiniteNumber(sourceTask.x, 0) + 420 + (i % 2) * 380;
+        clone.y = toFiniteNumber(sourceTask.y, 0) + Math.floor(i / 2) * 560;
+        clone.timestamp = Date.now() + i;
+        clone.status = 'idle';
+        clone.retryCount = 0;
+        clone.genTaskId = null;
+        clone.isBilled = false;
+        clone.parentId = null;
+        clone.state = cloneTaskDeep(sourceTask.state) || { ...(sourceTask.state || {}) };
+        ensureImgGenState(clone);
+        clone.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
+        clone.state.refControls = clone.state.images.map((_, index) => createImgGenRefControl(index, {
+            intent: index === 0 ? 'structure' : (sourceTask.state.refControls && sourceTask.state.refControls[index - 1] ? sourceTask.state.refControls[index - 1].intent : getImgGenDefaultRefIntent(index)),
+            weight: index === 0 ? 0.92 : (sourceTask.state.refControls && sourceTask.state.refControls[index - 1] ? sourceTask.state.refControls[index - 1].weight : undefined)
+        }));
+        clone.state.prompt = `${sourceTask.state.prompt || ''}, variation ${i + 1}, preserve product identity and premium cinematic lighting`.trim();
+        clone.state.previewHistory = [];
+        clone.state.resultBlob = null;
+        clone.state.resultBlobs = [];
+        clone.state.resultUrl = null;
+        clone.state.nextSubmitAt = 0;
+        clone.state.maskBlob = null;
+        clone.state.maskImage = null;
+        clone.state.maskEditMode = false;
+        clone.state.seedLocked = true;
+        clone.state.seed = seedBase + i;
+        recalcImgGenTaskStatus(clone);
+        clones.push(clone);
+    }
+
+    for (const clone of clones) await saveTaskDB(clone);
+    await renderBoard();
+    showToast(`已分裂 ${IMG_GEN_VARIATION_COUNT} 个变体节点`, 'success');
+}
+
+async function sendImgGenPreviewToMask(event, taskId, itemId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const sourceTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!sourceTask || sourceTask.type !== 'tool_image_gen') return;
+    ensureImgGenState(sourceTask);
+    const item = findImgGenPreviewItem(sourceTask, itemId);
+    if (!item || !item.image) return showToast('没有可送入蒙版的图片', 'warning');
+    sourceTask.state.version = 'pro';
+    sourceTask.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
+    sourceTask.state.refControls = sourceTask.state.images.map((_, index) => createImgGenRefControl(index, { intent: index === 0 ? 'structure' : getImgGenDefaultRefIntent(index) }));
+    sourceTask.state.maskBlob = null;
+    sourceTask.state.maskImage = null;
+    sourceTask.state.maskEditMode = false;
+    sourceTask.state.size = resolveImgGenSize(sourceTask.state);
+    normalizeImgGenRefControls(sourceTask);
+    sourceTask.timestamp = Date.now();
+    setTaskShadow(sourceTask);
+    await saveTaskDB(sourceTask);
+    renderCard(taskId, sourceTask);
+    setTimeout(() => openImgGenMaskStudio(null, taskId), 80);
+}
+
+async function sendImgGenPreviewToCropper(event, taskId, itemId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const sourceTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!sourceTask || sourceTask.type !== 'tool_image_gen') return;
+    ensureImgGenState(sourceTask);
+    const item = findImgGenPreviewItem(sourceTask, itemId);
+    if (!item || !item.image) return showToast('没有可裁切的图片', 'warning');
+    const cropTask = {
+        id: `tool_crop_from_img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'tool_cropper',
+        x: toFiniteNumber(sourceTask.x, 0) + 420,
+        y: toFiniteNumber(sourceTask.y, 0) + 40,
+        timestamp: Date.now(),
+        state: {
+            sourceBlob: item.image,
+            resultBlob: null,
+            cropParams: { left: 15, top: 15, width: 70, height: 70 }
+        }
+    };
+    await saveTaskDB(cropTask);
+    await renderBoard();
+    showToast('已创建局部裁切器', 'success');
 }
 
 function buildImgGenHeaders() {
@@ -5793,6 +6068,15 @@ async function updateImgGenState(taskId, key, val) {
             task.state.maskBrushSize = clampImgMaskBrushSize(val);
         } else if (key === 'maskStageHeight') {
             task.state.maskStageHeight = clampImgMaskStageHeight(val);
+        } else if (key === 'seedLocked') {
+            task.state.seedLocked = val === true || val === 'true';
+            if (task.state.seedLocked && task.state.seed === '') {
+                task.state.seed = Math.floor(Math.random() * 2147483647);
+            }
+        } else if (key === 'seed') {
+            const parsedSeed = parseInt(val, 10);
+            task.state.seed = Number.isFinite(parsedSeed) && parsedSeed >= 0 ? parsedSeed : '';
+            if (task.state.seed !== '') task.state.seedLocked = true;
         } else if (key === 'customW' || key === 'customH') {
             const parsed = parseInt(val, 10);
             task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
@@ -5840,6 +6124,60 @@ async function updateImgGenState(taskId, key, val) {
     });
 }
 
+async function updateImgGenRefControl(taskId, index, key, value) {
+    const slotIndex = parseInt(index, 10);
+    if (!Number.isFinite(slotIndex) || slotIndex < 0 || slotIndex > 4) return;
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        normalizeImgGenRefControls(task);
+        if (!task.state.refControls[slotIndex]) return;
+        if (key === 'intent') {
+            const allowed = new Set(IMG_GEN_REF_INTENTS.map((item) => item.value));
+            task.state.refControls[slotIndex].intent = allowed.has(value) ? value : getImgGenDefaultRefIntent(slotIndex);
+        } else if (key === 'weight') {
+            task.state.refControls[slotIndex].weight = clampImgGenRefWeight(value);
+        } else if (key === 'locked') {
+            task.state.refControls[slotIndex].locked = value === true || value === 'true';
+        }
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('参考图控制更新失败', 'error');
+    });
+}
+
+async function appendImgGenPromptTag(event, taskId, text) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const tagIndex = parseInt(text, 10);
+    const tag = Number.isFinite(tagIndex) && IMG_GEN_PROMPT_TAGS[tagIndex]
+        ? IMG_GEN_PROMPT_TAGS[tagIndex].text
+        : String(text || '').trim();
+    if (!tag) return;
+    const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!baseTask) return;
+    const task = cloneTaskDeep(baseTask) || { ...baseTask };
+    ensureImgGenState(task);
+    const current = String(task.state.prompt || '').trim();
+    task.state.prompt = current ? `${current}, ${tag}` : tag;
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    renderCard(taskId, task);
+    await saveTaskDB(task);
+    const promptEl = document.querySelector(`#card-${cssEscapeSafe(taskId)} .img-gen-prompt`);
+    if (promptEl) {
+        promptEl.focus();
+        try { promptEl.setSelectionRange(promptEl.value.length, promptEl.value.length); } catch (err) {}
+    }
+}
+
 async function handleGenImageUpload(input, taskId) {
     if (!input.files || input.files.length === 0) return;
     const task = await getTaskDB(taskId); if (!task) return;
@@ -5848,6 +6186,7 @@ async function handleGenImageUpload(input, taskId) {
         if (task.state.images.length >= 5) break;
         task.state.images.push(await compressImageToBlob(file, 1024));
     }
+    normalizeImgGenRefControls(task);
     task.timestamp = Date.now();
     revokeBlobPrefixSafe(`${taskId}_img_`);
     revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
@@ -5881,6 +6220,7 @@ async function handleGenImageDrop(e, taskId) {
 
     // 赋值并击穿缓存
     task.state.images.push(srcToUse);
+    normalizeImgGenRefControls(task);
     task.timestamp = Date.now();
     revokeBlobPrefixSafe(`${taskId}_img_`);
     revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
@@ -5893,6 +6233,8 @@ async function removeGenImage(e, taskId, index) {
     ensureImgGenState(task);
     const removedBase = index === 0;
     task.state.images.splice(index, 1);
+    if (Array.isArray(task.state.refControls)) task.state.refControls.splice(index, 1);
+    normalizeImgGenRefControls(task);
     revokeBlobPrefixSafe(`${taskId}_img_`);
     revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
     revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
@@ -5988,6 +6330,8 @@ async function submitImgGen(taskId) {
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
     const maskBase64 = maskSource ? await blobToBase64(maskSource, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
     const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64);
+    const referenceControls = buildImgGenRefControlPayload(task);
+    const lockedSeed = task.state.seedLocked && task.state.seed !== '' ? parseInt(task.state.seed, 10) : null;
     const nValue = 1;
     const route = normalizeImgGenRoute(task.state.providerSort);
     const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
@@ -6010,6 +6354,17 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         n: nValue,
+        seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
+        seedLocked: task.state.seedLocked === true,
+        seed_locked: task.state.seedLocked === true,
+        referenceControls,
+        reference_controls: referenceControls,
+        imageControls: referenceControls,
+        image_controls: referenceControls,
+        imageWeights: referenceControls.map((item) => item.weight),
+        image_weights: referenceControls.map((item) => item.weight),
+        imageIntents: referenceControls.map((item) => item.intent),
+        image_intents: referenceControls.map((item) => item.intent),
         ...imagePayloadFields,
         custom_ratio: trialCustomRatio || undefined,
         custom_w: trialCustomRatio ? trialCustomW : undefined,
@@ -6035,6 +6390,17 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: route.key,
+        seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
+        seedLocked: task.state.seedLocked === true,
+        seed_locked: task.state.seedLocked === true,
+        referenceControls,
+        reference_controls: referenceControls,
+        imageControls: referenceControls,
+        image_controls: referenceControls,
+        imageWeights: referenceControls.map((item) => item.weight),
+        image_weights: referenceControls.map((item) => item.weight),
+        imageIntents: referenceControls.map((item) => item.intent),
+        image_intents: referenceControls.map((item) => item.intent),
         ...imagePayloadFields,
         custom_ratio: trialCustomRatio || undefined,
         custom_w: trialCustomRatio ? trialCustomW : undefined,
