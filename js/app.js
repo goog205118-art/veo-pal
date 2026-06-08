@@ -338,14 +338,14 @@ const IMG_GEN_REF_INTENTS = [
     { value: 'layout', label: '版式', hint: '海报排版 / 留白' }
 ];
 const IMG_GEN_PROMPT_TAGS = [
-    { group: '环境', text: 'rugged alpine terrain, weathered rocks, expedition campsite' },
-    { group: '环境', text: 'remote desert plateau, dust in the air, hard sunlight' },
-    { group: '光影', text: 'cinematic golden hour lighting, long shadows, premium outdoor commercial look' },
-    { group: '光影', text: 'dramatic overcast sky, high contrast rim light, volumetric atmosphere' },
-    { group: '镜头', text: '35mm product hero shot, shallow depth of field, realistic perspective' },
-    { group: '镜头', text: 'macro detail shot, tactile material texture, crisp industrial design' },
-    { group: '材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
-    { group: '社媒', text: 'clean negative space for headline, premium e-commerce hero composition' }
+    { group: '环境', label: '高山岩地', text: 'rugged alpine terrain, weathered rocks, expedition campsite' },
+    { group: '环境', label: '沙漠硬光', text: 'remote desert plateau, dust in the air, hard sunlight' },
+    { group: '光影', label: '金色电影光', text: 'cinematic golden hour lighting, long shadows, premium outdoor commercial look' },
+    { group: '光影', label: '阴天轮廓光', text: 'dramatic overcast sky, high contrast rim light, volumetric atmosphere' },
+    { group: '镜头', label: '35mm 主视觉', text: '35mm product hero shot, shallow depth of field, realistic perspective' },
+    { group: '镜头', label: '微距细节', text: 'macro detail shot, tactile material texture, crisp industrial design' },
+    { group: '材质', label: '硬核工业材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
+    { group: '社媒', label: '海报留白', text: 'clean negative space for headline, premium e-commerce hero composition' }
 ];
 let activeTasks = [], activeRetries = new Set();
 const taskPollControllers = new Map();
@@ -1855,6 +1855,43 @@ document.addEventListener('mouseout', (e) => { const target = e.target.closest('
 function openHelpModal() { const modal = document.getElementById('help-modal'); modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show'); }
 function closeHelpModal() { const modal = document.getElementById('help-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
 
+const FRAME_SAFE_PADDING = 36;
+
+function fitTaskInsideFrameBounds(task, frame, padding = FRAME_SAFE_PADDING) {
+    if (!task || !frame || task.type === 'frame') return { taskChanged: false, frameChanged: false };
+    normalizeTaskPosition(task);
+    normalizeTaskPosition(frame);
+    const safePad = Math.max(20, toFiniteNumber(padding, FRAME_SAFE_PADDING));
+    const size = measureTaskAABB(task);
+    let taskChanged = false;
+    let frameChanged = false;
+    const minFrameW = Math.max(340, size.width + safePad * 2);
+    const minFrameH = Math.max(160, size.height + safePad * 2);
+    if (toFiniteNumber(frame.width, 0) < minFrameW) {
+        frame.width = minFrameW;
+        frameChanged = true;
+    }
+    if (toFiniteNumber(frame.height, 0) < minFrameH) {
+        frame.height = minFrameH;
+        frameChanged = true;
+    }
+    const minX = frame.x + safePad;
+    const minY = frame.y + safePad;
+    const maxX = Math.max(minX, frame.x + frame.width - safePad - size.width);
+    const maxY = Math.max(minY, frame.y + frame.height - safePad - size.height);
+    const nextX = clampWorldValue(toFiniteNumber(task.x, 0), minX, maxX);
+    const nextY = clampWorldValue(toFiniteNumber(task.y, 0), minY, maxY);
+    if (Math.abs(nextX - task.x) > 0.1) {
+        task.x = nextX;
+        taskChanged = true;
+    }
+    if (Math.abs(nextY - task.y) > 0.1) {
+        task.y = nextY;
+        taskChanged = true;
+    }
+    return { taskChanged, frameChanged };
+}
+
 async function createFrame() {
     if (selectedTasks.size === 0) return showToast("请先按住 Shift 框选需要打组的卡片", "error");
     const tasks = await getAllTasksDB();
@@ -1873,7 +1910,10 @@ async function createFrame() {
     const frameId = 'frame_' + Date.now(), padding = 60;
     const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '未命名项目组', isCollapsed: false, timestamp: Date.now() };
 
-    selected.forEach((t) => { t.parentId = frameId; });
+    selected.forEach((t) => {
+        t.parentId = frameId;
+        fitTaskInsideFrameBounds(t, newFrame, FRAME_SAFE_PADDING);
+    });
     if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB([newFrame].concat(selected));
     else {
         await saveTaskDB(newFrame);
@@ -1895,7 +1935,8 @@ async function removeFrame(id) {
 async function checkGroupDrop(draggedInfo) {
     const task = draggedInfo.task;
     if (task.type === 'frame') return;
-    const cardCenter = { x: task.x + (task.width || 340)/2, y: task.y + (task.height || 400)/2 };
+    const taskSize = measureTaskAABB(task);
+    const cardCenter = { x: task.x + taskSize.width / 2, y: task.y + taskSize.height / 2 };
 
     const frames = Array.from(document.querySelectorAll('.frame-box')).map(el => el.__veoTask).filter(t => t && t.type === 'frame' && !t.isCollapsed);
     let validFrames = [];
@@ -1919,10 +1960,16 @@ async function checkGroupDrop(draggedInfo) {
     }
 
     if (droppedIntoFrame) {
-        if (task.parentId !== droppedIntoFrame) {
-            task.parentId = droppedIntoFrame; await saveTaskDB(task);
-            showToast("📦 卡片已移入项目组", "success");
-        }
+        const frame = await getTaskDB(droppedIntoFrame) || validFrames.find((f) => f.id === droppedIntoFrame);
+        const prevParent = task.parentId;
+        task.parentId = droppedIntoFrame;
+        const fitState = fitTaskInsideFrameBounds(task, frame, FRAME_SAFE_PADDING);
+        const saveList = [task];
+        if (fitState.frameChanged && frame) saveList.push(frame);
+        if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(saveList);
+        else for (const item of saveList) await saveTaskDB(item);
+        if (fitState.taskChanged || fitState.frameChanged) await renderBoard();
+        if (prevParent !== droppedIntoFrame) showToast("📦 卡片已移入项目组", "success");
     } else {
         if (task.parentId) {
             task.parentId = null; await saveTaskDB(task);
@@ -1936,6 +1983,8 @@ const viewport = document.getElementById('canvas-viewport'), board = document.ge
 let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
+let selectionCandidates = [];
+let selectionToolbarFrame = 0;
 let activeCrop = null, activeFrameResize = null;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
@@ -2056,34 +2105,58 @@ function clampWorldValue(value, min, max) {
 }
 
 function resolveLinkedNodePosition(sourceTask, targetSize = {}, options = {}) {
-    const sourceSize = getTaskFallbackSize(sourceTask);
+    const sourceSize = measureTaskAABB(sourceTask);
     const targetW = Math.max(240, toFiniteNumber(targetSize.width, 340));
     const targetH = Math.max(180, toFiniteNumber(targetSize.height, 420));
     const gap = Math.max(20, toFiniteNumber(options.gap, 36));
     const sourceX = toFiniteNumber(sourceTask && sourceTask.x, 0);
     const sourceY = toFiniteNumber(sourceTask && sourceTask.y, 0);
+    const sourceBounds = {
+        left: sourceX,
+        top: sourceY,
+        right: sourceX + sourceSize.width,
+        bottom: sourceY + sourceSize.height
+    };
     const visible = getVisibleWorldRect(96);
     const yBase = sourceY + toFiniteNumber(options.yOffset, 0);
-    const y = clampWorldValue(yBase, visible.top, visible.bottom - targetH);
+    const xBase = sourceX + toFiniteNumber(options.xOffset, 0);
+    const visibleCenterX = (visible.left + visible.right) / 2;
+    const preferLeft = sourceX + sourceSize.width / 2 > visibleCenterX;
+    const rightX = sourceBounds.right + gap;
+    const leftX = sourceBounds.left - targetW - gap;
+    const belowY = sourceBounds.bottom + gap;
+    const aboveY = sourceBounds.top - targetH - gap;
+    const clampY = (value) => clampWorldValue(value, visible.top, visible.bottom - targetH);
+    const clampX = (value) => clampWorldValue(value, visible.left, visible.right - targetW);
+    const candidates = [
+        { x: rightX, y: clampY(yBase), side: 'right' },
+        { x: leftX, y: clampY(yBase), side: 'left' },
+        { x: clampX(xBase), y: belowY, side: 'below' },
+        { x: clampX(xBase), y: aboveY, side: 'above' }
+    ];
+    if (preferLeft) candidates.splice(0, 2, candidates[1], candidates[0]);
 
-    const rightX = sourceX + sourceSize.width + gap;
-    if (rightX + targetW <= visible.right) return { x: rightX, y };
+    const fitsVisible = (pos) => (
+        pos.x >= visible.left &&
+        pos.y >= visible.top &&
+        pos.x + targetW <= visible.right &&
+        pos.y + targetH <= visible.bottom
+    );
+    const isOutsideSource = (pos) => (
+        pos.x + targetW <= sourceBounds.left ||
+        pos.x >= sourceBounds.right ||
+        pos.y + targetH <= sourceBounds.top ||
+        pos.y >= sourceBounds.bottom
+    );
+    const visibleHit = candidates.find((pos) => fitsVisible(pos) && isOutsideSource(pos));
+    if (visibleHit) return { x: visibleHit.x, y: visibleHit.y };
 
-    const leftX = sourceX - targetW - gap;
-    if (leftX >= visible.left) return { x: leftX, y };
-
-    const belowY = sourceY + sourceSize.height + gap;
-    if (belowY + targetH <= visible.bottom) {
-        return {
-            x: clampWorldValue(sourceX, visible.left, visible.right - targetW),
-            y: belowY
-        };
-    }
-
-    return {
-        x: sourceX + gap,
-        y: sourceY + gap
-    };
+    // If the source card fills the screen, still spawn outside its real bounds,
+    // then camera focus will track the new linked node into view.
+    const fallback = preferLeft && leftX >= visible.left - targetW * 1.4
+        ? { x: leftX, y: clampY(yBase) }
+        : { x: rightX, y: clampY(yBase) };
+    return fallback;
 }
 
 function selectAndFocusTaskIds(taskIds) {
@@ -2398,6 +2471,25 @@ function updateSelectionToolbar() {
     toolbar.classList.add('show');
 }
 
+function requestSelectionToolbarUpdate() {
+    if (selectionToolbarFrame) return;
+    selectionToolbarFrame = requestAnimationFrame(() => {
+        selectionToolbarFrame = 0;
+        updateSelectionToolbar();
+    });
+}
+
+function buildSelectionCandidates() {
+    return Array.from(document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box'))
+        .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-viewport-culled'))
+        .map((card) => ({
+            el: card,
+            id: card.id ? card.id.replace('card-', '') : '',
+            rect: card.getBoundingClientRect()
+        }))
+        .filter((item) => item.id && item.rect && item.rect.width > 0 && item.rect.height > 0);
+}
+
 window.addEventListener('mousedown', (e) => {
     if (e.button === 0) isPrimaryPointerDown = true;
     if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
@@ -2405,6 +2497,7 @@ window.addEventListener('mousedown', (e) => {
 }, true);
 
 function clearSelection() {
+    selectionCandidates = [];
     selectedTasks.clear();
     document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected'));
     updateSelectionToolbar();
@@ -2434,16 +2527,17 @@ window.addEventListener('mousemove', (e) => {
                     marquee.classList.toggle('is-window', !isCrossing);
                 }
                 const selRect = { left, top, right: left + width, bottom: top + height };
-                document.querySelectorAll('.video-card, .frame-box').forEach(card => {
-                    const rect = card.getBoundingClientRect();
-                    if(card.classList.contains('hidden-in-frame')) return;
+                const candidates = selectionCandidates.length ? selectionCandidates : buildSelectionCandidates();
+                candidates.forEach((candidate) => {
+                    const card = candidate.el;
+                    const rect = candidate.rect;
                     const intersects = rect.left < selRect.right && rect.right > selRect.left && rect.top < selRect.bottom && rect.bottom > selRect.top;
                     const contains = rect.left >= selRect.left && rect.right <= selRect.right && rect.top >= selRect.top && rect.bottom <= selRect.bottom;
                     const hit = isCrossing ? intersects : contains;
-                    if (hit) { card.classList.add('selected'); selectedTasks.add(card.id.replace('card-', '')); }
-                    else { card.classList.remove('selected'); selectedTasks.delete(card.id.replace('card-', '')); }
+                    if (hit) { card.classList.add('selected'); selectedTasks.add(candidate.id); }
+                    else { card.classList.remove('selected'); selectedTasks.delete(candidate.id); }
                 });
-                updateSelectionToolbar();
+                requestSelectionToolbarUpdate();
             }
             else if (draggingCardInfo) {
                 const dx = (e.clientX - draggingCardInfo.startMouseX) / transform.scale, dy = (e.clientY - draggingCardInfo.startMouseY) / transform.scale;
@@ -2459,7 +2553,7 @@ window.addEventListener('mousemove', (e) => {
                         child.el.style.transform = `translate3d(${child.task.x}px, ${child.task.y}px, 0)`;
                     });
                 }
-                updateSelectionToolbar();
+                requestSelectionToolbarUpdate();
             }
             else if (activeFrameResize) {
                 const dx = (e.clientX - activeFrameResize.startX) / transform.scale, dy = (e.clientY - activeFrameResize.startY) / transform.scale;
@@ -2468,7 +2562,7 @@ window.addEventListener('mousemove', (e) => {
                 activeFrameResize.el.style.width = newW + 'px'; activeFrameResize.el.style.height = newH + 'px';
                 activeFrameResize.task.width = newW; activeFrameResize.task.height = newH;
                 syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
-                updateSelectionToolbar();
+                requestSelectionToolbarUpdate();
             }
             ticking = false;
         });
@@ -2496,6 +2590,7 @@ viewport.addEventListener('mousedown', (e) => {
             isSelecting = true;
             startSelX = e.clientX;
             startSelY = e.clientY;
+            selectionCandidates = buildSelectionCandidates();
             if(marquee) {
                 marquee.style.left = startSelX + 'px';
                 marquee.style.top = startSelY + 'px';
@@ -2521,6 +2616,7 @@ window.addEventListener('mouseup', async () => {
     if (wasPanning) startCanvasInertia();
     if (isSelecting) {
         isSelecting = false;
+        selectionCandidates = [];
         if(marquee) {
             marquee.style.display = 'none';
             marquee.classList.remove('is-crossing', 'is-window');
@@ -2554,10 +2650,31 @@ window.addEventListener('mouseup', async () => {
     }
 });
 
+function consumeNestedCanvasWheel(e) {
+    const target = e && e.target && typeof e.target.closest === 'function' ? e.target : null;
+    if (!target) return false;
+    const promptRail = target.closest('.img-gen-prompt-chip-row');
+    if (promptRail) {
+        const modeFactor = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
+        const deltaX = toFiniteNumber(e.deltaX, 0) * modeFactor;
+        const deltaY = toFiniteNumber(e.deltaY, 0) * modeFactor;
+        const amount = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+        if (amount !== 0) {
+            e.preventDefault();
+            promptRail.scrollLeft += amount;
+        }
+        return true;
+    }
+    if (target.closest('.img-gen-input-body, .img-gen-preview-panel, .img-gen-preview-body, .img-gen-help-body')) {
+        return true;
+    }
+    return false;
+}
+
 viewport.addEventListener('wheel', (e) => {
     const wheelTarget = e.target && typeof e.target.closest === 'function' ? e.target : null;
-    if (wheelTarget && wheelTarget.closest('.img-gen-preview-panel')) return;
     if (e.target.tagName === 'TEXTAREA' || e.target.closest('textarea')) return;
+    if (consumeNestedCanvasWheel(e)) return;
     if (draggingCardInfo) return;
     e.preventDefault();
     cancelCameraAnimation();
@@ -2606,8 +2723,9 @@ function startFrameResize(e, id) {
         document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
             if (childEl.__veoTask && childEl.__veoTask.parentId === id) {
                 const childTask = childEl.__veoTask;
-                const childRight = (childTask.x - task.x) + (childTask.width || 340) + 40;
-                const childBottom = (childTask.y - task.y) + (childTask.height || 400) + 40;
+                const childSize = measureTaskAABB(childTask);
+                const childRight = (childTask.x - task.x) + childSize.width + FRAME_SAFE_PADDING;
+                const childBottom = (childTask.y - task.y) + childSize.height + FRAME_SAFE_PADDING;
                 if (childRight > minW) minW = childRight;
                 if (childBottom > minH) minH = childBottom;
             }
@@ -4122,16 +4240,19 @@ function buildImgGenRefControlPayload(task) {
 }
 
 function renderImgGenPromptChips(task) {
-    const chips = IMG_GEN_PROMPT_TAGS.map((tag, index) => `
-        <button class="img-gen-prompt-chip" type="button" onclick="appendImgGenPromptTag(event, '${task.id}', ${index})" data-tip="${escapeAttr(tag.text)}">
-            <span>${escapeHtml(tag.group)}</span>${escapeHtml(tag.text.split(',')[0])}
+    const chips = IMG_GEN_PROMPT_TAGS.map((tag, index) => {
+        const label = tag.label || tag.text.split(',')[0] || tag.text;
+        return `
+        <button class="img-gen-prompt-chip" type="button" onclick="appendImgGenPromptTag(event, '${task.id}', ${index})" data-tip="${escapeAttr(`点击填入英文提示词：${tag.text}`)}">
+            <span>${escapeHtml(tag.group)}</span>${escapeHtml(label)}
         </button>
-    `).join('');
+    `;
+    }).join('');
     return `
         <div class="img-gen-prompt-assist">
             <div class="img-gen-prompt-assist-head">
                 <span class="material-symbols-outlined">auto_awesome</span>
-                Prompt Tags
+                快捷提示词
             </div>
             <div class="img-gen-prompt-chip-row">${chips}</div>
         </div>
@@ -5653,6 +5774,18 @@ async function createImgGenVariations(event, taskId, itemId) {
         height: variantH * 2 + variantGap
     };
     const clusterOrigin = resolveLinkedNodePosition(sourceTask, clusterSize, { gap: 42, yOffset: -8 });
+    const framePadding = 34;
+    const variantFrame = {
+        id: `frame_img_var_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'frame',
+        x: clusterOrigin.x - framePadding,
+        y: clusterOrigin.y - framePadding,
+        width: clusterSize.width + framePadding * 2,
+        height: clusterSize.height + framePadding * 2,
+        title: 'V1-4 变体组',
+        isCollapsed: false,
+        timestamp: Date.now()
+    };
     for (let i = 0; i < IMG_GEN_VARIATION_COUNT; i++) {
         const clone = cloneTaskDeep(sourceTask) || { ...sourceTask, state: { ...(sourceTask.state || {}) } };
         clone.id = `tool_img_var_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
@@ -5663,7 +5796,7 @@ async function createImgGenVariations(event, taskId, itemId) {
         clone.retryCount = 0;
         clone.genTaskId = null;
         clone.isBilled = false;
-        clone.parentId = null;
+        clone.parentId = variantFrame.id;
         clone.state = cloneTaskDeep(sourceTask.state) || { ...(sourceTask.state || {}) };
         ensureImgGenState(clone);
         clone.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
@@ -5695,10 +5828,12 @@ async function createImgGenVariations(event, taskId, itemId) {
         clones.push(clone);
     }
 
-    for (const clone of clones) await saveTaskDB(clone);
+    const saveList = [variantFrame].concat(clones);
+    if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(saveList);
+    else for (const task of saveList) await saveTaskDB(task);
     await renderBoard();
-    setTimeout(() => selectAndFocusTaskIds(clones.map((clone) => clone.id)), 60);
-    showToast(`已创建 ${IMG_GEN_VARIATION_COUNT} 个紧凑变体节点`, 'success');
+    setTimeout(() => selectAndFocusTaskIds([variantFrame.id]), 60);
+    showToast(`已创建 ${IMG_GEN_VARIATION_COUNT} 个紧凑变体节点，并收纳为便携变体组`, 'success');
 }
 
 async function sendImgGenPreviewToMask(event, taskId, itemId) {

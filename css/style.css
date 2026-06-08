@@ -625,7 +625,8 @@ body.canvas-camera-active.space-pan-ready .canvas-viewport { cursor: grabbing !i
 /* ============================== */
 
 /* 被选中的卡片高亮描边 */
-.video-card.selected {
+.video-card.selected,
+.frame-box.selected {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent), 0 20px 50px rgba(0,0,0,0.8);
     scale: 1.01;
@@ -1972,8 +1973,10 @@ body.app-shell-ready .floating-console:not(.minimized) {
     display: flex;
     gap: 6px;
     overflow-x: auto;
-    padding-bottom: 2px;
+    padding: 1px 0 5px;
     scrollbar-width: thin;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
 }
 .img-gen-prompt-chip {
     flex: 0 0 auto;
@@ -1983,6 +1986,7 @@ body.app-shell-ready .floating-console:not(.minimized) {
     border-radius: 999px;
     padding: 5px 8px;
     font-size: 10px;
+    white-space: nowrap;
     cursor: pointer;
     transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
@@ -2261,6 +2265,27 @@ body.app-shell-ready .floating-console:not(.minimized) {
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scroll-behavior: smooth;
+}
+.img-gen-input-body::-webkit-scrollbar,
+.img-gen-preview-body::-webkit-scrollbar,
+.img-gen-prompt-chip-row::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+.img-gen-input-body::-webkit-scrollbar-thumb,
+.img-gen-preview-body::-webkit-scrollbar-thumb,
+.img-gen-prompt-chip-row::-webkit-scrollbar-thumb {
+    background: rgba(94,156,255,0.28);
+    border-radius: 999px;
+    border: 2px solid rgba(11,16,26,0.72);
+}
+.img-gen-input-body::-webkit-scrollbar-track,
+.img-gen-preview-body::-webkit-scrollbar-track,
+.img-gen-prompt-chip-row::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.035);
+    border-radius: 999px;
 }
 
 .img-gen-statusbar,
