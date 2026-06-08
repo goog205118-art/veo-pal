@@ -2036,6 +2036,74 @@ function measureTaskAABB(task) {
     };
 }
 
+function getVisibleWorldRect(screenPadding = 80) {
+    const scaleSafe = Math.max(0.1, toFiniteNumber(transform && transform.scale, 1));
+    const viewportRect = (viewport && typeof viewport.getBoundingClientRect === 'function')
+        ? viewport.getBoundingClientRect()
+        : { width: window.innerWidth, height: window.innerHeight };
+    const pad = Math.max(0, toFiniteNumber(screenPadding, 80));
+    return {
+        left: (pad - toFiniteNumber(transform.x, 0)) / scaleSafe,
+        top: (pad - toFiniteNumber(transform.y, 0)) / scaleSafe,
+        right: (Math.max(1, viewportRect.width) - pad - toFiniteNumber(transform.x, 0)) / scaleSafe,
+        bottom: (Math.max(1, viewportRect.height) - pad - toFiniteNumber(transform.y, 0)) / scaleSafe
+    };
+}
+
+function clampWorldValue(value, min, max) {
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return value;
+    return Math.max(min, Math.min(max, value));
+}
+
+function resolveLinkedNodePosition(sourceTask, targetSize = {}, options = {}) {
+    const sourceSize = getTaskFallbackSize(sourceTask);
+    const targetW = Math.max(240, toFiniteNumber(targetSize.width, 340));
+    const targetH = Math.max(180, toFiniteNumber(targetSize.height, 420));
+    const gap = Math.max(20, toFiniteNumber(options.gap, 36));
+    const sourceX = toFiniteNumber(sourceTask && sourceTask.x, 0);
+    const sourceY = toFiniteNumber(sourceTask && sourceTask.y, 0);
+    const visible = getVisibleWorldRect(96);
+    const yBase = sourceY + toFiniteNumber(options.yOffset, 0);
+    const y = clampWorldValue(yBase, visible.top, visible.bottom - targetH);
+
+    const rightX = sourceX + sourceSize.width + gap;
+    if (rightX + targetW <= visible.right) return { x: rightX, y };
+
+    const leftX = sourceX - targetW - gap;
+    if (leftX >= visible.left) return { x: leftX, y };
+
+    const belowY = sourceY + sourceSize.height + gap;
+    if (belowY + targetH <= visible.bottom) {
+        return {
+            x: clampWorldValue(sourceX, visible.left, visible.right - targetW),
+            y: belowY
+        };
+    }
+
+    return {
+        x: sourceX + gap,
+        y: sourceY + gap
+    };
+}
+
+function selectAndFocusTaskIds(taskIds) {
+    const ids = Array.isArray(taskIds) ? taskIds.filter(Boolean) : [];
+    if (!ids.length) return;
+    clearSelection();
+    ids.forEach((id) => {
+        selectedTasks.add(id);
+        const el = document.getElementById('card-' + id);
+        if (el) {
+            el.classList.add('selected');
+            el.classList.remove('is-viewport-culled');
+            highestZIndex++;
+            el.style.zIndex = highestZIndex;
+        }
+    });
+    updateSelectionToolbar();
+    focusSelectedTasks();
+}
+
 function detectToolPluginType(el) {
     if (!el) return '';
     const attr = el.getAttribute('ondragstart') || '';
@@ -2754,6 +2822,8 @@ function focusTaskById(taskId) {
     selectedTasks.add(taskId);
     el.classList.add('selected');
     el.classList.remove('is-viewport-culled');
+    highestZIndex++;
+    el.style.zIndex = highestZIndex;
     updateSelectionToolbar();
     focusSelectedTasks();
 }
@@ -3245,6 +3315,7 @@ function applyImgGenCardFrame(cardEl, task) {
     if (!cardEl || !task || task.type !== 'tool_image_gen') return;
     ensureImgGenState(task);
     const isOpen = task.state.previewCollapsed !== true;
+    cardEl.classList.toggle('is-img-variant-node', !!task.state.variantGroupId);
     const collapsedWidth = Math.max(320, Math.min(760, toFiniteNumber(task.state.cardWidthCollapsed, 360)));
     const expandedWidth = Math.max(560, Math.min(1200, toFiniteNumber(task.state.cardWidthOpen, 680)));
     const cardHeight = Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)));
@@ -4581,6 +4652,8 @@ function renderImgGenCardHTML(task) {
     const isPro = task.state.version === 'pro';
     const isChannel2 = task.state.channel === 'channel_2';
     const previewCollapsed = task.state.previewCollapsed === true;
+    const isVariantNode = !!task.state.variantGroupId;
+    const variantIndex = Math.max(1, Math.min(99, parseInt(task.state.variantIndex, 10) || 1));
     const resolvedSize = resolveImgGenSize(task.state);
     const lastUsageCost = isPro ? toFiniteNumber(task.state.lastUsageCost, NaN) : NaN;
     const currentCost = isPro
@@ -4618,7 +4691,7 @@ function renderImgGenCardHTML(task) {
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
 
-    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
+    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图 ${isVariantNode ? `<span class="img-gen-variant-chip">V${variantIndex}</span>` : ''}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
         <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
             <div class="img-gen-left">
@@ -4631,6 +4704,7 @@ function renderImgGenCardHTML(task) {
                 <div class="img-gen-input-body">
                     <div class="img-gen-statusbar">
                         <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
+                        ${isVariantNode ? `<span class="img-gen-status-badge is-variant">VARIANT ${variantIndex}</span>` : ''}
                         <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `${(task.state.trialRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : (task.state.trialRatio || '1:1')} / 1K`}</span>
                     </div>
                     ${renderImgGenSlots(task)}
@@ -5570,11 +5644,20 @@ async function createImgGenVariations(event, taskId, itemId) {
         ? parseInt(sourceTask.state.seed, 10)
         : Math.floor(Math.random() * 2147483647);
     const clones = [];
+    const groupId = `var_group_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const variantW = 330;
+    const variantH = 440;
+    const variantGap = 18;
+    const clusterSize = {
+        width: variantW * 2 + variantGap,
+        height: variantH * 2 + variantGap
+    };
+    const clusterOrigin = resolveLinkedNodePosition(sourceTask, clusterSize, { gap: 42, yOffset: -8 });
     for (let i = 0; i < IMG_GEN_VARIATION_COUNT; i++) {
         const clone = cloneTaskDeep(sourceTask) || { ...sourceTask, state: { ...(sourceTask.state || {}) } };
         clone.id = `tool_img_var_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
-        clone.x = toFiniteNumber(sourceTask.x, 0) + 420 + (i % 2) * 380;
-        clone.y = toFiniteNumber(sourceTask.y, 0) + Math.floor(i / 2) * 560;
+        clone.x = clusterOrigin.x + (i % 2) * (variantW + variantGap);
+        clone.y = clusterOrigin.y + Math.floor(i / 2) * (variantH + variantGap);
         clone.timestamp = Date.now() + i;
         clone.status = 'idle';
         clone.retryCount = 0;
@@ -5597,6 +5680,15 @@ async function createImgGenVariations(event, taskId, itemId) {
         clone.state.maskBlob = null;
         clone.state.maskImage = null;
         clone.state.maskEditMode = false;
+        clone.state.previewCollapsed = true;
+        clone.state.paramsCollapsed = true;
+        clone.state.cardWidthCollapsed = variantW;
+        clone.state.cardWidthOpen = 650;
+        clone.state.cardHeight = variantH;
+        clone.state.variantGroupId = groupId;
+        clone.state.variantIndex = i + 1;
+        clone.state.variantSourceTaskId = sourceTask.id;
+        clone.state.variantSourcePreviewId = itemId;
         clone.state.seedLocked = true;
         clone.state.seed = seedBase + i;
         recalcImgGenTaskStatus(clone);
@@ -5605,7 +5697,8 @@ async function createImgGenVariations(event, taskId, itemId) {
 
     for (const clone of clones) await saveTaskDB(clone);
     await renderBoard();
-    showToast(`已分裂 ${IMG_GEN_VARIATION_COUNT} 个变体节点`, 'success');
+    setTimeout(() => selectAndFocusTaskIds(clones.map((clone) => clone.id)), 60);
+    showToast(`已创建 ${IMG_GEN_VARIATION_COUNT} 个紧凑变体节点`, 'success');
 }
 
 async function sendImgGenPreviewToMask(event, taskId, itemId) {
@@ -5643,11 +5736,12 @@ async function sendImgGenPreviewToCropper(event, taskId, itemId) {
     ensureImgGenState(sourceTask);
     const item = findImgGenPreviewItem(sourceTask, itemId);
     if (!item || !item.image) return showToast('没有可裁切的图片', 'warning');
+    const dock = resolveLinkedNodePosition(sourceTask, { width: 340, height: 420 }, { gap: 42, yOffset: 10 });
     const cropTask = {
         id: `tool_crop_from_img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         type: 'tool_cropper',
-        x: toFiniteNumber(sourceTask.x, 0) + 420,
-        y: toFiniteNumber(sourceTask.y, 0) + 40,
+        x: dock.x,
+        y: dock.y,
         timestamp: Date.now(),
         state: {
             sourceBlob: item.image,
@@ -5657,6 +5751,7 @@ async function sendImgGenPreviewToCropper(event, taskId, itemId) {
     };
     await saveTaskDB(cropTask);
     await renderBoard();
+    setTimeout(() => focusTaskById(cropTask.id), 60);
     showToast('已创建局部裁切器', 'success');
 }
 
