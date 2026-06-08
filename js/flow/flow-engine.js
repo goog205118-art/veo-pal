@@ -106,9 +106,9 @@ flowStyleInj.innerHTML = `
         box-shadow: 0 0 18px rgba(56, 189, 248, 0.22), 0 0 0 1px rgba(56, 189, 248, 0.24) !important;
     }
     .veo-node.is-viewport-culled {
-        content-visibility: hidden;
-        pointer-events: none;
-        opacity: 0;
+        content-visibility: visible;
+        pointer-events: auto;
+        opacity: 1;
     }
     .flow-selection-box {
         position: absolute; border: 1px dashed #a78bfa; background: rgba(167, 139, 250, 0.08);
@@ -438,7 +438,7 @@ function markFlowMinimapActive(duration = 900) {
 
 function scheduleFlowViewportCulling(delay = 120) {
     clearTimeout(flowCullTimer);
-    flowCullTimer = setTimeout(updateFlowViewportCulling, delay);
+    flowCullTimer = setTimeout(updateFlowViewportCulling, Math.max(0, delay));
 }
 
 function getFlowViewportWorldRect(padding = 0) {
@@ -453,6 +453,14 @@ function getFlowViewportWorldRect(padding = 0) {
 
 function updateFlowViewportCulling() {
     if (!nodeBoard || !viewport || !flowState || !Array.isArray(flowState.nodes)) return;
+    // Safety first: the DOM-based flow canvas has variable-sized nodes and saved camera states.
+    // A stale culling decision can make every node look "deleted", so for now we only clear
+    // previous culling marks and keep all workflow nodes visible.
+    nodeBoard.querySelectorAll('.veo-node.is-viewport-culled').forEach((nodeEl) => {
+        nodeEl.classList.remove('is-viewport-culled');
+    });
+    return;
+
     const worldRect = getFlowViewportWorldRect(FLOW_CULL_PADDING);
 
     flowState.nodes.forEach((node) => {
@@ -623,6 +631,29 @@ function focusFlowNodes(nodeIds = flowState.selectedNodeIds) {
     const targetX = (rect.width - bounds.width * nextScale) / 2 - bounds.minX * nextScale;
     const targetY = (rect.height - bounds.height * nextScale) / 2 - bounds.minY * nextScale;
     animateFlowCameraTo({ x: targetX, y: targetY, scale: nextScale });
+}
+
+function ensureFlowNodesVisibleAfterBoot() {
+    if (!viewport || !Array.isArray(flowState.nodes) || flowState.nodes.length === 0) return;
+    updateFlowViewportCulling();
+    requestAnimationFrame(() => {
+        const vpRect = viewport.getBoundingClientRect();
+        if (!vpRect.width || !vpRect.height) return;
+        const margin = 24;
+        const hasVisibleNode = flowState.nodes.some((node) => {
+            const nodeEl = node && node.id ? document.getElementById(node.id) : null;
+            if (!nodeEl) return false;
+            const rect = nodeEl.getBoundingClientRect();
+            if (rect.width <= 4 || rect.height <= 4) return false;
+            return rect.right >= vpRect.left + margin
+                && rect.left <= vpRect.right - margin
+                && rect.bottom >= vpRect.top + margin
+                && rect.top <= vpRect.bottom - margin;
+        });
+        if (!hasVisibleNode) {
+            focusFlowNodes(flowState.nodes.map((node) => node.id));
+        }
+    });
 }
 
 function buildFlowSelectionCandidates() {
@@ -2146,6 +2177,7 @@ async function bootstrapFlowEngine() {
     renderNodes();
     setTimeout(() => { renderLinks(); renderMinimap(); }, 50);
     updateCanvasTransform();
+    setTimeout(ensureFlowNodesVisibleAfterBoot, 180);
 }
 
 window.initFlowEngine = bootstrapFlowEngine;
