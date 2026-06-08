@@ -31,7 +31,22 @@ flowStyleInj.innerHTML = `
     .palette-item:active { cursor: grabbing; }
     
     /* 🌟 核心：画布视口加入平滑过渡过渡轨 */
-    .flow-viewport { left: 220px !important; width: calc(100vw - 220px) !important; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); } 
+    .flow-viewport {
+        left: 220px !important; width: calc(100vw - 220px) !important;
+        transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1), width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        cursor: grab; touch-action: none; overscroll-behavior: none;
+    }
+    #flow-canvas {
+        transform-origin: 0 0;
+        will-change: transform;
+        contain: layout style paint;
+    }
+    .flow-viewport.is-panning,
+    .flow-viewport.space-pan-ready { cursor: grab !important; }
+    .flow-viewport.is-panning-active { cursor: grabbing !important; }
+    .flow-viewport.is-panning-active .veo-node,
+    .flow-viewport.is-panning-active #svg-layer { pointer-events: none; }
+    .flow-viewport.is-linking { cursor: crosshair !important; }
     .port-text { border-color: #fbbf24 !important; color: #fbbf24 !important; } 
 
     /* 👇 工作流工具组（挂载到头部按钮区） */
@@ -81,9 +96,62 @@ flowStyleInj.innerHTML = `
         border-color: #a78bfa !important; /* 选中时边框呈现高级紫 */
         box-shadow: 0 0 25px 2px rgba(167, 139, 250, 0.35) !important;
     }
+    .veo-node {
+        will-change: transform;
+        contain: layout style paint;
+        transition: border-color 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+    }
+    .veo-node.is-selection-preview {
+        filter: brightness(1.08) saturate(1.08);
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.22), 0 0 0 1px rgba(56, 189, 248, 0.24) !important;
+    }
+    .veo-node.is-viewport-culled {
+        content-visibility: hidden;
+        pointer-events: none;
+        opacity: 0;
+    }
     .flow-selection-box {
         position: absolute; border: 1px dashed #a78bfa; background: rgba(167, 139, 250, 0.08);
-        pointer-events: none; z-index: 1000; display: none; border-radius: 2px;
+        pointer-events: none; z-index: 1000; display: none; border-radius: 8px;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.05), 0 12px 32px rgba(0,0,0,0.22);
+        backdrop-filter: blur(2px);
+    }
+    .flow-selection-box.is-window {
+        border: 1px solid rgba(59, 130, 246, 0.88);
+        background: rgba(59, 130, 246, 0.11);
+    }
+    .flow-selection-box.is-crossing {
+        border: 1px dashed rgba(34, 197, 94, 0.92);
+        background: rgba(34, 197, 94, 0.09);
+    }
+    .flow-selection-toolbar {
+        position: fixed; z-index: 1200; display: none; align-items: center; gap: 6px;
+        padding: 6px; border-radius: 999px;
+        background: rgba(12, 12, 16, 0.82); border: 1px solid rgba(255,255,255,0.12);
+        box-shadow: 0 16px 44px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06);
+        backdrop-filter: blur(18px); transform: translate(-50%, -100%);
+    }
+    .flow-selection-toolbar.is-visible { display: inline-flex; }
+    .flow-selection-toolbar button {
+        width: 30px; height: 30px; border-radius: 999px; border: 1px solid transparent;
+        background: rgba(255,255,255,0.06); color: #e5e7eb; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center;
+        transition: 0.16s ease;
+    }
+    .flow-selection-toolbar button:hover {
+        color: #fff; background: rgba(167, 139, 250, 0.18);
+        border-color: rgba(167, 139, 250, 0.28); transform: translateY(-1px);
+    }
+    .flow-selection-toolbar button.danger:hover {
+        background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.28); color: #fecaca;
+    }
+    .flow-selection-toolbar .material-symbols-outlined { font-size: 17px; }
+    :root[data-theme='light'] .flow-selection-toolbar {
+        background: rgba(255,255,255,0.84); border-color: rgba(15, 23, 42, 0.12);
+        box-shadow: 0 16px 38px rgba(15,23,42,0.16);
+    }
+    :root[data-theme='light'] .flow-selection-toolbar button {
+        background: rgba(15,23,42,0.055); color: #0f172a;
     }
 
     /* 👇 新增：右下角全景导航小地图 (Minimap) */
@@ -93,6 +161,13 @@ flowStyleInj.innerHTML = `
         border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; z-index: 101;
         box-shadow: 0 10px 30px rgba(0,0,0,0.6); overflow: hidden; 
         pointer-events: auto; cursor: crosshair; /* 🚨 修复：允许点击与交互穿透 */
+        opacity: 0.24; transform: scale(0.96); transform-origin: right bottom;
+        transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.22s ease;
+    }
+    .flow-minimap-container:hover,
+    .flow-minimap-container.is-active,
+    .flow-viewport.is-panning-active ~ .flow-minimap-container {
+        opacity: 1; transform: scale(1); border-color: rgba(167,139,250,0.24);
     }
     .flow-minimap-viewport {
         position: absolute; border: 1px solid rgba(167, 139, 250, 0.4);
@@ -285,6 +360,7 @@ svgLayer.style.width = '1px'; svgLayer.style.height = '1px'; svgLayer.style.over
 let flowState = {
     transform: { x: 0, y: 0, scale: 1 },
     isPanning: false, startX: 0, startY: 0,
+    isSpacePanning: false,
     activeNode: null,
     drawingLink: { active: false, sourceNode: null, sourcePort: null, type: null, startX: 0, startY: 0, currentX: 0, currentY: 0 },
     nodes: [], 
@@ -308,12 +384,424 @@ let flowState = {
 
 const flowLinkIndexByNode = new Map();
 const flowLinkPathCache = new Map();
+const FLOW_MIN_SCALE = 0.16;
+const FLOW_MAX_SCALE = 3.6;
+const FLOW_CULL_PADDING = 760;
+const FLOW_CAMERA_EASE_MS = 360;
+let flowPanSamples = [];
+let flowInertiaFrame = 0;
+let flowCameraFrame = 0;
+let flowCullTimer = 0;
+let flowMinimapActiveTimer = 0;
+let flowWheelSaveTimer = 0;
+let flowSelectionCandidates = [];
+let flowSelectionToolbarEl = null;
+let flowSelectionToolbarFrame = 0;
 
 // 动态挂载原生框选框 DOM 到页面
 const dragSelectBox = document.createElement('div');
 dragSelectBox.className = 'flow-selection-box';
 dragSelectBox.id = 'flow-selection-box';
 document.body.appendChild(dragSelectBox);
+
+function clampFlowScale(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 1;
+    return Math.min(FLOW_MAX_SCALE, Math.max(FLOW_MIN_SCALE, numeric));
+}
+
+function isFlowFormTarget(target) {
+    if (!target || typeof target.closest !== 'function') return false;
+    return !!target.closest('input, textarea, select, option, button, label, .node-input, .flow-autocomplete-dropdown, .flow-selection-toolbar');
+}
+
+function shouldAllowNativeWheel(e) {
+    const target = e.target;
+    if (!target || target === viewport || target === canvas || target === nodeBoard || target === svgLayer) return false;
+    if (isFlowFormTarget(target)) return true;
+    if (typeof target.closest !== 'function') return false;
+
+    const scrollHost = target.closest('.flow-autocomplete-dropdown, .node-palette, .node-inputs-container, .node-body');
+    if (!scrollHost || e.ctrlKey) return false;
+    const canScrollY = scrollHost.scrollHeight > scrollHost.clientHeight + 2;
+    const canScrollX = scrollHost.scrollWidth > scrollHost.clientWidth + 2;
+    return canScrollY || canScrollX;
+}
+
+function markFlowMinimapActive(duration = 900) {
+    const minimap = document.getElementById('flow-minimap-container');
+    if (!minimap) return;
+    minimap.classList.add('is-active');
+    clearTimeout(flowMinimapActiveTimer);
+    flowMinimapActiveTimer = setTimeout(() => minimap.classList.remove('is-active'), duration);
+}
+
+function scheduleFlowViewportCulling(delay = 120) {
+    clearTimeout(flowCullTimer);
+    flowCullTimer = setTimeout(updateFlowViewportCulling, delay);
+}
+
+function getFlowViewportWorldRect(padding = 0) {
+    const rect = viewport.getBoundingClientRect();
+    const scale = clampFlowScale(flowState.transform.scale);
+    const left = (0 - flowState.transform.x) / scale - padding;
+    const top = (0 - flowState.transform.y) / scale - padding;
+    const right = (rect.width - flowState.transform.x) / scale + padding;
+    const bottom = (rect.height - flowState.transform.y) / scale + padding;
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
+function updateFlowViewportCulling() {
+    if (!nodeBoard || !viewport || !flowState || !Array.isArray(flowState.nodes)) return;
+    const worldRect = getFlowViewportWorldRect(FLOW_CULL_PADDING);
+
+    flowState.nodes.forEach((node) => {
+        if (!node || !node.id) return;
+        const nodeEl = document.getElementById(node.id);
+        if (!nodeEl) return;
+        const isProtected = flowState.selectedNodeIds.has(node.id)
+            || (flowState.activeNode && flowState.activeNode.id === node.id)
+            || nodeEl.classList.contains('is-running')
+            || nodeEl.classList.contains('is-error');
+        if (isProtected) {
+            nodeEl.classList.remove('is-viewport-culled');
+            return;
+        }
+
+        const measuredWidth = nodeEl.offsetWidth || 0;
+        const measuredHeight = nodeEl.offsetHeight || 0;
+        if (!nodeEl.classList.contains('is-viewport-culled') && measuredWidth > 0 && measuredHeight > 0) {
+            nodeEl.__flowMeasuredSize = { width: measuredWidth, height: measuredHeight };
+        }
+        const cachedSize = nodeEl.__flowMeasuredSize || {};
+        const width = cachedSize.width || measuredWidth || node.width || 260;
+        const height = cachedSize.height || measuredHeight || node.height || 160;
+        const nodeLeft = Number(node.x) || 0;
+        const nodeTop = Number(node.y) || 0;
+        const isOutside = nodeLeft + width < worldRect.left
+            || nodeLeft > worldRect.right
+            || nodeTop + height < worldRect.top
+            || nodeTop > worldRect.bottom;
+        nodeEl.classList.toggle('is-viewport-culled', isOutside);
+    });
+}
+
+function cancelFlowInertia() {
+    if (flowInertiaFrame) {
+        cancelAnimationFrame(flowInertiaFrame);
+        flowInertiaFrame = 0;
+    }
+    flowPanSamples = [];
+}
+
+function recordFlowPanSample(clientX, clientY) {
+    const now = performance.now();
+    flowPanSamples.push({ x: clientX, y: clientY, t: now });
+    flowPanSamples = flowPanSamples.filter(sample => now - sample.t <= 120);
+}
+
+function panFlowBy(dx, dy, options = {}) {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    flowState.transform.x += dx;
+    flowState.transform.y += dy;
+    updateCanvasTransform();
+    if (options.markActive !== false) markFlowMinimapActive();
+}
+
+function startFlowInertia() {
+    if (flowPanSamples.length < 2) return;
+    const first = flowPanSamples[0];
+    const last = flowPanSamples[flowPanSamples.length - 1];
+    const dt = Math.max(16, last.t - first.t);
+    let vx = (last.x - first.x) / dt;
+    let vy = (last.y - first.y) / dt;
+    const speed = Math.hypot(vx, vy);
+    if (speed < 0.18) return;
+
+    cancelFlowInertia();
+    let prev = performance.now();
+    const tick = (now) => {
+        const frameDt = Math.min(32, now - prev);
+        prev = now;
+        panFlowBy(vx * frameDt, vy * frameDt, { markActive: true });
+        vx *= 0.91;
+        vy *= 0.91;
+        if (Math.hypot(vx, vy) > 0.035) {
+            flowInertiaFrame = requestAnimationFrame(tick);
+        } else {
+            flowInertiaFrame = 0;
+            viewport.classList.remove('is-panning-active');
+            if (typeof saveFlowToDB === 'function') saveFlowToDB();
+        }
+    };
+    viewport.classList.add('is-panning-active');
+    flowInertiaFrame = requestAnimationFrame(tick);
+}
+
+function zoomFlowAt(clientX, clientY, nextScale) {
+    const rect = viewport.getBoundingClientRect();
+    const scale = clampFlowScale(nextScale);
+    const prevScale = clampFlowScale(flowState.transform.scale);
+    const mouseX = clientX - rect.left;
+    const mouseY = clientY - rect.top;
+    const worldX = (mouseX - flowState.transform.x) / prevScale;
+    const worldY = (mouseY - flowState.transform.y) / prevScale;
+
+    flowState.transform.scale = scale;
+    flowState.transform.x = mouseX - worldX * scale;
+    flowState.transform.y = mouseY - worldY * scale;
+    updateCanvasTransform();
+    markFlowMinimapActive();
+}
+
+function animateFlowCameraTo(targetTransform, duration = FLOW_CAMERA_EASE_MS) {
+    if (!targetTransform) return;
+    if (flowCameraFrame) cancelAnimationFrame(flowCameraFrame);
+    cancelFlowInertia();
+
+    const start = {
+        x: flowState.transform.x,
+        y: flowState.transform.y,
+        scale: clampFlowScale(flowState.transform.scale)
+    };
+    const target = {
+        x: Number.isFinite(targetTransform.x) ? targetTransform.x : start.x,
+        y: Number.isFinite(targetTransform.y) ? targetTransform.y : start.y,
+        scale: clampFlowScale(targetTransform.scale)
+    };
+    const begin = performance.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+    const tick = (now) => {
+        const t = Math.min(1, (now - begin) / Math.max(1, duration));
+        const k = easeOutCubic(t);
+        flowState.transform.x = start.x + (target.x - start.x) * k;
+        flowState.transform.y = start.y + (target.y - start.y) * k;
+        flowState.transform.scale = start.scale + (target.scale - start.scale) * k;
+        updateCanvasTransform();
+        markFlowMinimapActive(500);
+        if (t < 1) {
+            flowCameraFrame = requestAnimationFrame(tick);
+        } else {
+            flowCameraFrame = 0;
+            if (typeof saveFlowToDB === 'function') saveFlowToDB();
+        }
+    };
+    flowCameraFrame = requestAnimationFrame(tick);
+}
+
+function getFlowNodesWorldBounds(nodeIds) {
+    const ids = Array.isArray(nodeIds) ? nodeIds : Array.from(nodeIds || []);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach((id) => {
+        const node = flowState.nodes.find(n => n.id === id);
+        const nodeEl = document.getElementById(id);
+        if (!node || !nodeEl) return;
+        const width = nodeEl.offsetWidth || node.width || 260;
+        const height = nodeEl.offsetHeight || node.height || 160;
+        const x = Number(node.x) || 0;
+        const y = Number(node.y) || 0;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + width);
+        maxY = Math.max(maxY, y + height);
+    });
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+}
+
+function focusFlowNodes(nodeIds = flowState.selectedNodeIds) {
+    const bounds = getFlowNodesWorldBounds(nodeIds);
+    if (!bounds) return;
+    const rect = viewport.getBoundingClientRect();
+    const pad = Math.min(180, Math.max(80, Math.min(rect.width, rect.height) * 0.12));
+    const nextScale = clampFlowScale(Math.min(
+        (rect.width - pad * 2) / bounds.width,
+        (rect.height - pad * 2) / bounds.height,
+        1.35
+    ));
+    const targetX = (rect.width - bounds.width * nextScale) / 2 - bounds.minX * nextScale;
+    const targetY = (rect.height - bounds.height * nextScale) / 2 - bounds.minY * nextScale;
+    animateFlowCameraTo({ x: targetX, y: targetY, scale: nextScale });
+}
+
+function buildFlowSelectionCandidates() {
+    flowSelectionCandidates = [];
+    flowState.nodes.forEach((node) => {
+        const nodeEl = document.getElementById(node.id);
+        if (!nodeEl || nodeEl.classList.contains('is-viewport-culled')) return;
+        flowSelectionCandidates.push({ id: node.id, rect: nodeEl.getBoundingClientRect() });
+    });
+}
+
+function updateFlowSelectionFromPointer(e) {
+    const box = flowState.selectionBox;
+    const left = Math.min(box.startX, e.clientX);
+    const top = Math.min(box.startY, e.clientY);
+    const right = Math.max(box.startX, e.clientX);
+    const bottom = Math.max(box.startY, e.clientY);
+    const width = right - left;
+    const height = bottom - top;
+    const leftToRight = e.clientX >= box.startX;
+
+    flowState.selectionBoxMode = leftToRight ? 'contain' : 'intersect';
+    dragSelectBox.style.left = left + 'px';
+    dragSelectBox.style.top = top + 'px';
+    dragSelectBox.style.width = width + 'px';
+    dragSelectBox.style.height = height + 'px';
+    dragSelectBox.classList.toggle('is-window', leftToRight);
+    dragSelectBox.classList.toggle('is-crossing', !leftToRight);
+
+    flowState.selectedNodeIds.clear();
+    if (width > 4 && height > 4) {
+        flowSelectionCandidates.forEach((candidate) => {
+            const rect = candidate.rect;
+            const isIntersect = !(rect.left > right || rect.right < left || rect.top > bottom || rect.bottom < top);
+            const isContain = rect.left >= left && rect.right <= right && rect.top >= top && rect.bottom <= bottom;
+            const hit = leftToRight ? isContain : isIntersect;
+            if (hit) flowState.selectedNodeIds.add(candidate.id);
+        });
+    }
+    updateSelectionStyles();
+}
+
+function ensureFlowSelectionToolbar() {
+    if (flowSelectionToolbarEl) return flowSelectionToolbarEl;
+    flowSelectionToolbarEl = document.createElement('div');
+    flowSelectionToolbarEl.className = 'flow-selection-toolbar';
+    flowSelectionToolbarEl.innerHTML = `
+        <button type="button" data-action="focus" title="聚焦选中节点"><span class="material-symbols-outlined">center_focus_strong</span></button>
+        <button type="button" data-action="duplicate" title="复制选中节点"><span class="material-symbols-outlined">content_copy</span></button>
+        <button type="button" data-action="freeze" title="冻结/解冻选中节点"><span class="material-symbols-outlined">ac_unit</span></button>
+        <button type="button" data-action="delete" class="danger" title="删除选中节点"><span class="material-symbols-outlined">delete</span></button>
+        <button type="button" data-action="clear" title="取消选择"><span class="material-symbols-outlined">close</span></button>
+    `;
+    flowSelectionToolbarEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    flowSelectionToolbarEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        if (action === 'focus') focusFlowNodes();
+        if (action === 'duplicate') duplicateSelectedFlowNodes();
+        if (action === 'freeze') toggleSelectedFlowNodesFreeze();
+        if (action === 'delete') deleteSelectedFlowNodes(true);
+        if (action === 'clear') clearNodeSelections();
+    });
+    document.body.appendChild(flowSelectionToolbarEl);
+    return flowSelectionToolbarEl;
+}
+
+function updateFlowSelectionToolbar() {
+    if (flowSelectionToolbarFrame) cancelAnimationFrame(flowSelectionToolbarFrame);
+    flowSelectionToolbarFrame = requestAnimationFrame(() => {
+        const toolbar = ensureFlowSelectionToolbar();
+        flowSelectionToolbarFrame = 0;
+        if (!flowState.selectedNodeIds || flowState.selectedNodeIds.size === 0) {
+            toolbar.classList.remove('is-visible');
+            return;
+        }
+
+        let left = Infinity, top = Infinity, right = -Infinity;
+        flowState.selectedNodeIds.forEach((id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            left = Math.min(left, rect.left);
+            top = Math.min(top, rect.top);
+            right = Math.max(right, rect.right);
+        });
+        if (!Number.isFinite(left)) {
+            toolbar.classList.remove('is-visible');
+            return;
+        }
+        toolbar.style.left = ((left + right) / 2) + 'px';
+        toolbar.style.top = Math.max(58, top - 12) + 'px';
+        toolbar.classList.add('is-visible');
+    });
+}
+
+function deleteSelectedFlowNodes(confirmFirst = true) {
+    if (!flowState.selectedNodeIds || flowState.selectedNodeIds.size === 0) return;
+    const total = flowState.selectedNodeIds.size;
+    if (confirmFirst && !confirm(`确认删除选中的 ${total} 个节点及其所有连线吗？`)) return;
+    const idsToDelete = new Set(flowState.selectedNodeIds);
+    pushFlowHistory('bulk-delete');
+    flowState.nodes = flowState.nodes.filter(n => !idsToDelete.has(n.id));
+    flowState.links = flowState.links.filter(l => !idsToDelete.has(l.source) && !idsToDelete.has(l.target));
+    flowState.selectedNodeIds.clear();
+    rebuildLinkIndex();
+    renderNodes();
+    renderLinks();
+    updateFlowSelectionToolbar();
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+    if (typeof renderMinimap === 'function') renderMinimap();
+}
+
+function duplicateSelectedFlowNodes() {
+    if (!flowState.selectedNodeIds || flowState.selectedNodeIds.size === 0) return;
+    const selectedIds = Array.from(flowState.selectedNodeIds);
+    const idMap = new Map();
+    const now = Date.now();
+    const newNodes = [];
+
+    selectedIds.forEach((id, index) => {
+        const source = flowState.nodes.find(n => n.id === id);
+        const clone = deepCopyJsonSafe(source);
+        if (!clone) return;
+        const nextId = `node_${now}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+        idMap.set(id, nextId);
+        clone.id = nextId;
+        clone.x = (Number(clone.x) || 0) + 48;
+        clone.y = (Number(clone.y) || 0) + 48;
+        newNodes.push(clone);
+    });
+
+    if (!newNodes.length) return;
+    const newLinks = (flowState.links || [])
+        .filter(link => idMap.has(link.source) && idMap.has(link.target))
+        .map((link, index) => {
+            const linkClone = deepCopyJsonSafe(link);
+            if (!linkClone) return null;
+            linkClone.id = `link_${now}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+            linkClone.source = idMap.get(link.source);
+            linkClone.target = idMap.get(link.target);
+            return linkClone;
+        })
+        .filter(Boolean);
+
+    pushFlowHistory('duplicate-selected');
+    flowState.nodes.push(...newNodes);
+    flowState.links.push(...newLinks);
+    flowState.selectedNodeIds.clear();
+    newNodes.forEach(node => flowState.selectedNodeIds.add(node.id));
+    rebuildLinkIndex();
+    renderNodes();
+    renderLinks();
+    updateSelectionStyles();
+    updateFlowSelectionToolbar();
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+    if (typeof renderMinimap === 'function') renderMinimap();
+}
+
+function toggleSelectedFlowNodesFreeze() {
+    if (!flowState.selectedNodeIds || flowState.selectedNodeIds.size === 0) return;
+    pushFlowHistory('toggle-freeze-selected');
+    const selectedNodes = Array.from(flowState.selectedNodeIds)
+        .map(id => flowState.nodes.find(n => n.id === id))
+        .filter(Boolean);
+    const shouldFreeze = selectedNodes.some(node => !node._frozen);
+    selectedNodes.forEach(node => { node._frozen = shouldFreeze; });
+    renderNodes();
+    updateSelectionStyles();
+    updateFlowSelectionToolbar();
+    if (typeof saveFlowToDB === 'function') saveFlowToDB();
+}
+
+window.duplicateSelectedFlowNodes = duplicateSelectedFlowNodes;
+window.deleteSelectedFlowNodes = deleteSelectedFlowNodes;
+window.focusSelectedFlowNodes = () => focusFlowNodes();
 
 // ==========================================
 // 💾 工作流本地持久化引擎 (IndexedDB)
@@ -579,6 +1067,8 @@ function renderNodes() {
         nodeEl.style.transform = `translate(${node.x}px, ${node.y}px)`;
         evaluateNodeConditions(node.id);
     });
+    updateSelectionStyles();
+    scheduleFlowViewportCulling(80);
 }
 
 // ==========================================
@@ -858,9 +1348,11 @@ function normalizeFlowLinks(persistToDb = true) {
 // ==========================================
 function startDragNode(e, nodeId) {
     const tag = e.target.tagName;
+    if (flowState.isSpacePanning || e.shiftKey) return;
     if (e.button !== 0 || e.target.classList.contains('port') || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'OPTION') return; 
     
     e.stopPropagation();
+    cancelFlowInertia();
     
     // 🌟 智能多选点触联动：如果没按 Shift 且点击了一个未选中的节点，清空之前的所有选择
     if (!e.shiftKey && !flowState.selectedNodeIds.has(nodeId)) {
@@ -915,6 +1407,7 @@ window.clearNodeSelections = function() {
         if (el) el.classList.remove('is-selected');
     });
     flowState.selectedNodeIds.clear();
+    updateFlowSelectionToolbar();
 };
 
 // 辅助函数：靶向渲染高亮样式
@@ -929,11 +1422,14 @@ window.updateSelectionStyles = function() {
             }
         }
     });
+    updateFlowSelectionToolbar();
 };
 
 window.startDrawLink = function(e, nodeId, portId, portType, ioType) {
     if (ioType !== 'out') return;
     e.stopPropagation();
+    cancelFlowInertia();
+    viewport.classList.add('is-linking');
     const portEl = e.target;
     const pRect = portEl.getBoundingClientRect();
     const cRect = canvas.getBoundingClientRect();
@@ -952,6 +1448,7 @@ window.finishDrawLink = function(e, targetNodeId, targetPortId, targetPortType, 
 
     const { sourceNode, sourcePort, type } = flowState.drawingLink;
     flowState.drawingLink.active = false;
+    viewport.classList.remove('is-linking');
 
     if (ioType !== 'in' || sourceNode === targetNodeId || type !== targetPortType) {
         renderLinks();
@@ -1010,26 +1507,32 @@ window.finishDrawLink = function(e, targetNodeId, targetPortId, targetPortType, 
 };
 
 let isTicking = false;
+let lastPointerEvent = null;
 
 // 画布点按控制器 (打通平移与 Shift 区域框选双模态)
 viewport.addEventListener('mousedown', (e) => {
     if (e.button !== 0 && e.button !== 1) return;
+    if (isFlowFormTarget(e.target)) return;
+    cancelFlowInertia();
 
     // 🌟 核心：如果按住了 Shift 键或者点的空白处，开启批量框选模式
     if (e.button === 0 && e.shiftKey) {
         e.preventDefault();
+        e.stopPropagation();
         flowState.selectionBox.active = true;
         flowState.selectionBox.startX = e.clientX;
         flowState.selectionBox.startY = e.clientY;
         flowState.selectionBoxMode = 'intersect';
+        buildFlowSelectionCandidates();
+        clearNodeSelections();
         
         dragSelectBox.style.left = e.clientX + 'px';
         dragSelectBox.style.top = e.clientY + 'px';
         dragSelectBox.style.width = '0px';
         dragSelectBox.style.height = '0px';
         dragSelectBox.style.display = 'block';
-        dragSelectBox.style.border = '1px dashed #22c55e';
-        dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
+        dragSelectBox.classList.remove('is-window');
+        dragSelectBox.classList.add('is-crossing');
         return;
     }
 
@@ -1038,49 +1541,39 @@ viewport.addEventListener('mousedown', (e) => {
         clearNodeSelections();
     }
 
-    if (e.button === 1 || (e.button === 0 && e.target === viewport)) {
+    const isCanvasSurface = e.target === viewport || e.target === canvas || e.target === nodeBoard || e.target === svgLayer;
+    const shouldPan = e.button === 1 || (e.button === 0 && (flowState.isSpacePanning || isCanvasSurface));
+    if (shouldPan) {
+        e.preventDefault();
+        e.stopPropagation();
         pushFlowHistory('pan-canvas');
         flowState.isPanning = true; flowState.startX = e.clientX; flowState.startY = e.clientY;
-        viewport.style.cursor = 'grabbing';
+        recordFlowPanSample(e.clientX, e.clientY);
+        viewport.classList.add('is-panning-active');
+        markFlowMinimapActive();
     }
 });
 
 window.addEventListener('mousemove', (e) => {
+    lastPointerEvent = e;
     if (!isTicking) {
         requestAnimationFrame(() => {
+            const evt = lastPointerEvent || e;
             // 模式 1：动态拉连线
             if (flowState.drawingLink.active) {
                 const cRect = canvas.getBoundingClientRect();
-                flowState.drawingLink.currentX = (e.clientX - cRect.left) / flowState.transform.scale;
-                flowState.drawingLink.currentY = (e.clientY - cRect.top) / flowState.transform.scale;
+                flowState.drawingLink.currentX = (evt.clientX - cRect.left) / flowState.transform.scale;
+                flowState.drawingLink.currentY = (evt.clientY - cRect.top) / flowState.transform.scale;
                 renderLinks();
             }
             // 模式 2：高级框选矩形绘制
             else if (flowState.selectionBox.active) {
-                const box = flowState.selectionBox;
-                const left = Math.min(box.startX, e.clientX);
-                const top = Math.min(box.startY, e.clientY);
-                const width = Math.abs(box.startX - e.clientX);
-                const height = Math.abs(box.startY - e.clientY);
-                const leftToRight = e.clientX >= box.startX;
-                flowState.selectionBoxMode = leftToRight ? 'contain' : 'intersect';
-                
-                dragSelectBox.style.left = left + 'px';
-                dragSelectBox.style.top = top + 'px';
-                dragSelectBox.style.width = width + 'px';
-                dragSelectBox.style.height = height + 'px';
-                if (leftToRight) {
-                    dragSelectBox.style.border = '1px solid #3b82f6';
-                    dragSelectBox.style.background = 'rgba(59, 130, 246, 0.10)';
-                } else {
-                    dragSelectBox.style.border = '1px dashed #22c55e';
-                    dragSelectBox.style.background = 'rgba(34, 197, 94, 0.08)';
-                }
+                updateFlowSelectionFromPointer(evt);
             }
             // 模式 3：工业级多节点协同平移 (矩阵协同位移核心)
             else if (flowState.activeNode) {
-                const dx = (e.clientX - flowState.startX) / flowState.transform.scale;
-                const dy = (e.clientY - flowState.startY) / flowState.transform.scale;
+                const dx = (evt.clientX - flowState.startX) / flowState.transform.scale;
+                const dy = (evt.clientY - flowState.startY) / flowState.transform.scale;
                 
                 // 遍历选中矩阵中的所有节点，齐步走！
                 flowState.selectedNodeIds.forEach(id => {
@@ -1093,25 +1586,23 @@ window.addEventListener('mousemove', (e) => {
                     }
                 });
                 
-                flowState.startX = e.clientX; flowState.startY = e.clientY;
+                flowState.startX = evt.clientX; flowState.startY = evt.clientY;
                 const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
                 renderLinks(dirtyIds); 
                 if (typeof renderMinimap === 'function') renderMinimap(); // 联动更新小地图
+                updateFlowSelectionToolbar();
             }
             // 模式 4：画布全局平移
             else if (flowState.isPanning) {
-                flowState.transform.x += (e.clientX - flowState.startX);
-                flowState.transform.y += (e.clientY - flowState.startY);
-                flowState.startX = e.clientX; flowState.startY = e.clientY;
-                updateCanvasTransform();
+                panFlowBy(evt.clientX - flowState.startX, evt.clientY - flowState.startY);
+                flowState.startX = evt.clientX; flowState.startY = evt.clientY;
+                recordFlowPanSample(evt.clientX, evt.clientY);
             }
 
             if (flowState.activeNode || flowState.drawingLink.active) {
-                const edgeDelta = computeEdgeScrollDelta(e.clientX, e.clientY);
+                const edgeDelta = computeEdgeScrollDelta(evt.clientX, evt.clientY);
                 if (Math.abs(edgeDelta.dx) > 0.2 || Math.abs(edgeDelta.dy) > 0.2) {
-                    flowState.transform.x += edgeDelta.dx;
-                    flowState.transform.y += edgeDelta.dy;
-                    updateCanvasTransform();
+                    panFlowBy(edgeDelta.dx, edgeDelta.dy);
                     if (flowState.activeNode) {
                         const dirtyIds = new Set(Array.from(flowState.selectedNodeIds));
                         renderLinks(dirtyIds);
@@ -1129,40 +1620,16 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', (e) => {
     let shouldSave = false;
 
-    // 🌟 处理框选碰撞体积检测 (AABB 相交检测算法)
+    // 🌟 框选已经在 mousemove 中实时计算，mouseup 只负责收尾。
     if (flowState.selectionBox.active) {
-        
-        // 🚨 修复：必须先获取相交体积！一旦 display:none，元素的宽高就会变成 0，导致永远选不上！
         const sRect = dragSelectBox.getBoundingClientRect();
-        
         flowState.selectionBox.active = false;
         dragSelectBox.style.display = 'none';
-        
-        // 如果只是轻点了一下，不触发框选
-        if (sRect.width > 4 && sRect.height > 4) {
-            // 开始新的框选时，自动清空旧的选中集
-            flowState.selectedNodeIds.clear();
-
-            flowState.nodes.forEach(node => {
-                const nodeEl = document.getElementById(node.id);
-                if (nodeEl) {
-                    const nRect = nodeEl.getBoundingClientRect();
-                    const isIntersect = !(nRect.left > sRect.right ||
-                                          nRect.right < sRect.left ||
-                                          nRect.top > sRect.bottom ||
-                                          nRect.bottom < sRect.top);
-                    const isContain = (
-                        nRect.left >= sRect.left &&
-                        nRect.right <= sRect.right &&
-                        nRect.top >= sRect.top &&
-                        nRect.bottom <= sRect.bottom
-                    );
-                    const hit = flowState.selectionBoxMode === 'contain' ? isContain : isIntersect;
-                    if (hit) {
-                        flowState.selectedNodeIds.add(node.id);
-                    }
-                }
-            });
+        dragSelectBox.classList.remove('is-window', 'is-crossing');
+        flowSelectionCandidates = [];
+        if (sRect.width <= 4 || sRect.height <= 4) {
+            clearNodeSelections();
+        } else {
             updateSelectionStyles();
         }
     }
@@ -1176,38 +1643,61 @@ window.addEventListener('mouseup', (e) => {
     }
     if (flowState.isPanning) {
         shouldSave = true;
+        startFlowInertia();
     }
 
     flowState.activeNode = null;
     flowState.isPanning = false;
-    viewport.style.cursor = 'grab';
+    if (!flowInertiaFrame) viewport.classList.remove('is-panning-active');
     
     if (flowState.drawingLink.active) {
         flowState.drawingLink.active = false;
         renderLinks();
+        viewport.classList.remove('is-linking');
     }
 
     if (shouldSave && typeof saveFlowToDB === 'function') saveFlowToDB();
     if (typeof renderMinimap === 'function') renderMinimap(); // 联动更新小地图
+    updateFlowSelectionToolbar();
 });
 
 viewport.addEventListener('wheel', (e) => {
+    if (shouldAllowNativeWheel(e)) return;
     e.preventDefault();
-    const zoomIntensity = 0.05; const wheel = e.deltaY < 0 ? 1 : -1;
-    let newScale = flowState.transform.scale * Math.exp(wheel * zoomIntensity);
-    newScale = Math.min(Math.max(0.2, newScale), 3); 
-    const rect = viewport.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
-    flowState.transform.x = mouseX - (mouseX - flowState.transform.x) * (newScale / flowState.transform.scale);
-    flowState.transform.y = mouseY - (mouseY - flowState.transform.y) * (newScale / flowState.transform.scale);
-    flowState.transform.scale = newScale;
-    updateCanvasTransform();
+    cancelFlowInertia();
+
+    const absX = Math.abs(e.deltaX || 0);
+    const absY = Math.abs(e.deltaY || 0);
+    const isPinchZoom = e.ctrlKey;
+    const looksLikeTrackpadPan = !isPinchZoom && (absX > 0 || (e.deltaMode === 0 && absY > 0 && absY < 42));
+
+    if (looksLikeTrackpadPan) {
+        panFlowBy(-(e.deltaX || 0), -(e.deltaY || 0));
+    } else {
+        const zoomFactor = Math.exp(-e.deltaY * (isPinchZoom ? 0.01 : 0.0016));
+        zoomFlowAt(e.clientX, e.clientY, flowState.transform.scale * zoomFactor);
+    }
+
+    clearTimeout(flowWheelSaveTimer);
+    flowWheelSaveTimer = setTimeout(() => {
+        if (typeof saveFlowToDB === 'function') saveFlowToDB();
+    }, 260);
 }, { passive: false });
 
 function updateCanvasTransform() {
-    canvas.style.transform = `translate(${flowState.transform.x}px, ${flowState.transform.y}px) scale(${flowState.transform.scale})`;
+    flowState.transform.scale = clampFlowScale(flowState.transform.scale);
+    canvas.style.transform = `translate3d(${flowState.transform.x}px, ${flowState.transform.y}px, 0) scale(${flowState.transform.scale})`;
+
+    const scale = flowState.transform.scale;
+    const baseGrid = scale < 0.32 ? 100 : (scale < 0.62 ? 50 : (scale > 2.2 ? 10 : 20));
+    const gridSize = Math.max(8, baseGrid * scale);
     viewport.style.backgroundPosition = `${flowState.transform.x}px ${flowState.transform.y}px`;
-    viewport.style.backgroundSize = `${20 * flowState.transform.scale}px ${20 * flowState.transform.scale}px`;
+    viewport.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+
+    markFlowMinimapActive(520);
+    if (typeof renderMinimap === 'function') renderMinimap();
+    scheduleFlowViewportCulling();
+    updateFlowSelectionToolbar();
 }
 
 // ==========================================
@@ -1323,9 +1813,11 @@ window.clearFlowCanvas = function() {
         pushFlowHistory('clear-flow');
         flowState.nodes = [];
         flowState.links = [];
+        flowState.selectedNodeIds.clear();
         rebuildLinkIndex();
         renderNodes();
         renderLinks();
+        updateFlowSelectionToolbar();
         if (typeof saveFlowToDB === 'function') saveFlowToDB();
     }
 };
@@ -1506,8 +1998,10 @@ window.deleteNode = function(nodeId) {
     pushFlowHistory('delete-node');
     flowState.nodes = flowState.nodes.filter(n => n.id !== nodeId);
     flowState.links = flowState.links.filter(l => l.source !== nodeId && l.target !== nodeId); 
+    flowState.selectedNodeIds.delete(nodeId);
     rebuildLinkIndex();
     renderNodes(); renderLinks();
+    updateFlowSelectionToolbar();
     saveFlowToDB(); 
 };
 
@@ -1542,7 +2036,10 @@ window.spawnNode = function(blueprintType, spawnX, spawnY) {
     newNode.x = spawnX !== undefined ? spawnX : menuClickWorldPos.x;
     newNode.y = spawnY !== undefined ? spawnY : menuClickWorldPos.y;
     flowState.nodes.push(newNode);
+    flowState.selectedNodeIds.clear();
+    flowState.selectedNodeIds.add(newNode.id);
     renderNodes(); 
+    updateSelectionStyles();
     if (typeof saveFlowToDB === 'function') saveFlowToDB();
     if (typeof renderMinimap === 'function') renderMinimap();
 };
@@ -1657,6 +2154,16 @@ window.initFlowEngine = bootstrapFlowEngine;
 // ⌨️ 全局键盘快捷键中心 (支持批量一键销毁)
 // ==========================================
 window.addEventListener('keydown', (e) => {
+    const activeTag = document.activeElement ? document.activeElement.tagName : '';
+    const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
+
+    if (!isTyping && e.code === 'Space') {
+        e.preventDefault();
+        flowState.isSpacePanning = true;
+        viewport.classList.add('space-pan-ready');
+        return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         undoFlow();
@@ -1667,35 +2174,37 @@ window.addEventListener('keydown', (e) => {
         redoFlow();
         return;
     }
+    if (!isTyping && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        duplicateSelectedFlowNodes();
+        return;
+    }
+    if (!isTyping && e.key.toLowerCase() === 'f' && flowState.selectedNodeIds.size > 0) {
+        e.preventDefault();
+        focusFlowNodes();
+        return;
+    }
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
         // 拦截机制：如果用户当前正在输入框或文本域中改参数，绝不误杀节点！
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+        if (isTyping) return;
 
         if (flowState.selectedNodeIds.size > 0) {
-            if (confirm(`🚨 确认要批量删除选中的 ${flowState.selectedNodeIds.size} 个节点及其所有连线吗？`)) {
-                const idsToDelete = new Set(flowState.selectedNodeIds);
-                
-                // 1. 内存全量清洗
-                pushFlowHistory('bulk-delete');
-                flowState.nodes = flowState.nodes.filter(n => !idsToDelete.has(n.id));
-                flowState.links = flowState.links.filter(l => !idsToDelete.has(l.source) && !idsToDelete.has(l.target));
-                rebuildLinkIndex();
-                
-                // 2. 清空选择集
-                flowState.selectedNodeIds.clear();
-                
-                // 3. UI靶向重绘
-                renderNodes();
-                renderLinks();
-                
-                // 4. 同步持久化本地金库
-                if (typeof saveFlowToDB === 'function') saveFlowToDB();
-                if (typeof renderMinimap === 'function') renderMinimap();
-                console.log(`🧹 [键盘微操作系统] 已成功清空选中的节点群落。`);
-            }
+            deleteSelectedFlowNodes(true);
         }
     }
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+        flowState.isSpacePanning = false;
+        viewport.classList.remove('space-pan-ready');
+    }
+});
+
+window.addEventListener('blur', () => {
+    flowState.isSpacePanning = false;
+    viewport.classList.remove('space-pan-ready', 'is-panning-active', 'is-linking');
 });
 
 // ==========================================
@@ -1812,12 +2321,8 @@ window.renderMinimap = function() {
     vpBox.style.height = Math.min(120, curWorldH * mapScale) + 'px';
 };
 
-// 🌟 扩展原先的启动函数，并重置 updateCanvasTransform 联动
-const originalUpdateCanvasTransform = window.updateCanvasTransform;
-window.updateCanvasTransform = function() {
-    if (typeof originalUpdateCanvasTransform === 'function') originalUpdateCanvasTransform();
-    renderMinimap(); // 缩放平移画布时无损重绘视野框
-};
+// 🌟 对外暴露同一个相机函数，避免本地函数与 window 包装器状态不同步。
+window.updateCanvasTransform = updateCanvasTransform;
 
 viewport.addEventListener('dragover', (e) => {
     if (e.dataTransfer.types.includes('veo-node-type')) {
