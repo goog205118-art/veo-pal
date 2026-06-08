@@ -322,6 +322,7 @@ const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit';
 const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll';
 const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
 const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
+const API_IMAGE_POLL = (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || '';
 const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
 const IMG_GEN_PRO_INPUT_PRICE_PER_1M = 5;
 const IMG_GEN_PRO_OUTPUT_PRICE_PER_1M = 30;
@@ -6135,6 +6136,13 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     };
 }
 
+function isLocalImgGenFallbackTaskId(remoteTaskId, taskId = '') {
+    const id = String(remoteTaskId || '').trim();
+    if (!id) return true;
+    if (taskId && id === taskId) return true;
+    return /^tool_img_/i.test(id) || /_img_item_/i.test(id);
+}
+
 function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
     const itemId = previewItemId || remoteTaskId || createImgGenPreviewId();
     const pollKey = buildImgGenPollKey(taskId, itemId);
@@ -6180,14 +6188,20 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
         const pollPayload = buildImgGenPollPayload(task, remoteId);
         const headers = buildImgGenHeaders();
         const attemptsList = [];
-        const useTrialLegacyFirst = task.state.version !== 'pro';
 
-        if (useTrialLegacyFirst) {
-            if (API_IMAGE_GEN_LEGACY) attemptsList.push({ url: API_IMAGE_GEN_LEGACY, body: pollPayload.legacy });
-            if (API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN, body: pollPayload.unified });
-        } else {
-            if (API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN, body: pollPayload.unified });
-            if (API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) attemptsList.push({ url: API_IMAGE_GEN_LEGACY, body: pollPayload.legacy });
+        if (isLocalImgGenFallbackTaskId(remoteId, taskId)) {
+            markImgGenPreviewFailed(task, itemId, '后端未返回真实图片任务 ID，已停止无效轮询');
+            task.timestamp = Date.now();
+            clearImgGenPolling(taskId, itemId);
+            await saveTaskDB(task);
+            renderCard(taskId, task);
+            forceRenderImgGenPreviewPanel(task, itemId);
+            showToast('后端未返回真实任务ID，已停止轮询避免刷屏', 'warning');
+            return;
+        }
+
+        if (API_IMAGE_POLL) {
+            attemptsList.push({ url: API_IMAGE_POLL, body: pollPayload.unified });
         }
         attemptsList.push({ url: API_POLL, body: pollPayload.fallback });
 
@@ -7061,7 +7075,17 @@ async function submitImgGen(taskId) {
                         clearImgGenPolling(taskId, previewItemId);
                         return;
                     }
-                    const fallbackTaskId = asyncTaskId || clientRequestId;
+                    if (!asyncTaskId) {
+                        markImgGenPreviewFailed(task, previewItemId, '后端未返回图片或真实任务ID');
+                        task.genTaskId = null;
+                        task.timestamp = Date.now();
+                        await saveTaskDB(task);
+                        renderCard(taskId, task);
+                        forceRenderImgGenPreviewPanel(task, previewItemId);
+                        showToast('后端未返回图片或真实任务ID，请检查 n8n Respond 输出', 'warning');
+                        return;
+                    }
+                    const fallbackTaskId = asyncTaskId;
                     const item = task.state.previewHistory.find((entry) => entry && entry.id === previewItemId);
                     if (item) {
                         item.remoteTaskId = fallbackTaskId;
