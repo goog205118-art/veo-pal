@@ -331,6 +331,37 @@ const IMG_GEN_PRO_FALLBACK_COST = 0.12;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
+function normalizeWebhookEndpointForCompare(rawUrl) {
+    const raw = String(rawUrl || '').trim();
+    if (!raw) return '';
+    try {
+        const url = new URL(raw, window.location.href);
+        return `${url.origin}${url.pathname.replace(/\/+$/, '')}`.toLowerCase();
+    } catch (err) {
+        return raw.split('?')[0].replace(/\/+$/, '').toLowerCase();
+    }
+}
+
+function isSameWebhookEndpoint(a, b) {
+    const left = normalizeWebhookEndpointForCompare(a);
+    const right = normalizeWebhookEndpointForCompare(b);
+    return !!left && !!right && left === right;
+}
+
+function isImageGenerationWebhookEndpoint(rawUrl) {
+    const endpoint = normalizeWebhookEndpointForCompare(rawUrl);
+    return endpoint.endsWith('/proxy-image-unified') || endpoint.endsWith('/proxy-image-gen');
+}
+
+function resolveImgGenPollEndpoint() {
+    const url = String(API_IMAGE_POLL || '').trim();
+    if (!url) return { url: '', reason: 'missing' };
+    if (isImageGenerationWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
+        return { url: '', reason: 'points_to_generation' };
+    }
+    return { url, reason: '' };
+}
+
 const IMG_GEN_REF_INTENTS = [
     { value: 'structure', label: '结构', hint: '产品轮廓 / 深度 / 构图' },
     { value: 'style', label: '风格', hint: '影调 / 氛围 / 电影感' },
@@ -6188,6 +6219,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
         const pollPayload = buildImgGenPollPayload(task, remoteId);
         const headers = buildImgGenHeaders();
         const attemptsList = [];
+        const pollEndpoint = resolveImgGenPollEndpoint();
 
         if (isLocalImgGenFallbackTaskId(remoteId, taskId)) {
             markImgGenPreviewFailed(task, itemId, '后端未返回真实图片任务 ID，已停止无效轮询');
@@ -6200,10 +6232,28 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             return;
         }
 
-        if (API_IMAGE_POLL) {
-            attemptsList.push({ url: API_IMAGE_POLL, body: pollPayload.unified });
+        if (!pollEndpoint.url) {
+            const reason = pollEndpoint.reason === 'points_to_generation'
+                ? '图片轮询接口误指向生图生成入口，已停止轮询，避免 n8n 空 prompt 刷屏'
+                : '未配置图片轮询接口，已停止轮询；请让 n8n 生成入口直接返回图片，或配置 VEO_IMAGE_POLL_WEBHOOK';
+            markImgGenPreviewFailed(task, itemId, reason);
+            task.genTaskId = null;
+            task.timestamp = Date.now();
+            clearImgGenPolling(taskId, itemId);
+            await saveTaskDB(task);
+            renderCard(taskId, task);
+            forceRenderImgGenPreviewPanel(task, itemId);
+            console.warn('[img-poll] stopped invalid image polling:', {
+                reason: pollEndpoint.reason,
+                imagePollWebhook: API_IMAGE_POLL || '',
+                imageGenWebhook: API_IMAGE_GEN,
+                legacyWebhook: API_IMAGE_GEN_LEGACY,
+                remoteId
+            });
+            showToast('图片轮询已熔断：请检查 VEO_IMAGE_POLL_WEBHOOK，不要填生成入口', 'warning');
+            return;
         }
-        attemptsList.push({ url: API_POLL, body: pollPayload.fallback });
+        attemptsList.push({ url: pollEndpoint.url, body: pollPayload.unified });
 
         let rawData = null;
         let lastHttpError = null;

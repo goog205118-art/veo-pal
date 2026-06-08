@@ -354,16 +354,16 @@
         <div class="route-transition-ring"></div>
         <div class="route-transition-label">ROUTE HANDSHAKE</div>
     </div>
-
     <script>
-      // 可选：覆盖前端默认生图 webhook（不填则走 app.js 内置默认地址）
+      // Optional: override image generation webhook. Empty means use app.js default.
       window.VEO_IMAGE_UNIFIED_WEBHOOK = window.VEO_IMAGE_UNIFIED_WEBHOOK || '';
-      // 可选：统一 webhook 鉴权头，例如 "Bearer sk-xxxx"
+      // Optional: image polling webhook. Do not point this to proxy-image-unified/proxy-image-gen.
+      window.VEO_IMAGE_POLL_WEBHOOK = window.VEO_IMAGE_POLL_WEBHOOK || '';
+      // Optional: unified webhook auth header, for example "Bearer sk-xxxx".
       window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
-      // 可选：当统一路由不可用时，试用版回退的旧接口地址
+      // Optional: legacy trial image webhook fallback.
       window.VEO_IMAGE_LEGACY_WEBHOOK = window.VEO_IMAGE_LEGACY_WEBHOOK || '';
-    </script>
-    <script src="js/db.js"></script>
+    </script><script src="js/db.js"></script>
     <script src="js/store.js"></script>
     <script src="js/app.js"></script>
 </body>
