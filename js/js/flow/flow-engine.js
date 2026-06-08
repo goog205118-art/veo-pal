@@ -39,7 +39,8 @@ flowStyleInj.innerHTML = `
     #flow-canvas {
         transform-origin: 0 0;
         will-change: transform;
-        contain: layout style paint;
+        contain: none;
+        overflow: visible !important;
     }
     .flow-viewport.is-panning,
     .flow-viewport.space-pan-ready { cursor: grab !important; }
@@ -98,7 +99,7 @@ flowStyleInj.innerHTML = `
     }
     .veo-node {
         will-change: transform;
-        contain: layout style paint;
+        contain: none;
         transition: border-color 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
     }
     .veo-node.is-selection-preview {
@@ -352,9 +353,11 @@ window.toggleFlowThemeMode = function() {
 
 window.toggleMonoTheme = window.toggleFlowThemeMode;
 
-// 🌟 修复 SVG 容器折叠导致的连线消失问题
-canvas.style.width = '1px'; canvas.style.height = '1px'; canvas.style.overflow = 'visible';
-svgLayer.style.width = '1px'; svgLayer.style.height = '1px'; svgLayer.style.overflow = 'visible';
+// 🌟 修复 SVG/DOM 容器折叠导致的连线与节点消失问题。
+// flow-canvas 依赖 1px 容器 + overflow: visible 承载无限坐标，绝不能启用 paint containment。
+canvas.style.width = '1px'; canvas.style.height = '1px'; canvas.style.overflow = 'visible'; canvas.style.contain = 'none';
+svgLayer.style.width = '1px'; svgLayer.style.height = '1px'; svgLayer.style.overflow = 'visible'; svgLayer.style.contain = 'none';
+if (nodeBoard) { nodeBoard.style.overflow = 'visible'; nodeBoard.style.contain = 'none'; }
 
 // 1. 全局状态机 (扩容高级多选、批量框选、协同控制核心)
 let flowState = {
