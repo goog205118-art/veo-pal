@@ -155,6 +155,100 @@ flowStyleInj.innerHTML = `
         background: rgba(15,23,42,0.055); color: #0f172a;
     }
 
+    /* 👇 Coze-like 右侧节点调试 / 参数 Inspector */
+    .flow-node-inspector {
+        position: fixed; top: 50px; right: 0; width: min(420px, calc(100vw - 240px)); height: calc(100vh - 50px);
+        z-index: 920; display: flex; flex-direction: column; box-sizing: border-box;
+        background: rgba(14, 14, 18, 0.92); border-left: 1px solid rgba(255,255,255,0.09);
+        box-shadow: -24px 0 70px rgba(0,0,0,0.42), inset 1px 0 0 rgba(255,255,255,0.04);
+        backdrop-filter: blur(20px); transform: translateX(104%);
+        transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+        color: #e5e7eb;
+    }
+    .flow-node-inspector.is-open { transform: translateX(0); }
+    .flow-inspector-head {
+        padding: 18px 18px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+        background: linear-gradient(180deg, rgba(167,139,250,0.11), rgba(14,14,18,0));
+    }
+    .flow-inspector-kicker {
+        font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #8b8b96;
+        margin-bottom: 6px; font-weight: 800;
+    }
+    .flow-inspector-title { font-size: 17px; line-height: 1.25; font-weight: 800; color: #fff; }
+    .flow-inspector-subtitle { margin-top: 6px; font-size: 12px; color: #9292a0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .flow-inspector-close {
+        width: 30px; height: 30px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.05); color: #a1a1aa; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; transition: 0.18s ease;
+    }
+    .flow-inspector-close:hover { color: #fff; background: rgba(255,255,255,0.1); transform: translateY(-1px); }
+    .flow-inspector-body { padding: 16px 18px 24px; overflow-y: auto; flex: 1; }
+    .flow-inspector-section {
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+        background: rgba(255,255,255,0.035); padding: 14px; margin-bottom: 14px;
+    }
+    .flow-inspector-section-title {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+        color: #f4f4f5; font-size: 12px; font-weight: 800; letter-spacing: 0.02em;
+    }
+    .flow-inspector-section-title .material-symbols-outlined { font-size: 15px; color: #a78bfa; }
+    .flow-inspector-field {
+        display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px;
+    }
+    .flow-inspector-field:last-child { margin-bottom: 0; }
+    .flow-inspector-label {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        font-size: 11px; color: #a1a1aa; font-weight: 700;
+    }
+    .flow-inspector-label code {
+        color: #71717a; font-size: 10px; font-weight: 600; background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.06); padding: 2px 5px; border-radius: 6px;
+    }
+    .flow-node-inspector .node-input {
+        width: 100%; box-sizing: border-box; margin: 0;
+        background: rgba(4, 4, 7, 0.42); border-color: rgba(255,255,255,0.10);
+    }
+    .flow-node-inspector textarea.node-input { min-height: 104px; resize: vertical; }
+    .flow-inspector-empty {
+        padding: 18px; border-radius: 14px; border: 1px dashed rgba(255,255,255,0.10);
+        color: #858591; font-size: 12px; line-height: 1.7; background: rgba(255,255,255,0.03);
+    }
+    .flow-node-compact {
+        padding: 10px 14px 8px; display: flex; flex-direction: column; gap: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.045);
+    }
+    .flow-node-compact-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: #858591; }
+    .flow-node-param-pill {
+        display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+        color: #c4b5fd; background: rgba(167,139,250,0.10); border: 1px solid rgba(167,139,250,0.18);
+        border-radius: 999px; padding: 4px 8px; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .flow-node-config-btn {
+        width: 24px; height: 24px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(255,255,255,0.045); color: #8a8a8a; cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; transition: 0.2s ease;
+    }
+    .flow-node-config-btn:hover, .flow-node-config-btn.is-active {
+        color: #fff; border-color: rgba(167,139,250,0.45); background: rgba(167,139,250,0.16);
+        box-shadow: 0 0 16px rgba(167,139,250,0.16);
+    }
+    .flow-node-config-btn .material-symbols-outlined { font-size: 14px; }
+    .veo-node.is-inspecting {
+        border-color: rgba(167,139,250,0.72) !important;
+        box-shadow: 0 0 30px rgba(167,139,250,0.22), 0 10px 40px rgba(0,0,0,0.58) !important;
+    }
+    :root[data-theme='light'] .flow-node-inspector {
+        background: rgba(255,255,255,0.92); color: #111827; border-left-color: rgba(15,23,42,0.10);
+        box-shadow: -22px 0 55px rgba(15,23,42,0.14);
+    }
+    :root[data-theme='light'] .flow-inspector-head {
+        background: linear-gradient(180deg, rgba(79,70,229,0.08), rgba(255,255,255,0));
+    }
+    :root[data-theme='light'] .flow-inspector-title { color: #111827; }
+    :root[data-theme='light'] .flow-inspector-section { background: rgba(15,23,42,0.035); border-color: rgba(15,23,42,0.08); }
+    :root[data-theme='light'] .flow-node-inspector .node-input { background: rgba(255,255,255,0.75); border-color: rgba(15,23,42,0.12); color: #111827; }
+
     /* 👇 新增：右下角全景导航小地图 (Minimap) */
     .flow-minimap-container {
         position: absolute; right: 24px; bottom: 24px; width: 180px; height: 120px;
@@ -400,6 +494,8 @@ let flowWheelSaveTimer = 0;
 let flowSelectionCandidates = [];
 let flowSelectionToolbarEl = null;
 let flowSelectionToolbarFrame = 0;
+let flowInspectorNodeId = null;
+let flowInspectorEl = null;
 
 // 动态挂载原生框选框 DOM 到页面
 const dragSelectBox = document.createElement('div');
@@ -1004,6 +1100,189 @@ function renderImageUploadInput(node, inp, val) {
     </div>`;
 }
 
+function getNodeInputValue(node, inp) {
+    if (!node || !inp) return '';
+    return node.data && node.data[inp.id] !== undefined ? node.data[inp.id] : inp.default;
+}
+
+function summarizeNodeValue(value, inp) {
+    if (value === null || value === undefined || value === '') return '未配置';
+    if (inp && inp.type === 'image_upload') return typeof value === 'string' && value.length > 100 ? '已挂载图片' : '未配置图片';
+    const raw = String(value);
+    return raw.length > 26 ? `${raw.slice(0, 26)}...` : raw;
+}
+
+function renderNodeCompactSummary(node) {
+    const inputCount = Array.isArray(node.inputs) ? node.inputs.length : 0;
+    const hasResult = !!(node.result && node.result.data);
+    const statusText = node._frozen ? '冻结缓存' : (hasResult ? '已有输出' : '待调试');
+    const firstInputs = (node.inputs || []).slice(0, 2).map((inp) => {
+        const value = summarizeNodeValue(getNodeInputValue(node, inp), inp);
+        return `<span class="flow-node-param-pill" title="${escapeFlowAttr(inp.label)}: ${escapeFlowAttr(value)}">${escapeFlowHtml(inp.label)} · ${escapeFlowHtml(value)}</span>`;
+    }).join('');
+
+    return `
+        <div class="flow-node-compact" id="compact-${node.id}">
+            <div class="flow-node-compact-row">
+                <span>${inputCount > 0 ? `${inputCount} 项参数` : '无参数节点'}</span>
+                <span>${escapeFlowHtml(statusText)}</span>
+            </div>
+            ${firstInputs ? `<div style="display:flex; flex-wrap:wrap; gap:6px;">${firstInputs}</div>` : ''}
+        </div>
+    `;
+}
+
+function updateNodeCompactSummary(nodeId) {
+    const node = flowState.nodes.find(n => n.id === nodeId);
+    const compactEl = document.getElementById(`compact-${nodeId}`);
+    if (!node || !compactEl) return;
+    const shell = document.createElement('div');
+    shell.innerHTML = renderNodeCompactSummary(node).trim();
+    const nextCompact = shell.firstElementChild;
+    if (nextCompact) compactEl.innerHTML = nextCompact.innerHTML;
+}
+
+function renderInspectorInputControl(node, inp) {
+    const val = getNodeInputValue(node, inp);
+    const safeNodeId = escapeFlowJsString(node.id);
+    const safeInputId = escapeFlowJsString(inp.id);
+    const saveOnBlur = `if (typeof saveFlowToDB === 'function') saveFlowToDB();`;
+
+    if (inp.type === 'textarea') {
+        return `<textarea class="node-input" rows="6"
+            onmousedown="event.stopPropagation()"
+            oninput="updateNodeData('${safeNodeId}', '${safeInputId}', this.value); window.AutocompleteController.listen(event, '${safeNodeId}');"
+            onblur="${saveOnBlur}"
+            onkeydown="window.AutocompleteController.handleKeyDown(event);">${escapeFlowHtml(val)}</textarea>`;
+    }
+    if (inp.type === 'select') {
+        const options = (inp.options || []).map(opt => `<option value="${escapeFlowAttr(opt)}" ${val === opt ? 'selected' : ''}>${escapeFlowHtml(opt)}</option>`).join('');
+        return `<select class="node-input"
+            onmousedown="event.stopPropagation()"
+            onchange="updateNodeData('${safeNodeId}', '${safeInputId}', this.value); evaluateNodeConditions('${safeNodeId}'); if (typeof saveFlowToDB === 'function') saveFlowToDB();">
+            ${options}
+        </select>`;
+    }
+    if (inp.type === 'number') {
+        return `<input type="number" class="node-input"
+            onmousedown="event.stopPropagation()"
+            value="${escapeFlowAttr(val)}"
+            oninput="updateNodeData('${safeNodeId}', '${safeInputId}', this.value)"
+            onblur="${saveOnBlur}" />`;
+    }
+    if (inp.type === 'image_upload') {
+        return renderImageUploadInput(node, inp, val);
+    }
+    return `<input type="text" class="node-input"
+        onmousedown="event.stopPropagation()"
+        value="${escapeFlowAttr(val)}"
+        oninput="updateNodeData('${safeNodeId}', '${safeInputId}', this.value)"
+        onblur="${saveOnBlur}" />`;
+}
+
+function renderFlowInspectorFields(node) {
+    if (!node || !Array.isArray(node.inputs) || node.inputs.length === 0) {
+        return `<div class="flow-inspector-empty">这个节点没有可调试参数。你仍然可以通过端口把上游结果接入它。</div>`;
+    }
+
+    return node.inputs.map((inp) => `
+        <div class="flow-inspector-field node-input-group" id="group-${node.id}-${inp.id}">
+            <div class="flow-inspector-label">
+                <span>${escapeFlowHtml(inp.label)}</span>
+                <code>${escapeFlowHtml(inp.id)}</code>
+            </div>
+            ${renderInspectorInputControl(node, inp)}
+        </div>
+    `).join('');
+}
+
+function renderFlowNodeInspector(node) {
+    if (!node) {
+        return `
+            <div class="flow-inspector-head">
+                <div>
+                    <div class="flow-inspector-kicker">Node Inspector</div>
+                    <div class="flow-inspector-title">未选择节点</div>
+                    <div class="flow-inspector-subtitle">点击画布中的节点进行调试</div>
+                </div>
+                <button class="flow-inspector-close" onclick="closeFlowNodeInspector()" title="关闭"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+            </div>
+            <div class="flow-inspector-body">
+                <div class="flow-inspector-empty">节点保持简约显示，所有调试参数都会集中到这里。</div>
+            </div>
+        `;
+    }
+
+    const inPorts = (node.ports && node.ports.in ? node.ports.in.length : 0);
+    const outPorts = (node.ports && node.ports.out ? node.ports.out.length : 0);
+    return `
+        <div class="flow-inspector-head">
+            <div>
+                <div class="flow-inspector-kicker">Node Inspector</div>
+                <div class="flow-inspector-title">${escapeFlowHtml(node.title || node.type || '未命名节点')}</div>
+                <div class="flow-inspector-subtitle">${escapeFlowHtml(node.type || 'node')} · IN ${inPorts} / OUT ${outPorts}</div>
+            </div>
+            <button class="flow-inspector-close" onclick="closeFlowNodeInspector()" title="关闭"><span class="material-symbols-outlined" style="font-size:18px;">close</span></button>
+        </div>
+        <div class="flow-inspector-body" onmousedown="event.stopPropagation()">
+            <div class="flow-inspector-section">
+                <div class="flow-inspector-section-title"><span class="material-symbols-outlined">tune</span> 调试参数</div>
+                ${renderFlowInspectorFields(node)}
+            </div>
+            <div class="flow-inspector-section">
+                <div class="flow-inspector-section-title"><span class="material-symbols-outlined">account_tree</span> 端口信息</div>
+                <div class="flow-inspector-empty">
+                    输入端口：${escapeFlowHtml(inPorts)} 个；输出端口：${escapeFlowHtml(outPorts)} 个。连线仍在节点卡片上完成，配置集中在右侧面板。
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function ensureFlowNodeInspector() {
+    if (flowInspectorEl) return flowInspectorEl;
+    flowInspectorEl = document.createElement('aside');
+    flowInspectorEl.id = 'flow-node-inspector';
+    flowInspectorEl.className = 'flow-node-inspector';
+    flowInspectorEl.innerHTML = renderFlowNodeInspector(null);
+    flowInspectorEl.addEventListener('mousedown', (e) => e.stopPropagation());
+    document.body.appendChild(flowInspectorEl);
+    return flowInspectorEl;
+}
+
+window.openFlowNodeInspector = function(nodeId) {
+    const node = flowState.nodes.find(n => n.id === nodeId);
+    const inspector = ensureFlowNodeInspector();
+    flowInspectorNodeId = node ? node.id : null;
+    inspector.innerHTML = renderFlowNodeInspector(node || null);
+    inspector.classList.add('is-open');
+    document.querySelectorAll('.veo-node.is-inspecting').forEach(el => el.classList.remove('is-inspecting'));
+    document.querySelectorAll('.flow-node-config-btn.is-active').forEach(el => el.classList.remove('is-active'));
+    if (node) {
+        const nodeEl = document.getElementById(node.id);
+        if (nodeEl) nodeEl.classList.add('is-inspecting');
+        const btn = nodeEl ? nodeEl.querySelector('.flow-node-config-btn') : null;
+        if (btn) btn.classList.add('is-active');
+        evaluateNodeConditions(node.id);
+    }
+};
+
+window.closeFlowNodeInspector = function() {
+    if (flowInspectorEl) flowInspectorEl.classList.remove('is-open');
+    flowInspectorNodeId = null;
+    document.querySelectorAll('.veo-node.is-inspecting').forEach(el => el.classList.remove('is-inspecting'));
+    document.querySelectorAll('.flow-node-config-btn.is-active').forEach(el => el.classList.remove('is-active'));
+};
+
+function refreshFlowNodeInspector(nodeId = flowInspectorNodeId) {
+    if (!nodeId || !flowInspectorEl || !flowInspectorEl.classList.contains('is-open')) return;
+    const active = document.activeElement;
+    if (active && flowInspectorEl.contains(active) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName)) return;
+    const node = flowState.nodes.find(n => n.id === nodeId);
+    flowInspectorEl.innerHTML = renderFlowNodeInspector(node || null);
+    if (node) evaluateNodeConditions(node.id);
+}
+
 function renderNodes() {
     if(!nodeBoard) return;
 
@@ -1021,45 +1300,17 @@ function renderNodes() {
             nodeEl = document.createElement('div');
             nodeEl.className = 'veo-node';
             nodeEl.id = node.id;
-            
-            let inputsHtml = '';
-            if (node.inputs && node.inputs.length > 0) {
-                const isCollapsed = node._inputsCollapsed || false;
-                inputsHtml = `
-                    <div class="node-inputs-toggle-bar" onclick="toggleNodeInputs('${node.id}')" style="display:flex; justify-content:space-between; align-items:center; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius:4px; margin-bottom:8px; cursor:pointer; font-size:11px; color:#666; transition: 0.2s;" onmouseover="this.style.color='#aaa'; this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.color='#666'; this.style.background='rgba(255,255,255,0.02)'">
-                        <span style="display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:13px;">tune</span> 节点参数配置</span>
-                        <span class="material-symbols-outlined arrow-icon" style="font-size:14px; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); transform: ${isCollapsed ? 'rotate(-90deg)' : 'none'}">expand_more</span>
-                    </div>
-                    <div class="node-inputs-container" id="inputs-container-${node.id}" style="display: ${isCollapsed ? 'none' : 'block'};">`;
-                    
-                node.inputs.forEach(inp => {
-                    const val = node.data && node.data[inp.id] !== undefined ? node.data[inp.id] : inp.default;
-                    inputsHtml += `<div class="node-input-group" id="group-${node.id}-${inp.id}"><div class="node-input-label">${escapeFlowHtml(inp.label)}</div>`;
-                    
-                    if (inp.type === 'textarea') {
-                        inputsHtml += `<textarea class="node-input" rows="3" 
-                            onmousedown="event.stopPropagation()" 
-                            oninput="updateNodeData('${node.id}', '${inp.id}', this.value); window.AutocompleteController.listen(event, '${node.id}');"
-                            onkeydown="window.AutocompleteController.handleKeyDown(event);">${escapeFlowHtml(val)}</textarea>`;
-                    } else if (inp.type === 'select') {
-                        inputsHtml += `<select class="node-input" onmousedown="event.stopPropagation()" onchange="updateNodeData('${node.id}', '${inp.id}', this.value); evaluateNodeConditions('${node.id}');">
-                            ${inp.options.map(opt => `<option value="${escapeFlowAttr(opt)}" ${val === opt ? 'selected' : ''}>${escapeFlowHtml(opt)}</option>`).join('')}
-                        </select>`;
-                    } else if (inp.type === 'number') {
-                        inputsHtml += `<input type="number" class="node-input" onmousedown="event.stopPropagation()" value="${escapeFlowAttr(val)}" oninput="updateNodeData('${node.id}', '${inp.id}', this.value)" style="font-family: monospace; color: var(--accent);" />`;
-                    } else if (inp.type === 'image_upload') {
-                        inputsHtml += renderImageUploadInput(node, inp, val);
-                    }
-                    inputsHtml += `</div>`;
-                });
-                inputsHtml += '</div>'; 
-            } 
+            const summaryHtml = renderNodeCompactSummary(node);
+            const safeNodeIdJs = escapeFlowJsString(node.id);
 
             nodeEl.innerHTML = `
                 <div class="node-header" style="background: ${node.type === 'tool_image_gen' ? 'rgba(192,132,252,0.1)' : 'rgba(56,189,248,0.1)'};">
                     <div class="node-header-main">
                         <span>${escapeFlowHtml(node.title)}</span>
                         <span class="node-header-tools">
+                            <button class="flow-node-config-btn ${flowInspectorNodeId === node.id ? 'is-active' : ''}" type="button" onclick="openFlowNodeInspector('${safeNodeIdJs}')" onmousedown="event.stopPropagation()" data-tip="右侧调试参数">
+                                <span class="material-symbols-outlined">tune</span>
+                            </button>
                             <button class="node-freeze-btn ${node._frozen ? 'is-frozen' : ''}" type="button" onclick="toggleNodeFreeze(event, '${node.id}')" onmousedown="event.stopPropagation()" data-tip="${node._frozen ? '解冻节点' : '冻结节点并复用缓存'}">
                                 <span class="material-symbols-outlined">${node._frozen ? 'ac_unit' : 'lock_open'}</span>
                             </button>
@@ -1067,7 +1318,7 @@ function renderNodes() {
                     </div>
                 </div>
                 <div class="node-body">
-                    ${inputsHtml}
+                    ${summaryHtml}
                     ${(node.ports.in || []).map(p => `
                         <div class="port-row">
                             <div class="port port-in port-${p.type}" id="${node.id}-${p.id}" 
@@ -1098,10 +1349,16 @@ function renderNodes() {
         }
 
         nodeEl.classList.toggle('is-frozen', !!node._frozen);
+        nodeEl.classList.toggle('is-inspecting', flowInspectorNodeId === node.id);
+        const configBtn = nodeEl.querySelector('.flow-node-config-btn');
+        if (configBtn) configBtn.classList.toggle('is-active', flowInspectorNodeId === node.id);
         nodeEl.style.transform = `translate(${node.x}px, ${node.y}px)`;
+        updateNodeCompactSummary(node.id);
         evaluateNodeConditions(node.id);
     });
     updateSelectionStyles();
+    if (flowInspectorNodeId && !activeNodeIds.has(flowInspectorNodeId)) closeFlowNodeInspector();
+    else refreshFlowNodeInspector(flowInspectorNodeId);
     scheduleFlowViewportCulling(80);
 }
 
@@ -1116,9 +1373,10 @@ window.evaluateNodeConditions = function(nodeId) {
         if (inp.condition) {
             const groupEl = document.getElementById(`group-${node.id}-${inp.id}`);
             if (!groupEl) return;
-            const depVal = node.data[inp.condition.field] !== undefined 
-                ? node.data[inp.condition.field] 
-                : node.inputs.find(i => i.id === inp.condition.field).default;
+            const nodeData = node.data || {};
+            const depVal = nodeData[inp.condition.field] !== undefined
+                ? nodeData[inp.condition.field]
+                : ((node.inputs.find(i => i.id === inp.condition.field) || {}).default);
             if (depVal !== inp.condition.value) {
                 groupEl.style.display = 'none';
             } else {
@@ -1134,16 +1392,7 @@ window.evaluateNodeConditions = function(nodeId) {
 window.toggleNodeInputs = function(nodeId) {
     const node = flowState.nodes.find(n => n.id === nodeId);
     if (!node) return;
-    node._inputsCollapsed = !node._inputsCollapsed;
-    const container = document.getElementById(`inputs-container-${nodeId}`);
-    if (container) {
-        const isCollapsed = node._inputsCollapsed;
-        container.style.display = isCollapsed ? 'none' : 'block';
-        const arrow = container.previousElementSibling?.querySelector('.arrow-icon');
-        if (arrow) arrow.style.transform = isCollapsed ? 'rotate(-90deg)' : 'none';
-    }
-    if (typeof saveFlowToDB === 'function') saveFlowToDB();
-    if (typeof renderMinimap === 'function') renderMinimap();
+    openFlowNodeInspector(nodeId);
 };
 
 window.toggleNodeFreeze = function(event, nodeId) {
@@ -1165,6 +1414,8 @@ window.toggleNodeFreeze = function(event, nodeId) {
             if (icon) icon.textContent = node._frozen ? 'ac_unit' : 'lock_open';
         }
     }
+    updateNodeCompactSummary(nodeId);
+    refreshFlowNodeInspector(nodeId);
     if (typeof saveFlowToDB === 'function') saveFlowToDB();
 };
 
@@ -1176,6 +1427,8 @@ window.clearNodeCache = function(nodeId) {
     const preview = document.getElementById(`preview-${nodeId}`);
     if (preview) preview.innerHTML = '';
     setNodeStatus(nodeId, 'idle');
+    updateNodeCompactSummary(nodeId);
+    refreshFlowNodeInspector(nodeId);
     if (typeof saveFlowToDB === 'function') saveFlowToDB();
 };
 
@@ -1396,6 +1649,7 @@ function startDragNode(e, nodeId) {
     // 将当前拖拽的节点强行纳入选中阵列
     flowState.selectedNodeIds.add(nodeId);
     updateSelectionStyles();
+    openFlowNodeInspector(nodeId);
     pushFlowHistory('move-node');
 
     flowState.activeNode = flowState.nodes.find(n => n.id === nodeId);
@@ -1848,6 +2102,7 @@ window.clearFlowCanvas = function() {
         flowState.nodes = [];
         flowState.links = [];
         flowState.selectedNodeIds.clear();
+        closeFlowNodeInspector();
         rebuildLinkIndex();
         renderNodes();
         renderLinks();
@@ -1879,6 +2134,8 @@ window.updateNodeData = function(nodeId, key, value) {
     if (node) {
         if (!node.data) node.data = {};
         node.data[key] = value;
+        updateNodeCompactSummary(nodeId);
+        if (flowInspectorNodeId === nodeId) evaluateNodeConditions(nodeId);
     }
 };
 
@@ -1997,6 +2254,12 @@ window.showNodeMenu = function(e, nodeId) {
     const node = flowState.nodes.find(n => n.id === nodeId);
     const freezeLabel = node && node._frozen ? '解冻节点' : '冻结并复用缓存';
     ctxMenu.innerHTML = `
+        <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #c4b5fd;"
+             onmouseover="this.style.background='rgba(167,139,250,0.12)'" onmouseout="this.style.background='transparent'"
+             onclick="openFlowNodeInspector('${nodeId}')">
+            <span class="material-symbols-outlined" style="font-size: 14px; vertical-align: middle;">tune</span> 打开调试面板
+        </div>
+        <div style="height:1px; background: rgba(255,255,255,0.08); margin: 6px 0;"></div>
         <div style="padding: 8px 12px; cursor: pointer; border-radius: 4px; color: #38bdf8;"
              onmouseover="this.style.background='rgba(56,189,248,0.12)'" onmouseout="this.style.background='transparent'"
              onclick="runFlow({mode:'from', startNodeId:'${nodeId}'})">
@@ -2033,6 +2296,7 @@ window.deleteNode = function(nodeId) {
     flowState.nodes = flowState.nodes.filter(n => n.id !== nodeId);
     flowState.links = flowState.links.filter(l => l.source !== nodeId && l.target !== nodeId); 
     flowState.selectedNodeIds.delete(nodeId);
+    if (flowInspectorNodeId === nodeId) closeFlowNodeInspector();
     rebuildLinkIndex();
     renderNodes(); renderLinks();
     updateFlowSelectionToolbar();
@@ -2074,6 +2338,7 @@ window.spawnNode = function(blueprintType, spawnX, spawnY) {
     flowState.selectedNodeIds.add(newNode.id);
     renderNodes(); 
     updateSelectionStyles();
+    openFlowNodeInspector(newNode.id);
     if (typeof saveFlowToDB === 'function') saveFlowToDB();
     if (typeof renderMinimap === 'function') renderMinimap();
 };
@@ -3017,7 +3282,10 @@ async function executeNode(nodeId) {
         
         const costTime = ((Date.now() - nodeStartTime) / 1000).toFixed(1);
         setNodeStatus(nodeId, 'success', { costTime: costTime });
-        document.getElementById(`preview-${nodeId}`).innerHTML = renderPreview(node);
+        const previewEl = document.getElementById(`preview-${nodeId}`);
+        if (previewEl) previewEl.innerHTML = renderPreview(node);
+        updateNodeCompactSummary(nodeId);
+        refreshFlowNodeInspector(nodeId);
         await recordNodeBilling(node);
 
     } catch (error) {
