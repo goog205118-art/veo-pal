@@ -610,6 +610,32 @@ function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null) {
     };
 }
 
+function resolveImgGenNetworkEncodeOptions(routeKey, kind = 'image') {
+    if (routeKey === 'ai666') {
+        if (kind === 'mask') {
+            return {
+                mode: 'network',
+                maxBytes: 2 * 1024 * 1024,
+                maxEdge: 1280,
+                maxPixels: 1280 * 1280,
+                forceResize: true,
+                keepPng: true,
+                outputType: 'image/png'
+            };
+        }
+        return {
+            mode: 'network',
+            maxBytes: 1536 * 1024,
+            maxEdge: 1280,
+            maxPixels: 1280 * 1280,
+            forceResize: true,
+            outputType: 'image/jpeg',
+            quality: 0.78
+        };
+    }
+    return { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 };
+}
+
 async function buildBlobSignature(blob) {
     if (!blob) return '';
     if (typeof blob === 'string') return `str_${blob.length}_${blob.slice(-120)}`;
@@ -6917,16 +6943,26 @@ async function submitImgGen(taskId) {
     task.state.size = resolvedSize;
     const sizeToSend = resolvedSize;
     const mode = resolveImgGenMode(task.state);
-    const imagesBase64 = await blobsToBase64Sequential(task.state.images, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 });
+    const route = normalizeImgGenRoute(task.state.providerSort);
+    const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
+    const imageEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'image');
+    const maskEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'mask');
+    const imagesBase64 = await blobsToBase64Sequential(task.state.images, imageEncodeOptions);
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
-    const maskBase64 = maskSource ? await blobToBase64(maskSource, { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 }) : null;
+    const maskBase64 = maskSource ? await blobToBase64(maskSource, maskEncodeOptions) : null;
     const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64);
+    const encodedImageBytes = imagesBase64.reduce((sum, item) => sum + String(item || '').length, 0) + String(maskBase64 || '').length;
+    if (route.key === 'ai666' && encodedImageBytes > 10 * 1024 * 1024) {
+        markImgGenPreviewFailed(task, previewItemId, 'AI666 垫图请求体仍然过大，请减少参考图或先裁切压缩');
+        await saveTaskDB(task);
+        renderCard(taskId, task);
+        forceRenderImgGenPreviewPanel(task, previewItemId);
+        return showToast('AI666 通道垫图体积过大，请减少参考图或先裁切压缩', 'error');
+    }
     const referenceControls = buildImgGenRefControlPayload(task);
     const lockedSeed = task.state.seedLocked && task.state.seed !== '' ? parseInt(task.state.seed, 10) : null;
     const clientRequestId = `${task.id}_${previewItemId}`;
     const nValue = 1;
-    const route = normalizeImgGenRoute(task.state.providerSort);
-    const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
 
     const unifiedPayloadCore = {
         version: version,

@@ -119,7 +119,8 @@ async function downscaleImageBlobIfNeeded(blob, options = {}) {
     const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : (8 * 1024 * 1024);
     const maxEdge = Number.isFinite(options.maxEdge) ? options.maxEdge : 2048;
     const maxPixels = Number.isFinite(options.maxPixels) ? options.maxPixels : (4096 * 4096);
-    const needDownscale = blob.size > maxBytes;
+    const forceResize = options.forceResize === true || options.alwaysDownscale === true;
+    const needDownscale = forceResize || blob.size > maxBytes;
     if (!needDownscale) return blob;
 
     return new Promise((resolve) => {
@@ -141,7 +142,7 @@ async function downscaleImageBlobIfNeeded(blob, options = {}) {
                     const dstW = Math.max(1, Math.floor(srcW * scale));
                     const dstH = Math.max(1, Math.floor(srcH * scale));
 
-                    if (scale >= 0.999) {
+                    if (scale >= 0.999 && blob.size <= maxBytes && !forceResize) {
                         if (objectUrl) URL.revokeObjectURL(objectUrl);
                         resolve(blob);
                         return;
@@ -157,8 +158,10 @@ async function downscaleImageBlobIfNeeded(blob, options = {}) {
                         return;
                     }
                     ctx.drawImage(img, 0, 0, dstW, dstH);
-                    const outType = type === 'image/png' ? 'image/png' : 'image/jpeg';
-                    const quality = outType === 'image/png' ? undefined : 0.9;
+                    const preferredType = typeof options.outputType === 'string' ? options.outputType : '';
+                    const keepPng = options.keepPng === true;
+                    const outType = preferredType || (type === 'image/png' && keepPng ? 'image/png' : 'image/jpeg');
+                    const quality = Number.isFinite(options.quality) ? options.quality : (outType === 'image/png' ? undefined : 0.86);
                     canvas.toBlob((nextBlob) => {
                         if (objectUrl) URL.revokeObjectURL(objectUrl);
                         resolve(nextBlob || blob);
@@ -198,8 +201,20 @@ async function compressImageToBlob(file, maxWidth = 1024) {
 
 async function blobToBase64(blob, options = {}) {
     if (!blob) return null;
-    if (typeof blob === 'string') return Promise.resolve(blob);
     const mode = options && options.mode ? String(options.mode) : 'generic';
+    if (typeof blob === 'string') {
+        const raw = blob.trim();
+        if (mode === 'network' && raw.startsWith('data:image') && options.downscaleDataUrl !== false) {
+            try {
+                const sourceBlob = await fetch(raw).then((res) => res.blob());
+                const nextBlob = await downscaleImageBlobIfNeeded(sourceBlob, options);
+                return readBlobAsDataUrl(nextBlob);
+            } catch (err) {
+                return raw;
+            }
+        }
+        return Promise.resolve(blob);
+    }
     const sourceBlob = mode === 'network'
         ? await downscaleImageBlobIfNeeded(blob, options)
         : blob;
