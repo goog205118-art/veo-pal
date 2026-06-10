@@ -4356,7 +4356,8 @@ function renderImgGenParams(task) {
     const ratioKey = isPro ? 'proRatio' : 'trialRatio';
     const ratioValue = isPro ? state.proRatio : state.trialRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const routeLabel = isPro ? `GPT Image 2 · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
+    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
+    const routeLabel = isPro ? `GPT Image 2 · ${route.label} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
         <label class="img-gen-field img-gen-seed-field">
@@ -4384,6 +4385,13 @@ function renderImgGenParams(task) {
     const advancedHtml = isPro ? `
         <div class="img-gen-controls img-gen-controls-pro">
             ${seedControlHtml}
+            <label class="img-gen-field">
+                <span>专业通道</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
+                    <option value="stable" ${route.key === 'stable' ? 'selected' : ''}>默认专业通道</option>
+                    <option value="ai666" ${route.key === 'ai666' ? 'selected' : ''}>AI666 中转站</option>
+                </select>
+            </label>
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：分辨率档位">
@@ -5370,8 +5378,12 @@ function resolveImgGenSize(state) {
     return enforceProSizeRules('1024x1024').size;
 }
 
-function normalizeImgGenRoute() {
-    return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认通道' };
+function normalizeImgGenRoute(raw = 'stable') {
+    const key = String(raw || 'stable').trim().toLowerCase().replace(/^:/, '');
+    if (['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'].includes(key)) {
+        return { key: 'ai666', suffix: '', mode: 'ai666', label: 'AI666 中转站' };
+    }
+    return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
 }
 
 function ensureImgGenState(task) {
@@ -6927,7 +6939,9 @@ async function submitImgGen(taskId) {
         prompt: finalPrompt,
         size: sizeToSend,
         providerSort: route.key,
-        provider: { sort: route.mode, suffix: route.suffix, model: imageModel },
+        providerKey: route.key,
+        provider_key: route.key,
+        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
@@ -6976,6 +6990,9 @@ async function submitImgGen(taskId) {
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: route.key,
+        providerKey: route.key,
+        provider_key: route.key,
+        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
         clientRequestId,
         client_request_id: clientRequestId,
         previewItemId: previewItemId,
