@@ -860,10 +860,35 @@ function isPointInImgGenStageRail(clientX, clientY) {
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
 }
 
+function isPointInImgGenStageDockZone(clientX, clientY) {
+    const rail = document.getElementById('img-gen-stage-rail');
+    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const rect = rail.getBoundingClientRect();
+    const expandedLeft = Math.max(0, rect.left - 24);
+    const expandedRight = rect.right + 16;
+    const expandedTop = Math.max(0, rect.top + 16);
+    const expandedBottom = rect.bottom - 16;
+    return clientX >= expandedLeft && clientX <= expandedRight && clientY >= expandedTop && clientY <= expandedBottom;
+}
+
 function setImgGenStageDragOver(isOver) {
     const rail = document.getElementById('img-gen-stage-rail');
     if (!rail) return;
     rail.classList.toggle('is-drag-over', !!isOver);
+}
+
+function canDragInfoDockToImgGenStage(dragInfo, clientX, clientY) {
+    return !!(
+        dragInfo &&
+        dragInfo.fromCanvasCard === true &&
+        dragInfo.startedInsideStageRail !== true &&
+        dragInfo.justCreated !== true &&
+        !dragInfo.children &&
+        dragInfo.task &&
+        dragInfo.task.type === 'tool_image_gen' &&
+        isImgGenTaskStageDocked(dragInfo.task) !== true &&
+        isPointInImgGenStageDockZone(clientX, clientY)
+    );
 }
 
 function getImgGenStageRailFingerprint(tasks, activeId) {
@@ -987,8 +1012,7 @@ async function focusImgGenStageCard(event, taskId) {
 }
 
 async function dockImgGenCardToStage(dragInfo) {
-    if (!dragInfo || dragInfo.children || !dragInfo.task || dragInfo.task.type !== 'tool_image_gen') return false;
-    if (!isPointInImgGenStageRail(lastPointerClientX, lastPointerClientY)) return false;
+    if (!canDragInfoDockToImgGenStage(dragInfo, lastPointerClientX, lastPointerClientY)) return false;
     const task = dragInfo.el && dragInfo.el.__veoTask ? dragInfo.el.__veoTask : dragInfo.task;
     ensureImgGenState(task);
     task.x = toFiniteNumber(dragInfo.initialX, task.x);
@@ -2846,7 +2870,7 @@ window.addEventListener('mousemove', (e) => {
                 const dragBaseY = toFiniteNumber(draggingCardInfo.initialY, 0);
                 draggingCardInfo.task.x = dragBaseX + dx; draggingCardInfo.task.y = dragBaseY + dy;
                 draggingCardInfo.el.style.transform = `translate3d(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px, 0)`;
-                setImgGenStageDragOver(draggingCardInfo.task.type === 'tool_image_gen' && !draggingCardInfo.children && isPointInImgGenStageRail(e.clientX, e.clientY));
+                setImgGenStageDragOver(canDragInfoDockToImgGenStage(draggingCardInfo, e.clientX, e.clientY));
                 if (draggingCardInfo.children) {
                     draggingCardInfo.children.forEach(child => {
                         const childBaseX = toFiniteNumber(child.initialX, 0);
@@ -3101,7 +3125,10 @@ function bindCardDrag(cardEl, task) {
                 startMouseX: e.clientX,
                 startMouseY: e.clientY,
                 initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
-                initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0)
+                initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0),
+                fromCanvasCard: true,
+                startedInsideStageRail: isPointInImgGenStageRail(e.clientX, e.clientY),
+                justCreated: false
             };
 
             if (task.type === 'frame') {
@@ -3174,6 +3201,7 @@ function sanitizeImgGenCloneState(clone) {
     clone.state.maskImage = null;
     clone.state.maskBlob = null;
     clone.state.maskEditMode = false;
+    clone.state.stageDocked = false;
     clone.genTaskId = null;
     clone.retryCount = 0;
     clone.isBilled = false;
@@ -3593,7 +3621,8 @@ viewport.addEventListener('drop', async (e) => {
                 cardWidthCollapsed: 360,
                 cardHeight: 520,
                 channel: 'channel_1',
-                autoRetry: false
+                autoRetry: false,
+                stageDocked: false
             },
             retryCount: 0
         };
@@ -5476,7 +5505,10 @@ async function duplicateTask(originalTask, mouseEvent) {
             startMouseX: dragStartX,
             startMouseY: dragStartY,
             initialX: toFiniteNumber(newCardEl.__veoTask.x, clone.x),
-            initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y)
+            initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y),
+            fromCanvasCard: true,
+            startedInsideStageRail: isPointInImgGenStageRail(dragStartX, dragStartY),
+            justCreated: true
         };
     } else {
         newCardEl.style.willChange = 'auto';
