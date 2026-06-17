@@ -287,7 +287,17 @@ body {
     transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), width 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, border-color 0.25s ease;
     pointer-events: auto;
 }
-.tool-drawer.open + .img-gen-stage-rail { --stage-shift-x: 318px; }
+.tool-drawer.open + .img-gen-stage-rail {
+    --stage-shift-x: 0px;
+    opacity: 0.18;
+    pointer-events: none;
+    filter: saturate(0.7) blur(0.2px);
+}
+body.is-tool-dragging .img-gen-stage-rail {
+    opacity: 0.12;
+    pointer-events: none;
+    transform: translateX(var(--stage-shift-x)) scale(0.96);
+}
 .img-gen-stage-rail.is-collapsed {
     width: 48px;
     padding-left: 7px;
@@ -451,6 +461,31 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.img-gen-stage-edit {
+    position: absolute;
+    left: 7px;
+    top: 7px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,0.62);
+    background: rgba(0,0,0,0.24);
+    border: 1px solid rgba(255,255,255,0.08);
+    opacity: 0;
+    transform: translateY(-2px);
+    transition: opacity 0.18s ease, transform 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+.img-gen-stage-edit .material-symbols-outlined { font-size: 12px; }
+.img-gen-stage-item:hover .img-gen-stage-edit {
+    opacity: 1;
+    transform: translateY(0);
+}
+.img-gen-stage-edit:hover {
+    color: var(--accent);
+    background: rgba(10,132,255,0.16);
 }
 .img-gen-stage-dot {
     position: absolute;

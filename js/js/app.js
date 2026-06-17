@@ -331,6 +331,7 @@ const IMG_GEN_PRO_FALLBACK_COST = 0.12;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
+const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     const raw = String(rawUrl || '').trim();
     if (!raw) return '';
@@ -805,6 +806,8 @@ function getImgGenStageThumb(task) {
 }
 
 function getImgGenStageLabel(task, index) {
+    const identity = getImgGenStageIdentity(task, index);
+    if (identity) return identity.length > 18 ? `${identity.slice(0, 18)}...` : identity;
     const fallback = `生图 ${index + 1}`;
     if (!task || !task.state) return fallback;
     const prompt = String(task.state.prompt || '').replace(/\s+/g, ' ').trim();
@@ -833,6 +836,7 @@ function renderImgGenStageItem(task, index, activeId) {
     const meta = getImgGenStageMeta(task);
     const safeId = escapeAttr(task.id);
     const safeTitle = escapeAttr(title);
+    const identity = getImgGenStageIdentity(task, index);
     const thumbHtml = thumbUrl
         ? `<img src="${escapeAttr(thumbUrl)}" alt="${safeTitle}" loading="lazy">`
         : `<span class="material-symbols-outlined">auto_awesome</span>`;
@@ -842,8 +846,11 @@ function renderImgGenStageItem(task, index, activeId) {
             <span class="img-gen-stage-dot"></span>
             <span class="img-gen-stage-thumb">${thumbHtml}</span>
             <span class="img-gen-stage-meta">
-                <strong>${escapeHtml(title)}</strong>
+                <strong>${escapeHtml(identity)}</strong>
                 <em>${escapeHtml(meta)}</em>
+            </span>
+            <span class="img-gen-stage-edit" onclick="renameImgGenStageLabel(event, '${safeId}')" data-tip="编辑识别符">
+                <span class="material-symbols-outlined">edit</span>
             </span>
         </button>
     `;
@@ -871,6 +878,55 @@ function isPointInImgGenStageDockZone(clientX, clientY) {
     return clientX >= expandedLeft && clientX <= expandedRight && clientY >= expandedTop && clientY <= expandedBottom;
 }
 
+function isPointNearImgGenStageRail(clientX, clientY) {
+    const rail = document.getElementById('img-gen-stage-rail');
+    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const rect = rail.getBoundingClientRect();
+    return clientX >= rect.left - 96 && clientX <= rect.right + 8 && clientY >= rect.top - 24 && clientY <= rect.bottom + 24;
+}
+
+function buildImgGenStageDefaultLabel(task, index = 0) {
+    const rawTitle = String(task && (task.title || task.prompt || task.state?.prompt) || '').replace(/\s+/g, ' ').trim();
+    if (rawTitle) {
+        const short = rawTitle.length > 14 ? rawTitle.slice(0, 14) : rawTitle;
+        return short;
+    }
+    const suffix = String(task && task.id ? task.id : '').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase();
+    if (suffix) return `STG-${suffix}`;
+    return `STG-${String(index + 1).padStart(2, '0')}`;
+}
+
+function getImgGenStageIdentity(task, index = 0) {
+    ensureImgGenState(task);
+    const custom = String(task && task.state && task.state.stageLabel ? task.state.stageLabel : '').replace(/\s+/g, ' ').trim();
+    if (custom) return custom;
+    return buildImgGenStageDefaultLabel(task, index);
+}
+
+async function renameImgGenStageLabel(event, taskId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+    }
+    if (!taskId) return;
+    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    const current = getImgGenStageIdentity(task, 0);
+    const nextRaw = window.prompt('输入调度识别符', current);
+    if (nextRaw === null) return;
+    const next = String(nextRaw).replace(/\s+/g, ' ').trim().slice(0, 24);
+    task.state.stageLabel = next || buildImgGenStageDefaultLabel(task, 0);
+    task.state.stageLabelCustom = !!next;
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    imgGenStageRailFingerprint = '';
+    await saveTaskDB(task);
+    await renderImgGenStageRail();
+    showToast('识别符已更新', 'success');
+}
+
 function setImgGenStageDragOver(isOver) {
     const rail = document.getElementById('img-gen-stage-rail');
     if (!rail) return;
@@ -878,11 +934,18 @@ function setImgGenStageDragOver(isOver) {
 }
 
 function canDragInfoDockToImgGenStage(dragInfo, clientX, clientY) {
+    const drawer = document.getElementById('tool-drawer');
+    const travel = dragInfo
+        ? Math.hypot(toFiniteNumber(clientX, dragInfo.startMouseX) - toFiniteNumber(dragInfo.startMouseX, clientX), toFiniteNumber(clientY, dragInfo.startMouseY) - toFiniteNumber(dragInfo.startMouseY, clientY))
+        : 0;
     return !!(
         dragInfo &&
         dragInfo.fromCanvasCard === true &&
         dragInfo.startedInsideStageRail !== true &&
         dragInfo.justCreated !== true &&
+        dragInfo.startedNearStageRail !== true &&
+        (!drawer || !drawer.classList.contains('open')) &&
+        travel >= IMG_GEN_STAGE_DOCK_MIN_TRAVEL &&
         !dragInfo.children &&
         dragInfo.task &&
         dragInfo.task.type === 'tool_image_gen' &&
@@ -1035,6 +1098,36 @@ async function dockImgGenCardToStage(dragInfo) {
     renderMinimap();
     showToast('已收纳至台前调度', 'success');
     return true;
+}
+
+async function dockImgGenTaskById(event, taskId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+    }
+    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    if (task.state.stageDocked === true) return;
+    task.state.stageDocked = true;
+    if (!String(task.state.stageLabel || '').trim()) task.state.stageLabel = buildImgGenStageDefaultLabel(task, 0);
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    activeImgGenStageTaskId = task.id;
+    selectedTasks.delete(task.id);
+    const cardEl = document.getElementById('card-' + task.id);
+    if (cardEl) {
+        cardEl.classList.remove('selected');
+        cardEl.classList.add('is-stage-docked');
+    }
+    imgGenStageRailFingerprint = '';
+    await saveTaskDB(task);
+    scheduleImgGenStageRailRender(0);
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
+    renderMinimap();
+    showToast('已收纳至台前调度', 'success');
 }
 
 function cloneTaskDeep(task) {
@@ -3128,6 +3221,7 @@ function bindCardDrag(cardEl, task) {
                 initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0),
                 fromCanvasCard: true,
                 startedInsideStageRail: isPointInImgGenStageRail(e.clientX, e.clientY),
+                startedNearStageRail: isPointNearImgGenStageRail(e.clientX, e.clientY),
                 justCreated: false
             };
 
@@ -3535,6 +3629,7 @@ document.addEventListener('dragstart', (e) => {
         hotX: NaN,
         hotY: NaN
     };
+    document.body.classList.add('is-tool-dragging');
 
     if (plugin && e.dataTransfer) e.dataTransfer.setData('plugin', plugin);
     if (e.dataTransfer && typeof e.dataTransfer.setDragImage === 'function') {
@@ -3551,6 +3646,7 @@ document.addEventListener('dragend', () => {
     toolDragSession = null;
     lastViewportDragClientX = NaN;
     lastViewportDragClientY = NaN;
+    document.body.classList.remove('is-tool-dragging');
 }, true);
 
 viewport.addEventListener('dragover', (e) => {
@@ -3632,6 +3728,7 @@ viewport.addEventListener('drop', async (e) => {
             renderBoard();
             document.getElementById('tool-drawer').classList.remove('open');
             toolDragSession = null;
+            document.body.classList.remove('is-tool-dragging');
             lastViewportDragClientX = NaN;
             lastViewportDragClientY = NaN;
             return;
@@ -5178,7 +5275,7 @@ function renderImgGenCardHTML(task) {
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
 
-    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图 ${isVariantNode ? `<span class="img-gen-variant-chip">V${variantIndex}</span>` : ''}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
+    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图 ${isVariantNode ? `<span class="img-gen-variant-chip">V${variantIndex}</span>` : ''}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="dockImgGenTaskById(event, '${task.id}')" data-tip="收纳到左侧台前调度"><span class="material-symbols-outlined">view_sidebar</span></button><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
         <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
             <div class="img-gen-left">
@@ -5508,6 +5605,7 @@ async function duplicateTask(originalTask, mouseEvent) {
             initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y),
             fromCanvasCard: true,
             startedInsideStageRail: isPointInImgGenStageRail(dragStartX, dragStartY),
+            startedNearStageRail: isPointNearImgGenStageRail(dragStartX, dragStartY),
             justCreated: true
         };
     } else {
