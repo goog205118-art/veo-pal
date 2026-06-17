@@ -393,6 +393,7 @@ let isSpacePanningKeyDown = false;
 let imgGenStageRailCollapsed = false;
 let imgGenStageRailTimer = null;
 let activeImgGenStageTaskId = '';
+let imgGenStageRailFingerprint = '';
 
 try {
     imgGenStageRailCollapsed = localStorage.getItem('veo_img_gen_stage_collapsed') === '1';
@@ -837,7 +838,7 @@ function renderImgGenStageItem(task, index, activeId) {
         : `<span class="material-symbols-outlined">auto_awesome</span>`;
 
     return `
-        <button class="img-gen-stage-item is-${status} ${isActive ? 'is-active' : ''}" type="button" onclick="focusImgGenStageCard(event, '${safeId}')" onmousedown="event.stopPropagation()" data-tip="聚焦：${safeTitle}">
+        <button class="img-gen-stage-item is-${status} ${isActive ? 'is-active' : ''}" type="button" onclick="focusImgGenStageCard(event, '${safeId}')" onmousedown="event.stopPropagation()" data-tip="释放到画布：${safeTitle}">
             <span class="img-gen-stage-dot"></span>
             <span class="img-gen-stage-thumb">${thumbHtml}</span>
             <span class="img-gen-stage-meta">
@@ -846,6 +847,43 @@ function renderImgGenStageItem(task, index, activeId) {
             </span>
         </button>
     `;
+}
+
+function isImgGenTaskStageDocked(task) {
+    return !!(task && task.type === 'tool_image_gen' && task.state && task.state.stageDocked === true);
+}
+
+function isPointInImgGenStageRail(clientX, clientY) {
+    const rail = document.getElementById('img-gen-stage-rail');
+    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const rect = rail.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+function setImgGenStageDragOver(isOver) {
+    const rail = document.getElementById('img-gen-stage-rail');
+    if (!rail) return;
+    rail.classList.toggle('is-drag-over', !!isOver);
+}
+
+function getImgGenStageRailFingerprint(tasks, activeId) {
+    return [
+        imgGenStageRailCollapsed ? '1' : '0',
+        activeId || '',
+        tasks.map((task) => {
+            const state = task && task.state ? task.state : {};
+            return [
+                task.id,
+                task.status || 'static',
+                task.timestamp || 0,
+                getImgGenPendingCount(task),
+                Array.isArray(state.previewHistory) ? state.previewHistory.length : 0,
+                state.version || '',
+                state.proRatio || '',
+                state.trialRatio || ''
+            ].join(':');
+        }).join('|')
+    ].join('::');
 }
 
 async function renderImgGenStageRail(tasksArg = null) {
@@ -858,12 +896,29 @@ async function renderImgGenStageRail(tasksArg = null) {
     const imgTasks = rawTasks
         .filter((task) => task && task.type === 'tool_image_gen')
         .map((task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }))
+        .filter((task) => {
+            ensureImgGenState(task);
+            return isImgGenTaskStageDocked(task);
+        })
         .filter(Boolean)
         .sort((a, b) => {
             if (a.id === activeImgGenStageTaskId) return -1;
             if (b.id === activeImgGenStageTaskId) return 1;
             return toFiniteNumber(b.timestamp, 0) - toFiniteNumber(a.timestamp, 0);
         });
+
+    const selectedImgId = Array.from(selectedTasks).find((id) => {
+        const task = getTaskShadow(id) || imgTasks.find((item) => item && item.id === id);
+        return isImgGenTaskStageDocked(task);
+    });
+    const activeId = activeImgGenStageTaskId || selectedImgId || '';
+    const nextFingerprint = getImgGenStageRailFingerprint(imgTasks, activeId);
+    if (nextFingerprint === imgGenStageRailFingerprint) {
+        rail.classList.toggle('is-collapsed', imgGenStageRailCollapsed);
+        rail.classList.toggle('is-empty', imgTasks.length === 0);
+        return;
+    }
+    imgGenStageRailFingerprint = nextFingerprint;
 
     if (countEl) countEl.textContent = String(imgTasks.length);
     rail.classList.toggle('is-collapsed', imgGenStageRailCollapsed);
@@ -873,17 +928,12 @@ async function renderImgGenStageRail(tasksArg = null) {
         listEl.innerHTML = `
             <div class="img-gen-stage-empty">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
-                <span>拖入 AI 生图节点后，这里会变成台前调度栏</span>
+                <span>把生图卡片拖到这里，即可收纳进台前调度</span>
             </div>
         `;
         return;
     }
 
-    const selectedImgId = Array.from(selectedTasks).find((id) => {
-        const task = getTaskShadow(id) || imgTasks.find((item) => item && item.id === id);
-        return task && task.type === 'tool_image_gen';
-    });
-    const activeId = activeImgGenStageTaskId || selectedImgId || '';
     listEl.innerHTML = imgTasks.map((task, index) => renderImgGenStageItem(task, index, activeId)).join('');
 }
 
@@ -911,6 +961,19 @@ async function focusImgGenStageCard(event, taskId) {
     }
     if (!taskId) return;
     activeImgGenStageTaskId = taskId;
+    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (task && task.type === 'tool_image_gen') {
+        ensureImgGenState(task);
+        if (task.state.stageDocked === true) {
+            task.state.stageDocked = false;
+            task.timestamp = Date.now();
+            setTaskShadow(task);
+            imgGenStageRailFingerprint = '';
+            await saveTaskDB(task);
+            await renderBoard();
+            showToast('已从台前调度释放到画布', 'success');
+        }
+    }
     if (!document.getElementById('card-' + taskId)) await renderBoard();
     focusTaskById(taskId);
     const cardEl = document.getElementById('card-' + taskId);
@@ -921,6 +984,33 @@ async function focusImgGenStageCard(event, taskId) {
         setTimeout(() => cardEl.classList.remove('is-stage-focused'), 820);
     }
     renderImgGenStageRail().catch(() => {});
+}
+
+async function dockImgGenCardToStage(dragInfo) {
+    if (!dragInfo || dragInfo.children || !dragInfo.task || dragInfo.task.type !== 'tool_image_gen') return false;
+    if (!isPointInImgGenStageRail(lastPointerClientX, lastPointerClientY)) return false;
+    const task = dragInfo.el && dragInfo.el.__veoTask ? dragInfo.el.__veoTask : dragInfo.task;
+    ensureImgGenState(task);
+    task.x = toFiniteNumber(dragInfo.initialX, task.x);
+    task.y = toFiniteNumber(dragInfo.initialY, task.y);
+    task.state.stageDocked = true;
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    activeImgGenStageTaskId = task.id;
+    selectedTasks.delete(task.id);
+    dragInfo.el.classList.remove('selected');
+    dragInfo.el.classList.add('is-stage-docked');
+    dragInfo.el.style.willChange = 'auto';
+    syncCardViewportMetrics(dragInfo.el, task);
+    imgGenStageRailFingerprint = '';
+    await saveTaskDB(task);
+    setImgGenStageDragOver(false);
+    scheduleImgGenStageRailRender(0);
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
+    renderMinimap();
+    showToast('已收纳至台前调度', 'success');
+    return true;
 }
 
 function cloneTaskDeep(task) {
@@ -2607,7 +2697,7 @@ function updateViewportCulling() {
     };
     document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box').forEach((cardEl) => {
         const task = cardEl.__veoTask;
-        if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
+        if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('is-stage-docked') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
             cardEl.classList.remove('is-viewport-culled');
             return;
         }
@@ -2627,7 +2717,7 @@ function scheduleViewportCulling(delay = 120) {
 function getSelectedCanvasElements() {
     return Array.from(selectedTasks)
         .map((id) => document.getElementById('card-' + id))
-        .filter((el) => el && !el.classList.contains('hidden-in-frame'));
+        .filter((el) => el && !el.classList.contains('hidden-in-frame') && !el.classList.contains('is-stage-docked'));
 }
 
 function ensureSelectionToolbar() {
@@ -2692,7 +2782,7 @@ function requestSelectionToolbarUpdate() {
 
 function buildSelectionCandidates() {
     return Array.from(document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box'))
-        .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-viewport-culled'))
+        .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-stage-docked') && !card.classList.contains('is-viewport-culled'))
         .map((card) => ({
             el: card,
             id: card.id ? card.id.replace('card-', '') : '',
@@ -2756,6 +2846,7 @@ window.addEventListener('mousemove', (e) => {
                 const dragBaseY = toFiniteNumber(draggingCardInfo.initialY, 0);
                 draggingCardInfo.task.x = dragBaseX + dx; draggingCardInfo.task.y = dragBaseY + dy;
                 draggingCardInfo.el.style.transform = `translate3d(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px, 0)`;
+                setImgGenStageDragOver(draggingCardInfo.task.type === 'tool_image_gen' && !draggingCardInfo.children && isPointInImgGenStageRail(e.clientX, e.clientY));
                 if (draggingCardInfo.children) {
                     draggingCardInfo.children.forEach(child => {
                         const childBaseX = toFiniteNumber(child.initialX, 0);
@@ -2838,6 +2929,12 @@ window.addEventListener('mouseup', async () => {
 
     if (draggingCardInfo) {
         draggingCardInfo.el.style.willChange = 'auto';
+        const dockedToStage = await dockImgGenCardToStage(draggingCardInfo);
+        if (dockedToStage) {
+            draggingCardInfo = null;
+            return;
+        }
+        setImgGenStageDragOver(false);
         syncCardViewportMetrics(draggingCardInfo.el, draggingCardInfo.task);
         await saveTaskDB(draggingCardInfo.task);
 
@@ -2965,7 +3062,7 @@ function bindCardDrag(cardEl, task) {
             highestZIndex++; cardEl.style.zIndex = highestZIndex;
             if (task.type === 'tool_image_gen') {
                 activeImgGenStageTaskId = task.id;
-                scheduleImgGenStageRailRender(80);
+                if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
             }
         }
     };
@@ -2991,7 +3088,7 @@ function bindCardDrag(cardEl, task) {
             highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
             if (task.type === 'tool_image_gen') {
                 activeImgGenStageTaskId = task.id;
-                scheduleImgGenStageRailRender(80);
+                if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
             }
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
@@ -3240,7 +3337,7 @@ async function renderMinimap() {
     const ctx = canvas.getContext('2d'), cw = container.clientWidth, ch = container.clientHeight;
     canvas.width = cw; canvas.height = ch;
 
-    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image');
+    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !isImgGenTaskStageDocked(t));
     if (boardTasks.length === 0) { ctx.clearRect(0, 0, cw, ch); viewBox.style.display = 'none'; return; }
 
     const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
@@ -3711,6 +3808,12 @@ async function renderCard(taskId, taskOverride = null) {
     // 仅重绘当前的这一张卡片
     morphCardDOM(cardEl, generateCardHTML(task));
     applyImgGenCardFrame(cardEl, task);
+    const isStageDocked = isImgGenTaskStageDocked(task);
+    cardEl.classList.toggle('is-stage-docked', isStageDocked);
+    if (isStageDocked) {
+        selectedTasks.delete(task.id);
+        cardEl.classList.remove('selected');
+    }
     syncImgMaskEditor(cardEl, task).catch(() => {});
     bindImgGenCardResizeSave(cardEl, task);
     bindCardDrag(cardEl, task);
@@ -3748,7 +3851,7 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
-    if (task.type === 'tool_image_gen') scheduleImgGenStageRailRender(40);
+    if (task.type === 'tool_image_gen' && isStageDocked) scheduleImgGenStageRailRender(40);
 }
 
 // ==========================================
@@ -5183,6 +5286,7 @@ async function renderBoard() {
 
         let isHiddenInFrame = false;
         if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
+        const isStageDocked = isImgGenTaskStageDocked(task);
 
         if (!cardEl) {
             cardEl = document.createElement('div'); cardEl.id = 'card-' + task.id;
@@ -5239,6 +5343,11 @@ async function renderBoard() {
         }
 
         if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
+        cardEl.classList.toggle('is-stage-docked', isStageDocked);
+        if (isStageDocked) {
+            selectedTasks.delete(task.id);
+            cardEl.classList.remove('selected');
+        }
         cardEl.classList.toggle('is-auto-retrying', task.status === 'processing' && toFiniteNumber(task.retryCount, 0) > 0);
 
         bindCardDrag(cardEl, task);
@@ -5597,6 +5706,7 @@ function ensureImgGenState(task) {
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
     if (!task.state.moderation) task.state.moderation = 'auto';
+    if (typeof task.state.stageDocked !== 'boolean') task.state.stageDocked = false;
     task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.trialRatio) {
