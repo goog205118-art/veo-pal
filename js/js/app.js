@@ -390,6 +390,15 @@ const imgGenPreviewGuards = new Map();
 const imgMaskEditorInstances = new Map();
 const imgGenPromptDraftTimers = new Map();
 let isSpacePanningKeyDown = false;
+let imgGenStageRailCollapsed = false;
+let imgGenStageRailTimer = null;
+let activeImgGenStageTaskId = '';
+
+try {
+    imgGenStageRailCollapsed = localStorage.getItem('veo_img_gen_stage_collapsed') === '1';
+} catch (err) {
+    imgGenStageRailCollapsed = false;
+}
 
 function cssEscapeSafe(id) {
     if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(id);
@@ -768,6 +777,150 @@ function getTaskShadow(taskId) {
     const cardEl = document.getElementById('card-' + taskId);
     if (cardEl && cardEl.__veoTask) return cardEl.__veoTask;
     return taskShadowCache.get(taskId) || null;
+}
+
+function getImgGenStageStatus(task) {
+    if (!task || task.type !== 'tool_image_gen') return 'idle';
+    ensureImgGenState(task);
+    if (getImgGenPendingCount(task) > 0 || task.status === 'processing') return 'pending';
+    if (task.status === 'failed') return 'failed';
+    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+    if (history.some((item) => item && item.status === 'success')) return 'success';
+    return task.status === 'success' ? 'success' : 'idle';
+}
+
+function getImgGenStageThumb(task) {
+    if (!task || task.type !== 'tool_image_gen') return null;
+    ensureImgGenState(task);
+    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+    const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
+    if (latest && latest.image) return latest.image;
+    if (task.state.resultBlob) return task.state.resultBlob;
+    if (Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length) {
+        return task.state.resultBlobs[task.state.resultBlobs.length - 1];
+    }
+    if (Array.isArray(task.state.images) && task.state.images[0]) return task.state.images[0];
+    return null;
+}
+
+function getImgGenStageLabel(task, index) {
+    const fallback = `生图 ${index + 1}`;
+    if (!task || !task.state) return fallback;
+    const prompt = String(task.state.prompt || '').replace(/\s+/g, ' ').trim();
+    if (!prompt) return fallback;
+    return prompt.length > 18 ? `${prompt.slice(0, 18)}...` : prompt;
+}
+
+function getImgGenStageMeta(task) {
+    if (!task || task.type !== 'tool_image_gen') return 'IMAGE';
+    ensureImgGenState(task);
+    const mode = task.state.version === 'pro' ? 'PRO' : 'TRIAL';
+    const status = getImgGenStageStatus(task).toUpperCase();
+    const ratio = task.state.version === 'pro'
+        ? (task.state.proRatio === 'custom' ? `${task.state.customW || 1}:${task.state.customH || 1}` : (task.state.proRatio || '1:1'))
+        : (task.state.trialRatio === 'custom' ? `${task.state.customW || 1}:${task.state.customH || 1}` : (task.state.trialRatio || '1:1'));
+    return `${mode} · ${ratio} · ${status}`;
+}
+
+function renderImgGenStageItem(task, index, activeId) {
+    const status = getImgGenStageStatus(task);
+    const thumb = getImgGenStageThumb(task);
+    const thumbKey = `img_stage_${task.id}_${task.timestamp || 0}_${index}`;
+    const thumbUrl = thumb ? getBlobUrl(thumbKey, thumb) : '';
+    const isActive = activeId === task.id || selectedTasks.has(task.id);
+    const title = getImgGenStageLabel(task, index);
+    const meta = getImgGenStageMeta(task);
+    const safeId = escapeAttr(task.id);
+    const safeTitle = escapeAttr(title);
+    const thumbHtml = thumbUrl
+        ? `<img src="${escapeAttr(thumbUrl)}" alt="${safeTitle}" loading="lazy">`
+        : `<span class="material-symbols-outlined">auto_awesome</span>`;
+
+    return `
+        <button class="img-gen-stage-item is-${status} ${isActive ? 'is-active' : ''}" type="button" onclick="focusImgGenStageCard(event, '${safeId}')" onmousedown="event.stopPropagation()" data-tip="聚焦：${safeTitle}">
+            <span class="img-gen-stage-dot"></span>
+            <span class="img-gen-stage-thumb">${thumbHtml}</span>
+            <span class="img-gen-stage-meta">
+                <strong>${escapeHtml(title)}</strong>
+                <em>${escapeHtml(meta)}</em>
+            </span>
+        </button>
+    `;
+}
+
+async function renderImgGenStageRail(tasksArg = null) {
+    const rail = document.getElementById('img-gen-stage-rail');
+    const listEl = document.getElementById('img-gen-stage-list');
+    const countEl = document.getElementById('img-gen-stage-count');
+    if (!rail || !listEl) return;
+
+    const rawTasks = Array.isArray(tasksArg) ? tasksArg : await getAllTasksDB();
+    const imgTasks = rawTasks
+        .filter((task) => task && task.type === 'tool_image_gen')
+        .map((task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }))
+        .filter(Boolean)
+        .sort((a, b) => {
+            if (a.id === activeImgGenStageTaskId) return -1;
+            if (b.id === activeImgGenStageTaskId) return 1;
+            return toFiniteNumber(b.timestamp, 0) - toFiniteNumber(a.timestamp, 0);
+        });
+
+    if (countEl) countEl.textContent = String(imgTasks.length);
+    rail.classList.toggle('is-collapsed', imgGenStageRailCollapsed);
+    rail.classList.toggle('is-empty', imgTasks.length === 0);
+
+    if (imgTasks.length === 0) {
+        listEl.innerHTML = `
+            <div class="img-gen-stage-empty">
+                <span class="material-symbols-outlined">add_photo_alternate</span>
+                <span>拖入 AI 生图节点后，这里会变成台前调度栏</span>
+            </div>
+        `;
+        return;
+    }
+
+    const selectedImgId = Array.from(selectedTasks).find((id) => {
+        const task = getTaskShadow(id) || imgTasks.find((item) => item && item.id === id);
+        return task && task.type === 'tool_image_gen';
+    });
+    const activeId = activeImgGenStageTaskId || selectedImgId || '';
+    listEl.innerHTML = imgTasks.map((task, index) => renderImgGenStageItem(task, index, activeId)).join('');
+}
+
+function scheduleImgGenStageRailRender(delay = 80) {
+    clearTimeout(imgGenStageRailTimer);
+    imgGenStageRailTimer = setTimeout(() => {
+        renderImgGenStageRail().catch((err) => console.warn('Image stage rail render failed', err));
+    }, Math.max(0, delay));
+}
+
+function toggleImgGenStageRail(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    imgGenStageRailCollapsed = !imgGenStageRailCollapsed;
+    try { localStorage.setItem('veo_img_gen_stage_collapsed', imgGenStageRailCollapsed ? '1' : '0'); } catch (err) {}
+    renderImgGenStageRail().catch(() => {});
+}
+
+async function focusImgGenStageCard(event, taskId) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    if (!taskId) return;
+    activeImgGenStageTaskId = taskId;
+    if (!document.getElementById('card-' + taskId)) await renderBoard();
+    focusTaskById(taskId);
+    const cardEl = document.getElementById('card-' + taskId);
+    if (cardEl) {
+        highestZIndex += 8;
+        cardEl.style.zIndex = highestZIndex;
+        cardEl.classList.add('is-stage-focused');
+        setTimeout(() => cardEl.classList.remove('is-stage-focused'), 820);
+    }
+    renderImgGenStageRail().catch(() => {});
 }
 
 function cloneTaskDeep(task) {
@@ -2810,6 +2963,10 @@ function bindCardDrag(cardEl, task) {
     cardEl.onmousedown = (e) => {
         if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) {
             highestZIndex++; cardEl.style.zIndex = highestZIndex;
+            if (task.type === 'tool_image_gen') {
+                activeImgGenStageTaskId = task.id;
+                scheduleImgGenStageRailRender(80);
+            }
         }
     };
 
@@ -2832,6 +2989,10 @@ function bindCardDrag(cardEl, task) {
             }
 
             highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
+            if (task.type === 'tool_image_gen') {
+                activeImgGenStageTaskId = task.id;
+                scheduleImgGenStageRailRender(80);
+            }
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
             } else {
@@ -3002,6 +3163,10 @@ function focusTaskById(taskId) {
     el.style.zIndex = highestZIndex;
     updateSelectionToolbar();
     focusSelectedTasks();
+    if (task.type === 'tool_image_gen') {
+        activeImgGenStageTaskId = taskId;
+        scheduleImgGenStageRailRender(40);
+    }
 }
 
 async function deleteSelectedTasks() {
@@ -3028,10 +3193,12 @@ async function deleteSelectedTasks() {
         }
     });
     await Promise.all(deletePromises);
+    if (ids.includes(activeImgGenStageTaskId)) activeImgGenStageTaskId = '';
     selectedTasks.clear();
     updateSelectionToolbar();
     scheduleViewportCulling(40);
     renderMinimap();
+    scheduleImgGenStageRailRender(40);
     showToast(`清理完成`, "success");
 }
 
@@ -3581,6 +3748,7 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
     cardEl.setAttribute('data-sync-title', task.title || '');
     cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
+    if (task.type === 'tool_image_gen') scheduleImgGenStageRailRender(40);
 }
 
 // ==========================================
@@ -5083,6 +5251,7 @@ async function renderBoard() {
     renderMinimap();
     scheduleViewportCulling(40);
     updateSelectionToolbar();
+    renderImgGenStageRail(boardTasks).catch(() => {});
 }
 
 async function removeTask(id) {
@@ -5097,11 +5266,13 @@ async function removeTask(id) {
     taskShadowCache.delete(id);
     imgGenUpdateQueues.delete(id);
     selectedTasks.delete(id);
+    if (id === activeImgGenStageTaskId) activeImgGenStageTaskId = '';
     const card = document.getElementById('card-' + id);
     if (card) card.remove();
     updateSelectionToolbar();
     scheduleViewportCulling(40);
     renderMinimap();
+    scheduleImgGenStageRailRender(40);
 }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 
