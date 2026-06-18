@@ -2039,6 +2039,13 @@ body.app-shell-ready .floating-console:not(.minimized) {
     transform-origin: center;
     transition: transform 0.18s ease, filter 0.18s ease;
 }
+.img-gen-slots.img-gen-slots-fixed.is-single-ref-route {
+    grid-template-columns: 1fr;
+    grid-template-rows: 160px;
+}
+.img-gen-slots-fixed.is-single-ref-route .img-gen-slot-base {
+    grid-row: auto;
+}
 .img-gen-slots-fixed.drag-over {
     transform: scale(1.012);
     filter: drop-shadow(0 12px 26px rgba(94,156,255,0.12));

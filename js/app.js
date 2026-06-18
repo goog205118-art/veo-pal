@@ -1,4 +1,4 @@
-// ==========================================
+﻿// ==========================================
 // 🟢 核心应用逻辑与安全拦截 (Veo Studio Infinity Flow)
 // ==========================================
 let loginAnimationId = null;
@@ -612,14 +612,50 @@ async function blobsToBase64Sequential(blobs, options = {}) {
     return out;
 }
 
-function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null) {
-    const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, 5) : [];
+function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null, maxImages = 5) {
+    const maxCount = Math.max(1, Math.min(5, parseInt(maxImages, 10) || 5));
+    const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, maxCount) : [];
     return {
         images,
         mask: maskBase64 || null,
         image_count: images.length,
         reference_count: Math.max(0, images.length - 1)
     };
+}
+
+function getImgGenMaxReferenceCount(task) {
+    if (!task || task.type !== 'tool_image_gen') return 5;
+    const state = task.state && typeof task.state === 'object' ? task.state : {};
+    return state.version === 'pro' && normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix).key === 'ai666' ? 1 : 5;
+}
+
+function limitImgGenReferencesForRoute(task, incomingImages = []) {
+    const images = Array.isArray(incomingImages) ? incomingImages.filter(Boolean) : [];
+    const maxCount = getImgGenMaxReferenceCount(task);
+    return maxCount <= 1 ? images.slice(-1) : images.slice(0, 5);
+}
+
+function enforceImgGenRouteReferenceLimit(task) {
+    if (!task || task.type !== 'tool_image_gen') return false;
+    if (!task.state || typeof task.state !== 'object') task.state = {};
+    const before = Array.isArray(task.state.images) ? task.state.images : [];
+    const limited = limitImgGenReferencesForRoute(task, before);
+    const changed = before.length !== limited.length || before.some((item, index) => item !== limited[index]);
+    if (!changed) return false;
+    const baseChanged = before[0] !== limited[0];
+    task.state.images = limited;
+    if (baseChanged) {
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        task.state.maskEditMode = false;
+        if (task.id) {
+            revokeBlobPrefixSafe(`${task.id}_mask_preview_`);
+            revokeBlobPrefixSafe(`${task.id}_mask_studio_`);
+            destroyImgMaskStudio(task.id);
+            destroyImgMaskEditor(task.id);
+        }
+    }
+    return true;
 }
 
 function resolveImgGenNetworkEncodeOptions(routeKey, kind = 'image') {
@@ -4953,9 +4989,11 @@ function renderImgGenSlots(task) {
     const isPro = task.state.version === 'pro';
     const images = Array.isArray(task.state.images) ? task.state.images : [];
     const hasMaskReady = isPro && !!(task.state.maskBlob || task.state.maskImage);
+    const maxImageCount = getImgGenMaxReferenceCount(task);
+    const isSingleRefRoute = maxImageCount === 1;
     const slots = [];
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < maxImageCount; i++) {
         const img = images[i] || null;
         const isBase = i === 0;
         const slotClass = [
@@ -4992,12 +5030,12 @@ function renderImgGenSlots(task) {
     }
 
     return `
-        <div class="img-gen-slots img-gen-slots-fixed" id="img-gen-zone-${task.id}" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">
-            <input type="file" id="file-input-${task.id}" class="img-gen-file-input" multiple accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()">
+        <div class="img-gen-slots img-gen-slots-fixed ${isSingleRefRoute ? 'is-single-ref-route' : ''}" id="img-gen-zone-${task.id}" ondragover="event.preventDefault(); this.classList.add('drag-over');" ondragleave="this.classList.remove('drag-over');" ondrop="handleGenImageDrop(event, '${task.id}')">
+            <input type="file" id="file-input-${task.id}" class="img-gen-file-input" ${isSingleRefRoute ? '' : 'multiple'} accept="image/*" onchange="handleGenImageUpload(this, '${task.id}')" onclick="event.stopPropagation()">
             ${slots.join('')}
             <div class="img-gen-drop-overlay">
                 <span class="material-symbols-outlined">move_to_inbox</span>
-                <strong>释放图片，吸附到生图节点</strong>
+                <strong>${isSingleRefRoute ? 'AI666 通道仅保留 1 张参考图，拖入新图会自动替换' : '释放图片，吸附到生图节点'}</strong>
             </div>
         </div>
     `;
@@ -6075,6 +6113,7 @@ function ensureImgGenState(task) {
     task.state.modelSuffix = route.suffix;
     task.state.routeMode = route.mode;
     task.state.imageModel = `gpt-image-2${route.suffix}`;
+    enforceImgGenRouteReferenceLimit(task);
     if (!task.state.quality) task.state.quality = 'auto';
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
@@ -6528,7 +6567,9 @@ async function createImgGenVariations(event, taskId, itemId) {
         clone.parentId = variantFrame.id;
         clone.state = cloneTaskDeep(sourceTask.state) || { ...(sourceTask.state || {}) };
         ensureImgGenState(clone);
-        clone.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
+        clone.state.images = getImgGenMaxReferenceCount(clone) === 1
+            ? [item.image]
+            : [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
         clone.state.refControls = clone.state.images.map((_, index) => createImgGenRefControl(index, {
             intent: index === 0 ? 'structure' : (sourceTask.state.refControls && sourceTask.state.refControls[index - 1] ? sourceTask.state.refControls[index - 1].intent : getImgGenDefaultRefIntent(index)),
             weight: index === 0 ? 0.92 : (sourceTask.state.refControls && sourceTask.state.refControls[index - 1] ? sourceTask.state.refControls[index - 1].weight : undefined)
@@ -6578,7 +6619,9 @@ async function sendImgGenPreviewToMask(event, taskId, itemId) {
     const item = findImgGenPreviewItem(sourceTask, itemId);
     if (!item || !item.image) return showToast('没有可送入蒙版的图片', 'warning');
     sourceTask.state.version = 'pro';
-    sourceTask.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
+    sourceTask.state.images = getImgGenMaxReferenceCount(sourceTask) === 1
+        ? [item.image]
+        : [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
     sourceTask.state.refControls = sourceTask.state.images.map((_, index) => createImgGenRefControl(index, { intent: index === 0 ? 'structure' : getImgGenDefaultRefIntent(index) }));
     sourceTask.state.maskBlob = null;
     sourceTask.state.maskImage = null;
@@ -7423,6 +7466,8 @@ async function updateImgGenState(taskId, key, val) {
             if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
         }
 
+        enforceImgGenRouteReferenceLimit(task);
+        normalizeImgGenRefControls(task);
         task.timestamp = Date.now();
         setTaskShadow(task);
         renderCard(taskId, task);
@@ -7492,10 +7537,22 @@ async function handleGenImageUpload(input, taskId) {
     if (!input.files || input.files.length === 0) return;
     const task = await getTaskDB(taskId); if (!task) return;
     ensureImgGenState(task);
-    for (let file of Array.from(input.files)) {
-        if (task.state.images.length >= 5) break;
-        task.state.images.push(await compressImageToBlob(file, 1024));
+    const maxImageCount = getImgGenMaxReferenceCount(task);
+    const files = Array.from(input.files);
+    const filesToUse = maxImageCount === 1 ? files.slice(-1) : files;
+    if (maxImageCount === 1 && files.length > 1) {
+        showToast('AI666 通道仅支持 1 张参考图，已使用最后选择的图片', 'info');
     }
+    for (let file of filesToUse) {
+        const blob = await compressImageToBlob(file, 1024);
+        if (maxImageCount === 1) {
+            task.state.images = [blob];
+            break;
+        }
+        if (task.state.images.length >= 5) break;
+        task.state.images.push(blob);
+    }
+    enforceImgGenRouteReferenceLimit(task);
     normalizeImgGenRefControls(task);
     task.timestamp = Date.now();
     revokeBlobPrefixSafe(`${taskId}_img_`);
@@ -7513,23 +7570,32 @@ async function handleGenImageDrop(e, taskId) {
     const zone = document.getElementById(`img-gen-zone-${taskId}`);
     if (zone) zone.classList.remove('drag-over');
 
-    // 🌟 核心破局点：必须在任何 await (如查库) 发生之前，优先且“同步”地提取拖放数据！
     const srcToUse = await parseDroppedImage(e);
-
-    // 如果没有拿到有效图片，直接拦截，节约性能
     if (!srcToUse) return;
 
-    // 数据落袋为安后，再从容地去查库和校验
     const task = await getTaskDB(taskId);
     if (!task) return;
     ensureImgGenState(task);
 
-    if (task.state.images.length >= 5) {
-        return showToast("最多只能垫入 5 张图", "error");
+    const maxImageCount = getImgGenMaxReferenceCount(task);
+    if (maxImageCount === 1) {
+        task.state.images = [srcToUse];
+        task.state.maskBlob = null;
+        task.state.maskImage = null;
+        task.state.maskEditMode = false;
+        revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
+        revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
+        destroyImgMaskStudio(taskId);
+        destroyImgMaskEditor(taskId);
+        showToast('AI666 通道仅保留 1 张参考图，已替换为新图', 'info');
+    } else {
+        if (task.state.images.length >= 5) {
+            return showToast('最多只能垫入 5 张图', 'error');
+        }
+        task.state.images.push(srcToUse);
     }
 
-    // 赋值并击穿缓存
-    task.state.images.push(srcToUse);
+    enforceImgGenRouteReferenceLimit(task);
     normalizeImgGenRefControls(task);
     task.timestamp = Date.now();
     revokeBlobPrefixSafe(`${taskId}_img_`);
@@ -7537,7 +7603,6 @@ async function handleGenImageDrop(e, taskId) {
     renderCard(taskId, task);
     await saveTaskDB(task);
 }
-
 async function removeGenImage(e, taskId, index) {
     e.stopPropagation(); const task = await getTaskDB(taskId); if (!task) return;
     ensureImgGenState(task);
@@ -7643,15 +7708,20 @@ async function submitImgGen(taskId) {
     }
     task.state.size = resolvedSize;
     const sizeToSend = resolvedSize;
-    const mode = resolveImgGenMode(task.state);
     const route = normalizeImgGenRoute(task.state.providerSort);
+    enforceImgGenRouteReferenceLimit(task);
+    const maxImageCount = getImgGenMaxReferenceCount(task);
+    const imagesForSubmit = limitImgGenReferencesForRoute(task, task.state.images);
+    task.state.images = imagesForSubmit;
+    normalizeImgGenRefControls(task);
+    const mode = resolveImgGenMode(task.state);
     const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
     const imageEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'image');
     const maskEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'mask');
-    const imagesBase64 = await blobsToBase64Sequential(task.state.images, imageEncodeOptions);
+    const imagesBase64 = await blobsToBase64Sequential(imagesForSubmit, imageEncodeOptions);
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
     const maskBase64 = maskSource ? await blobToBase64(maskSource, maskEncodeOptions) : null;
-    const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64);
+    const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64, maxImageCount);
     const encodedImageBytes = imagesBase64.reduce((sum, item) => sum + String(item || '').length, 0) + String(maskBase64 || '').length;
     if (route.key === 'ai666' && encodedImageBytes > 10 * 1024 * 1024) {
         markImgGenPreviewFailed(task, previewItemId, 'AI666 垫图请求体仍然过大，请减少参考图或先裁切压缩');
