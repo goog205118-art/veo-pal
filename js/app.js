@@ -1170,7 +1170,7 @@ async function focusImgGenStageCard(event, taskId) {
         cardEl.classList.add('is-stage-focused', 'is-stage-released');
         void cardEl.offsetWidth;
         cardEl.classList.add('is-stage-spawning');
-        setTimeout(() => cardEl.classList.remove('is-stage-focused', 'is-stage-spawning'), 520);
+        setTimeout(() => cardEl.classList.remove('is-stage-focused', 'is-stage-spawning'), 260);
     }
     scheduleViewportCulling(40);
     updateSelectionToolbar();
