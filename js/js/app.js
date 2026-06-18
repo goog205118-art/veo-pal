@@ -1166,8 +1166,11 @@ async function focusImgGenStageCard(event, taskId) {
         highestZIndex += 8;
         cardEl.style.zIndex = highestZIndex;
         cardEl.classList.remove('is-stage-docked');
+        cardEl.classList.remove('is-stage-spawning');
         cardEl.classList.add('is-stage-focused', 'is-stage-released');
-        setTimeout(() => cardEl.classList.remove('is-stage-focused'), 820);
+        void cardEl.offsetWidth;
+        cardEl.classList.add('is-stage-spawning');
+        setTimeout(() => cardEl.classList.remove('is-stage-focused', 'is-stage-spawning'), 520);
     }
     scheduleViewportCulling(40);
     updateSelectionToolbar();
@@ -4828,14 +4831,39 @@ function renderImgGenPromptChips(task) {
     `;
     }).join('');
     return `
-        <div class="img-gen-prompt-assist ${collapsed ? 'is-collapsed' : ''}">
-            <button class="img-gen-section-head img-gen-prompt-assist-head" type="button" onclick="toggleImgGenPromptTools(event, '${task.id}')" aria-expanded="${collapsed ? 'false' : 'true'}">
+        <div class="img-gen-prompt-assist img-gen-mini-panel ${collapsed ? 'is-collapsed' : 'is-open'}">
+            ${collapsed ? '' : `
+                <div class="img-gen-mini-panel-head">
+                    <span><span class="material-symbols-outlined">auto_awesome</span> 快捷提示词</span>
+                    <button type="button" onclick="toggleImgGenPromptTools(event, '${task.id}')" data-tip="收起快捷提示词">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="img-gen-prompt-chip-row">${chips}</div>
+            `}
+        </div>
+    `;
+}
+
+function renderImgGenMiniToolDock(task) {
+    ensureImgGenState(task);
+    const isPro = task.state.version === 'pro';
+    const promptOpen = task.state.promptToolsCollapsed !== true;
+    const maskOpen = isPro && task.state.maskPanelCollapsed !== true;
+    const hasMaskReady = isPro && !!(task.state.maskBlob || task.state.maskImage);
+    return `
+        <div class="img-gen-mini-tool-dock">
+            <button class="img-gen-mini-tool ${promptOpen ? 'is-open' : ''}" type="button" onclick="toggleImgGenPromptTools(event, '${task.id}')" data-tip="${promptOpen ? '收起快捷提示词' : '展开快捷提示词'}">
                 <span class="material-symbols-outlined">auto_awesome</span>
-                <strong>快捷提示词</strong>
-                <small>中文浏览，点击填入英文提示词</small>
-                <span class="material-symbols-outlined img-gen-section-chevron">${collapsed ? 'expand_more' : 'expand_less'}</span>
+                <span>提示词</span>
             </button>
-            ${collapsed ? '' : `<div class="img-gen-prompt-chip-row">${chips}</div>`}
+            ${isPro ? `
+                <button class="img-gen-mini-tool ${maskOpen ? 'is-open' : ''} ${hasMaskReady ? 'is-ready' : ''}" type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="${maskOpen ? '收起蒙版工具' : '展开蒙版工具'}">
+                    <span class="material-symbols-outlined">gesture</span>
+                    <span>蒙版</span>
+                    ${hasMaskReady ? '<i></i>' : ''}
+                </button>
+            ` : ''}
         </div>
     `;
 }
@@ -5056,31 +5084,31 @@ function renderImgGenMaskPanel(task) {
     const baseImage = imageList[0] || null;
     const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
     const collapsed = task.state.maskPanelCollapsed === true;
-    const maskStatus = !baseImage ? '需要底图' : (hasMaskReady ? '蒙版已就绪' : '未绘制蒙版');
-    const headHtml = `
-        <button class="img-gen-section-head img-gen-mask-section-head" type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" aria-expanded="${collapsed ? 'false' : 'true'}">
-            <span class="material-symbols-outlined">gesture</span>
-            <strong>蒙版工具</strong>
-            <small>点击展开局部重绘入口</small>
-            <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${maskStatus}</span>
-            <span class="material-symbols-outlined img-gen-section-chevron">${collapsed ? 'expand_more' : 'expand_less'}</span>
-        </button>
-    `;
+    if (collapsed) return '';
 
     if (!baseImage) {
         return `
-            <div class="img-gen-mask-block is-readonly is-empty ${collapsed ? 'is-collapsed' : ''}">
-                ${headHtml}
-                ${collapsed ? '' : '<div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张底图。</div>'}
+            <div class="img-gen-mask-block img-gen-mini-panel is-readonly is-empty">
+                <div class="img-gen-mini-panel-head">
+                    <span><span class="material-symbols-outlined">gesture</span> 蒙版工具</span>
+                    <button type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="收起蒙版工具">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张底图。</div>
             </div>
         `;
     }
 
     const baseUrl = getBlobUrl(`${task.id}_mask_preview_${task.timestamp || ''}`, baseImage);
     return `
-        <div class="img-gen-mask-block is-readonly ${hasMaskReady ? 'has-mask' : ''} ${collapsed ? 'is-collapsed' : ''}">
-            ${headHtml}
-            ${collapsed ? '' : `
+        <div class="img-gen-mask-block img-gen-mini-panel is-readonly ${hasMaskReady ? 'has-mask' : ''}">
+            <div class="img-gen-mini-panel-head">
+                <span><span class="material-symbols-outlined">gesture</span> 蒙版工具</span>
+                <button type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="收起蒙版工具">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
             <div class="img-gen-mask-toolbar">
                 <button class="img-gen-mask-btn is-primary" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="打开大画布蒙版编辑器">
                     <span class="material-symbols-outlined">gesture</span>
@@ -5097,7 +5125,6 @@ function renderImgGenMaskPanel(task) {
                 <span class="img-gen-mask-preview-label">底图 / 蒙版源</span>
                 ${hasMaskReady ? '<span class="img-gen-mask-preview-glow">局部重绘蒙版已就绪</span>' : '<span class="img-gen-mask-preview-glow is-muted">点击开始绘制蒙版</span>'}
             </button>
-            `}
         </div>
     `;
 }
@@ -5428,6 +5455,7 @@ function renderImgGenCardHTML(task) {
                     ${renderImgGenSlots(task)}
                     <div class="img-gen-upload-note">第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。</div>
                     ${renderImgGenParams(task)}
+                    ${renderImgGenMiniToolDock(task)}
                     ${renderImgGenMaskPanel(task)}
                     ${renderImgGenPromptChips(task)}
                     <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${safePrompt}</textarea>
