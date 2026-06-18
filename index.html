@@ -67,7 +67,7 @@
         </div>
        <div class="top-actions">
             <button class="top-btn" onclick="createFrame()" data-tip="按住 Shift 框选多张卡片后，点击将其打组收纳">
-                <span class="material-symbols-outlined" style="font-size: 16px; color: #a78bfa;">view_cofy</span> 建组
+                <span class="material-symbols-outlined" style="font-size: 16px; color: #a78bfa;">dashboard_customize</span> 建组
             </button>
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
 
@@ -153,7 +153,7 @@
             <span class="material-symbols-outlined">photo_library</span>
         </button>
         <div class="img-gen-stage-header">
-            <span>IMAGE STAGE</span>
+            <span>生图台前</span>
             <strong id="img-gen-stage-count">0</strong>
         </div>
         <div class="img-gen-stage-list" id="img-gen-stage-list"></div>
@@ -164,16 +164,26 @@
         <div id="selection-marquee" class="selection-marquee"></div>
     </div>
 
-    <div class="floating-console" id="floating-console">
+    <div class="floating-console" id="floating-console" onclick="if(this.classList.contains('minimized')) expandVideoConsole()">
+        <button class="console-mini-pill" type="button" onclick="expandVideoConsole()" data-tip="展开视频生成控制台">
+            <span class="material-symbols-outlined">movie</span>
+            视频生成 · 敬请期待
+        </button>
         <div class="console-headline">
             <div>
-                <span class="console-eyebrow">VEO MOTION CONSOLE</span>
+                <span class="console-eyebrow">视频生成控制台</span>
                 <strong id="console-mode-title">参考图驱动</strong>
             </div>
-            <button class="console-advanced-toggle" type="button" onclick="toggleConsoleAdvanced(event)" data-tip="展开/收纳专家参数">
-                <span class="material-symbols-outlined">tune</span>
-                Advanced
-            </button>
+            <div class="console-head-actions">
+                <span class="console-soon-badge"><span class="material-symbols-outlined" style="font-size:15px;">hourglass_top</span>暂不可用 · 敬请期待</span>
+                <button class="console-advanced-toggle" type="button" onclick="toggleConsoleAdvanced(event)" data-tip="展开/收纳专家参数">
+                    <span class="material-symbols-outlined">tune</span>
+                    高级
+                </button>
+                <button class="console-minimize-btn" type="button" onclick="toggleVideoConsoleMinimized(event)" data-tip="最小化视频控制台">
+                    <span class="material-symbols-outlined">keyboard_arrow_down</span>
+                </button>
+            </div>
         </div>
 
         <div class="prompt-container">
@@ -332,7 +342,7 @@
 
         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
             <button class="top-btn" style="flex: 1; justify-content: center; background: rgba(10, 132, 255, 0.1); border-color: rgba(10, 132, 255, 0.3); color: var(--accent);" onclick="deduplicateMaterials(event)">
-                <span class="material-symbols-outlined" style="font-size: 16px;">filter_auto</span> 一键去重
+                <span class="material-symbols-outlined" style="font-size: 16px;">cleaning_services</span> 一键去重
             </button>
             <button class="top-btn" style="flex: 1; justify-content: center; background: rgba(255, 69, 58, 0.1); border-color: rgba(255, 69, 58, 0.3); color: var(--danger);" onclick="clearAllMaterials()">
                 <span class="material-symbols-outlined" style="font-size: 16px;">delete_sweep</span> 彻底清空

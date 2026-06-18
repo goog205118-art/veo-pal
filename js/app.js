@@ -3957,6 +3957,8 @@ async function renderCard(taskId, taskOverride = null) {
     const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
     const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
     const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
+    const currentPromptToolsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.promptToolsCollapsed === true) : 'na';
+    const currentMaskPanelCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskPanelCollapsed === true) : 'na';
     const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
     const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
     const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
@@ -3972,6 +3974,8 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
     cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed);
     cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
+    cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed);
+    cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed);
     cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode);
     cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize);
     cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
@@ -4143,6 +4147,15 @@ function toggleConsoleAdvanced(e) {
     const nextCollapsed = !panel.classList.contains('is-collapsed');
     panel.classList.toggle('is-collapsed', nextCollapsed);
     if (toggle) toggle.classList.toggle('is-open', !nextCollapsed);
+}
+
+function toggleVideoConsoleMinimized(e) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    const el = document.getElementById('floating-console');
+    if (el) el.classList.toggle('minimized');
 }
 
 function expandVideoConsole() {
@@ -4695,6 +4708,8 @@ function buildImgGenRefControlPayload(task) {
 }
 
 function renderImgGenPromptChips(task) {
+    ensureImgGenState(task);
+    const collapsed = task.state.promptToolsCollapsed === true;
     const chips = IMG_GEN_PROMPT_TAGS.map((tag, index) => {
         const label = tag.label || tag.text.split(',')[0] || tag.text;
         return `
@@ -4704,12 +4719,14 @@ function renderImgGenPromptChips(task) {
     `;
     }).join('');
     return `
-        <div class="img-gen-prompt-assist">
-            <div class="img-gen-prompt-assist-head">
+        <div class="img-gen-prompt-assist ${collapsed ? 'is-collapsed' : ''}">
+            <button class="img-gen-section-head img-gen-prompt-assist-head" type="button" onclick="toggleImgGenPromptTools(event, '${task.id}')" aria-expanded="${collapsed ? 'false' : 'true'}">
                 <span class="material-symbols-outlined">auto_awesome</span>
-                快捷提示词
-            </div>
-            <div class="img-gen-prompt-chip-row">${chips}</div>
+                <strong>快捷提示词</strong>
+                <small>中文浏览，点击填入英文提示词</small>
+                <span class="material-symbols-outlined img-gen-section-chevron">${collapsed ? 'expand_more' : 'expand_less'}</span>
+            </button>
+            ${collapsed ? '' : `<div class="img-gen-prompt-chip-row">${chips}</div>`}
         </div>
     `;
 }
@@ -4908,13 +4925,13 @@ function renderImgGenParams(task) {
             </label>
             <button class="img-gen-advanced-chip ${paramsCollapsed ? '' : 'is-open'}" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')" data-tip="${paramsCollapsed ? '展开高级参数' : '收起高级参数'}">
                 <span class="material-symbols-outlined">settings</span>
-                Advanced
+                高级
             </button>
         </div>
         ${customRatioHtml}
         <div class="img-gen-param-panel img-gen-advanced-panel ${paramsCollapsed ? 'is-collapsed' : ''}">
             <button class="img-gen-param-head" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')">
-                <span class="img-gen-param-title"><span class="material-symbols-outlined">tune</span> Advanced Settings</span>
+                <span class="img-gen-param-title"><span class="material-symbols-outlined">tune</span> 高级参数</span>
                 <span class="img-gen-param-summary">${escapeHtml(routeLabel)}</span>
                 <span class="material-symbols-outlined">${paramsCollapsed ? 'expand_more' : 'expand_less'}</span>
             </button>
@@ -4929,25 +4946,32 @@ function renderImgGenMaskPanel(task) {
     const imageList = Array.isArray(task.state.images) ? task.state.images : [];
     const baseImage = imageList[0] || null;
     const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
+    const collapsed = task.state.maskPanelCollapsed === true;
+    const maskStatus = !baseImage ? '需要底图' : (hasMaskReady ? '蒙版已就绪' : '未绘制蒙版');
+    const headHtml = `
+        <button class="img-gen-section-head img-gen-mask-section-head" type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" aria-expanded="${collapsed ? 'false' : 'true'}">
+            <span class="material-symbols-outlined">gesture</span>
+            <strong>蒙版工具</strong>
+            <small>点击展开局部重绘入口</small>
+            <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${maskStatus}</span>
+            <span class="material-symbols-outlined img-gen-section-chevron">${collapsed ? 'expand_more' : 'expand_less'}</span>
+        </button>
+    `;
 
     if (!baseImage) {
         return `
-            <div class="img-gen-mask-block is-readonly is-empty">
-                <div class="img-gen-mask-toolbar">
-                    <button class="img-gen-mask-btn" type="button" disabled>
-                        <span class="material-symbols-outlined">gesture</span>
-                        编辑蒙版
-                    </button>
-                    <span class="img-gen-mask-pill">No Base</span>
-                </div>
-                <div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张 BASE 图。</div>
+            <div class="img-gen-mask-block is-readonly is-empty ${collapsed ? 'is-collapsed' : ''}">
+                ${headHtml}
+                ${collapsed ? '' : '<div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张底图。</div>'}
             </div>
         `;
     }
 
     const baseUrl = getBlobUrl(`${task.id}_mask_preview_${task.timestamp || ''}`, baseImage);
     return `
-        <div class="img-gen-mask-block is-readonly ${hasMaskReady ? 'has-mask' : ''}">
+        <div class="img-gen-mask-block is-readonly ${hasMaskReady ? 'has-mask' : ''} ${collapsed ? 'is-collapsed' : ''}">
+            ${headHtml}
+            ${collapsed ? '' : `
             <div class="img-gen-mask-toolbar">
                 <button class="img-gen-mask-btn is-primary" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="打开大画布蒙版编辑器">
                     <span class="material-symbols-outlined">gesture</span>
@@ -4957,13 +4981,14 @@ function renderImgGenMaskPanel(task) {
                     <span class="material-symbols-outlined">layers_clear</span>
                     移除
                 </button>
-                <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? 'Mask Ready' : 'No Mask'}</span>
+                <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? '蒙版已保存' : '未绘制蒙版'}</span>
             </div>
             <button class="img-gen-mask-preview ${hasMaskReady ? 'has-mask' : ''}" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" ondblclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="点击进入大画布蒙版编辑">
                 <img src="${escapeAttr(baseUrl)}" alt="mask-preview">
-                <span class="img-gen-mask-preview-label">BASE / MASK SOURCE</span>
+                <span class="img-gen-mask-preview-label">底图 / 蒙版源</span>
                 ${hasMaskReady ? '<span class="img-gen-mask-preview-glow">局部重绘蒙版已就绪</span>' : '<span class="img-gen-mask-preview-glow is-muted">点击开始绘制蒙版</span>'}
             </button>
+            `}
         </div>
     `;
 }
@@ -5090,7 +5115,7 @@ function renderImgGenHelpContent() {
                     <p>使用旧通道逻辑，适合低成本草稿、构图测试和日常灵感。试用版锁定 1K 输出，只跟随画幅比例换算尺寸，不开放蒙版编辑。</p>
                 </div>
                 <div class="img-gen-help-card">
-                    <strong>Pro · GPT Image 2</strong>
+                    <strong>专业版 · GPT Image 2</strong>
                     <p>专业版面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
                 </div>
             </div>
@@ -5110,7 +5135,7 @@ function renderImgGenHelpContent() {
         <section class="img-gen-help-section">
             <h3>输入图槽位怎么用</h3>
             <ul>
-                <li><strong>BASE / MASK SOURCE</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
+                        <li><strong>底图 / 蒙版源</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
                 <li><strong>REF 1-4</strong>：参考图槽。适合放产品细节、材质、风格、配色、版式灵感。它们会帮助 AI 理解“感觉”和“元素”，但不等于像素级复制。</li>
                 <li><strong>参考意图 / 权重</strong>：每张垫图悬停后可设置“结构、风格、色彩、细节、版式”和 0-100 权重。产品白底图建议结构 85-95；环境图建议风格 45-70；配色板建议色彩 35-60。</li>
                 <li><strong>拖放规则</strong>：可以从电脑、素材库或生成结果直接拖入槽位。第一张建议放要保留主体的图，其余放风格或局部细节参考。</li>
@@ -5126,7 +5151,7 @@ function renderImgGenHelpContent() {
             <p class="img-gen-help-note">Pro 后台会按“比例 + 分辨率档位”自动换算到 GPT Image 2 的有效尺寸范围，避免无效尺寸导致请求失败。</p>
         </section>
         <section class="img-gen-help-section">
-            <h3>Advanced Settings 参数字典</h3>
+                    <h3>高级参数字典</h3>
             <div class="img-gen-help-table">
                 <div><strong>质量</strong><span>low 适合草稿和缩略图，medium 是速度/画质平衡，high 适合终稿。高质量 + 4K 会显著增加等待时间。</span></div>
                 <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
@@ -5287,8 +5312,8 @@ function renderImgGenCardHTML(task) {
                 </div>
                 <div class="img-gen-input-body">
                     <div class="img-gen-statusbar">
-                        <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? 'PRO · GPT IMAGE 2' : 'TRIAL · LEGACY'}</span>
-                        ${isVariantNode ? `<span class="img-gen-status-badge is-variant">VARIANT ${variantIndex}</span>` : ''}
+                        <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? '专业版 · GPT Image 2' : '试用版 · 旧通道'}</span>
+                        ${isVariantNode ? `<span class="img-gen-status-badge is-variant">变体 ${variantIndex}</span>` : ''}
                         <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `${(task.state.trialRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : (task.state.trialRatio || '1:1')} / 1K`}</span>
                     </div>
                     ${renderImgGenSlots(task)}
@@ -5326,7 +5351,7 @@ function generateCardHTML(task) {
         const safeTitle = escapeAttr(task.title || '');
         return `
         <div class="frame-header" onmousedown="event.stopPropagation()">
-            <span class="material-symbols-outlined" style="font-size:18px;">view_cofy</span>
+            <span class="material-symbols-outlined" style="font-size:18px;">dashboard_customize</span>
             <input type="text" class="frame-title-input" value="${safeTitle}" placeholder="未命名项目组" onchange="updateTaskField('${task.id}', 'title', this.value)">
             <div style="display:flex; gap: 4px; margin-left: auto;">
                 <button class="frame-btn" onclick="toggleFrameCollapse('${task.id}')" data-tip="折叠/展开此项目收纳"><span class="material-symbols-outlined" style="font-size:22px;">${task.isCollapsed ? 'expand_more' : 'expand_less'}</span></button>
@@ -5406,6 +5431,8 @@ async function renderBoard() {
         const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
         const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
         const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
+        const currentPromptToolsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.promptToolsCollapsed === true) : 'na';
+        const currentMaskPanelCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskPanelCollapsed === true) : 'na';
         const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
         const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
         const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
@@ -5441,10 +5468,10 @@ async function renderBoard() {
             }
             else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
 
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldPromptToolsCollapsed = cardEl.getAttribute('data-sync-prompt-tools-collapsed'), oldMaskPanelCollapsed = cardEl.getAttribute('data-sync-mask-panel-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldPromptToolsCollapsed !== currentPromptToolsCollapsed || oldMaskPanelCollapsed !== currentMaskPanelCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
                 morphCardDOM(cardEl, generateCardHTML(task));
             }
             applyImgGenCardFrame(cardEl, task);
@@ -5479,7 +5506,7 @@ async function renderBoard() {
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);
 
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed); cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -5866,9 +5893,13 @@ function ensureImgGenState(task) {
     if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
     if (task.state.imgGenUiV2 !== true) {
         task.state.paramsCollapsed = true;
+        task.state.promptToolsCollapsed = true;
+        task.state.maskPanelCollapsed = true;
         task.state.imgGenUiV2 = true;
     }
     if (typeof task.state.paramsCollapsed !== 'boolean') task.state.paramsCollapsed = true;
+    if (typeof task.state.promptToolsCollapsed !== 'boolean') task.state.promptToolsCollapsed = true;
+    if (typeof task.state.maskPanelCollapsed !== 'boolean') task.state.maskPanelCollapsed = true;
     const lastUsageCost = toFiniteNumber(task.state.lastUsageCost, NaN);
     task.state.lastUsageCost = Number.isFinite(lastUsageCost) && lastUsageCost >= 0 ? lastUsageCost : null;
     if (!task.state.lastUsageDetail) task.state.lastUsageDetail = '';
@@ -6967,6 +6998,46 @@ async function toggleImgGenParamsPanel(e, taskId) {
         await saveTaskDB(task);
     }).catch(() => {
         showToast('参数面板切换失败', 'error');
+    });
+}
+
+async function toggleImgGenPromptTools(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.promptToolsCollapsed = !task.state.promptToolsCollapsed;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('快捷提示词切换失败', 'error');
+    });
+}
+
+async function toggleImgGenMaskTools(e, taskId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    await queueImgGenTaskUpdate(taskId, async () => {
+        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+        if (!baseTask) return;
+        const task = cloneTaskDeep(baseTask) || { ...baseTask };
+        ensureImgGenState(task);
+        task.state.maskPanelCollapsed = !task.state.maskPanelCollapsed;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        renderCard(taskId, task);
+        await saveTaskDB(task);
+    }).catch(() => {
+        showToast('蒙版工具切换失败', 'error');
     });
 }
 
