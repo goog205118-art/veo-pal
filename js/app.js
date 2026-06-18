@@ -395,6 +395,7 @@ let imgGenStageRailCollapsed = false;
 let imgGenStageRailTimer = null;
 let activeImgGenStageTaskId = '';
 let imgGenStageRailFingerprint = '';
+let activeImgGenStageReleasedTaskId = '';
 
 try {
     imgGenStageRailCollapsed = localStorage.getItem('veo_img_gen_stage_collapsed') === '1';
@@ -805,6 +806,17 @@ function getImgGenStageThumb(task) {
     return null;
 }
 
+function getImgGenStageThumbVersion(task) {
+    if (!task || !task.state) return '0';
+    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
+    const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
+    if (latest) return latest.id || latest.createdAt || task.timestamp || 'result';
+    if (task.state.resultBlob) return `result_${task.timestamp || 0}`;
+    if (Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length) return `results_${task.state.resultBlobs.length}_${task.timestamp || 0}`;
+    if (Array.isArray(task.state.images) && task.state.images[0]) return `base_${task.state.images.length}_${task.timestamp || 0}`;
+    return 'empty';
+}
+
 function getImgGenStageLabel(task, index) {
     const identity = getImgGenStageIdentity(task, index);
     if (identity) return identity.length > 18 ? `${identity.slice(0, 18)}...` : identity;
@@ -829,7 +841,7 @@ function getImgGenStageMeta(task) {
 function renderImgGenStageItem(task, index, activeId) {
     const status = getImgGenStageStatus(task);
     const thumb = getImgGenStageThumb(task);
-    const thumbKey = `img_stage_${task.id}_${task.timestamp || 0}_${index}`;
+    const thumbKey = `img_stage_${task.id}_${getImgGenStageThumbVersion(task)}`;
     const thumbUrl = thumb ? getBlobUrl(thumbKey, thumb) : '';
     const isActive = activeId === task.id || selectedTasks.has(task.id);
     const title = getImgGenStageLabel(task, index);
@@ -958,6 +970,7 @@ function getImgGenStageRailFingerprint(tasks, activeId) {
     return [
         imgGenStageRailCollapsed ? '1' : '0',
         activeId || '',
+        activeImgGenStageReleasedTaskId || '',
         tasks.map((task) => {
             const state = task && task.state ? task.state : {};
             return [
@@ -972,6 +985,88 @@ function getImgGenStageRailFingerprint(tasks, activeId) {
             ].join(':');
         }).join('|')
     ].join('::');
+}
+
+function collectVisibleImgGenStageTasks(exceptTaskId = '') {
+    const ids = new Set();
+    if (activeImgGenStageReleasedTaskId && activeImgGenStageReleasedTaskId !== exceptTaskId) {
+        ids.add(activeImgGenStageReleasedTaskId);
+    }
+    document.querySelectorAll('.canvas-board > .video-card.tool-image-gen.is-stage-released:not(.is-stage-docked)').forEach((cardEl) => {
+        const taskId = resolveTaskIdFromCardElement(cardEl);
+        if (taskId && taskId !== exceptTaskId) ids.add(taskId);
+    });
+    return Array.from(ids);
+}
+
+async function restoreVisibleImgGenStageCards(exceptTaskId = '') {
+    const ids = new Set(collectVisibleImgGenStageTasks(exceptTaskId));
+    const allTasks = await getAllTasksDB().catch(() => []);
+    if (Array.isArray(allTasks)) {
+        allTasks.forEach((item) => {
+            if (
+                item &&
+                item.id &&
+                item.id !== exceptTaskId &&
+                item.type === 'tool_image_gen' &&
+                item.state &&
+                item.state.stageReleased === true &&
+                item.state.stageDocked !== true
+            ) {
+                ids.add(item.id);
+            }
+        });
+    }
+    const restored = [];
+    for (const id of Array.from(ids)) {
+        const existing = getTaskShadow(id) || await getTaskDB(id);
+        if (!existing || existing.type !== 'tool_image_gen') continue;
+        const task = cloneTaskDeep(existing) || { ...existing };
+        ensureImgGenState(task);
+        if (task.state.stageDocked === true) continue;
+        task.state.stageDocked = true;
+        task.state.stageReleased = false;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        selectedTasks.delete(id);
+        const cardEl = document.getElementById('card-' + id);
+        if (cardEl) {
+            cardEl.classList.remove('selected', 'is-stage-focused', 'is-stage-released');
+            cardEl.classList.add('is-stage-docked');
+            cardEl.style.willChange = 'auto';
+        }
+        restored.push(task);
+    }
+    if (restored.length > 0) {
+        await Promise.all(restored.map((task) => saveTaskDB(task)));
+    }
+    return restored;
+}
+
+function ensureCardElementForTask(task) {
+    if (!task || !task.id || !board) return null;
+    let cardEl = document.getElementById('card-' + task.id);
+    if (!cardEl) {
+        cardEl = document.createElement('div');
+        cardEl.id = 'card-' + task.id;
+        if (task.type === 'frame') {
+            cardEl.className = 'frame-box';
+        } else if (task.type === 'note') {
+            cardEl.className = 'video-card sticky-note';
+        } else if (task.type === 'tool_generator') {
+            cardEl.className = 'video-card tool-generator';
+        } else if (task.type === 'tool_image_gen') {
+            cardEl.className = 'video-card tool-image-gen';
+        } else if (task.type === 'tool_cropper') {
+            cardEl.className = 'video-card tool-cropper';
+        } else {
+            cardEl.className = 'video-card';
+        }
+        cardEl.style.transform = `translate3d(${toFiniteNumber(task.x, 0)}px, ${toFiniteNumber(task.y, 0)}px, 0)`;
+        cardEl.__veoTask = task;
+        board.appendChild(cardEl);
+    }
+    return cardEl;
 }
 
 async function renderImgGenStageRail(tasksArg = null) {
@@ -1048,30 +1143,37 @@ async function focusImgGenStageCard(event, taskId) {
         event.stopPropagation();
     }
     if (!taskId) return;
+    const sourceTask = getTaskShadow(taskId) || await getTaskDB(taskId);
+    if (!sourceTask || sourceTask.type !== 'tool_image_gen') return;
+    const task = cloneTaskDeep(sourceTask) || { ...sourceTask };
+    ensureImgGenState(task);
+
     activeImgGenStageTaskId = taskId;
-    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
-    if (task && task.type === 'tool_image_gen') {
-        ensureImgGenState(task);
-        if (task.state.stageDocked === true) {
-            task.state.stageDocked = false;
-            task.timestamp = Date.now();
-            setTaskShadow(task);
-            imgGenStageRailFingerprint = '';
-            await saveTaskDB(task);
-            await renderBoard();
-            showToast('已从台前调度释放到画布', 'success');
-        }
-    }
-    if (!document.getElementById('card-' + taskId)) await renderBoard();
+    const restored = await restoreVisibleImgGenStageCards(taskId);
+    task.state.stageDocked = false;
+    task.state.stageReleased = true;
+    task.timestamp = Date.now();
+    setTaskShadow(task);
+    activeImgGenStageReleasedTaskId = taskId;
+    imgGenStageRailFingerprint = '';
+
+    ensureCardElementForTask(task);
+    await renderCard(taskId, task);
+    await saveTaskDB(task);
     focusTaskById(taskId);
     const cardEl = document.getElementById('card-' + taskId);
     if (cardEl) {
         highestZIndex += 8;
         cardEl.style.zIndex = highestZIndex;
-        cardEl.classList.add('is-stage-focused');
+        cardEl.classList.remove('is-stage-docked');
+        cardEl.classList.add('is-stage-focused', 'is-stage-released');
         setTimeout(() => cardEl.classList.remove('is-stage-focused'), 820);
     }
+    scheduleViewportCulling(40);
+    updateSelectionToolbar();
+    renderMinimap();
     renderImgGenStageRail().catch(() => {});
+    showToast(restored.length > 0 ? '已切换台前卡片，上一张已自动收纳' : '已从台前调度释放到画布', 'success');
 }
 
 async function dockImgGenCardToStage(dragInfo) {
@@ -1081,11 +1183,14 @@ async function dockImgGenCardToStage(dragInfo) {
     task.x = toFiniteNumber(dragInfo.initialX, task.x);
     task.y = toFiniteNumber(dragInfo.initialY, task.y);
     task.state.stageDocked = true;
+    task.state.stageReleased = false;
     task.timestamp = Date.now();
     setTaskShadow(task);
     activeImgGenStageTaskId = task.id;
+    if (activeImgGenStageReleasedTaskId === task.id) activeImgGenStageReleasedTaskId = '';
     selectedTasks.delete(task.id);
     dragInfo.el.classList.remove('selected');
+    dragInfo.el.classList.remove('is-stage-released');
     dragInfo.el.classList.add('is-stage-docked');
     dragInfo.el.style.willChange = 'auto';
     syncCardViewportMetrics(dragInfo.el, task);
@@ -1111,14 +1216,16 @@ async function dockImgGenTaskById(event, taskId) {
     ensureImgGenState(task);
     if (task.state.stageDocked === true) return;
     task.state.stageDocked = true;
+    task.state.stageReleased = false;
     if (!String(task.state.stageLabel || '').trim()) task.state.stageLabel = buildImgGenStageDefaultLabel(task, 0);
     task.timestamp = Date.now();
     setTaskShadow(task);
     activeImgGenStageTaskId = task.id;
+    if (activeImgGenStageReleasedTaskId === task.id) activeImgGenStageReleasedTaskId = '';
     selectedTasks.delete(task.id);
     const cardEl = document.getElementById('card-' + task.id);
     if (cardEl) {
-        cardEl.classList.remove('selected');
+        cardEl.classList.remove('selected', 'is-stage-released');
         cardEl.classList.add('is-stage-docked');
     }
     imgGenStageRailFingerprint = '';
@@ -3296,6 +3403,7 @@ function sanitizeImgGenCloneState(clone) {
     clone.state.maskBlob = null;
     clone.state.maskEditMode = false;
     clone.state.stageDocked = false;
+    clone.state.stageReleased = false;
     clone.genTaskId = null;
     clone.retryCount = 0;
     clone.isBilled = false;
@@ -3718,7 +3826,8 @@ viewport.addEventListener('drop', async (e) => {
                 cardHeight: 520,
                 channel: 'channel_1',
                 autoRetry: false,
-                stageDocked: false
+                stageDocked: false,
+                stageReleased: false
             },
             retryCount: 0
         };
@@ -5864,6 +5973,7 @@ function ensureImgGenState(task) {
     if (!task.state.background) task.state.background = 'auto';
     if (!task.state.moderation) task.state.moderation = 'auto';
     if (typeof task.state.stageDocked !== 'boolean') task.state.stageDocked = false;
+    if (typeof task.state.stageReleased !== 'boolean') task.state.stageReleased = false;
     task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.trialRatio) {
@@ -6325,6 +6435,8 @@ async function createImgGenVariations(event, taskId, itemId) {
         clone.state.maskBlob = null;
         clone.state.maskImage = null;
         clone.state.maskEditMode = false;
+        clone.state.stageDocked = false;
+        clone.state.stageReleased = false;
         clone.state.previewCollapsed = true;
         clone.state.paramsCollapsed = true;
         clone.state.cardWidthCollapsed = variantW;
