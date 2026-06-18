@@ -999,6 +999,30 @@ function collectVisibleImgGenStageTasks(exceptTaskId = '') {
     return Array.from(ids);
 }
 
+function restoreMountedImgGenStageCards(exceptTaskId = '') {
+    const restored = [];
+    collectVisibleImgGenStageTasks(exceptTaskId).forEach((id) => {
+        const cardEl = document.getElementById('card-' + id);
+        const existing = (cardEl && cardEl.__veoTask) || getTaskShadow(id);
+        if (!existing || existing.type !== 'tool_image_gen') return;
+        const task = cloneTaskDeep(existing) || { ...existing };
+        ensureImgGenState(task);
+        if (task.state.stageDocked === true) return;
+        task.state.stageDocked = true;
+        task.state.stageReleased = false;
+        task.timestamp = Date.now();
+        setTaskShadow(task);
+        selectedTasks.delete(id);
+        if (cardEl) {
+            cardEl.classList.remove('selected', 'is-stage-focused', 'is-stage-released', 'is-stage-spawning');
+            cardEl.classList.add('is-stage-docked');
+            cardEl.style.willChange = 'auto';
+        }
+        restored.push(task);
+    });
+    return restored;
+}
+
 async function restoreVisibleImgGenStageCards(exceptTaskId = '') {
     const ids = new Set(collectVisibleImgGenStageTasks(exceptTaskId));
     const allTasks = await getAllTasksDB().catch(() => []);
@@ -1067,6 +1091,27 @@ function ensureCardElementForTask(task) {
         board.appendChild(cardEl);
     }
     return cardEl;
+}
+
+function selectStageReleasedCard(taskId, cardEl) {
+    if (!taskId || !cardEl) return;
+    clearSelection();
+    selectedTasks.add(taskId);
+    cardEl.classList.add('selected');
+    cardEl.classList.remove('is-viewport-culled', 'is-stage-docked');
+    highestZIndex += 8;
+    cardEl.style.zIndex = highestZIndex;
+    updateSelectionToolbar();
+}
+
+function scheduleStageReleaseAfterpaint(callback, delay = 280) {
+    const run = () => {
+        const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 0));
+        idle(() => {
+            try { callback(); } catch (err) { console.warn('Stage release afterpaint failed', err); }
+        }, { timeout: 900 });
+    };
+    setTimeout(run, Math.max(0, delay));
 }
 
 async function renderImgGenStageRail(tasksArg = null) {
@@ -1149,7 +1194,7 @@ async function focusImgGenStageCard(event, taskId) {
     ensureImgGenState(task);
 
     activeImgGenStageTaskId = taskId;
-    const restored = await restoreVisibleImgGenStageCards(taskId);
+    const restored = restoreMountedImgGenStageCards(taskId);
     task.state.stageDocked = false;
     task.state.stageReleased = true;
     task.timestamp = Date.now();
@@ -1157,14 +1202,19 @@ async function focusImgGenStageCard(event, taskId) {
     activeImgGenStageReleasedTaskId = taskId;
     imgGenStageRailFingerprint = '';
 
-    ensureCardElementForTask(task);
-    await renderCard(taskId, task);
-    await saveTaskDB(task);
-    focusTaskById(taskId);
-    const cardEl = document.getElementById('card-' + taskId);
+    const wasMounted = !!document.getElementById('card-' + taskId);
+    const cardEl = ensureCardElementForTask(task);
+    if (!cardEl) return;
+    if (!wasMounted) {
+        await renderCard(taskId, task);
+    } else {
+        cardEl.__veoTask = task;
+        cardEl.classList.remove('is-stage-docked', 'is-viewport-culled');
+        syncCardViewportMetrics(cardEl, task);
+    }
+    selectStageReleasedCard(taskId, cardEl);
+    await waitNextPaint();
     if (cardEl) {
-        highestZIndex += 8;
-        cardEl.style.zIndex = highestZIndex;
         cardEl.classList.remove('is-stage-docked');
         cardEl.classList.remove('is-stage-spawning');
         cardEl.classList.add('is-stage-focused', 'is-stage-released');
@@ -1172,10 +1222,19 @@ async function focusImgGenStageCard(event, taskId) {
         cardEl.classList.add('is-stage-spawning');
         setTimeout(() => cardEl.classList.remove('is-stage-focused', 'is-stage-spawning'), 260);
     }
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-    renderMinimap();
-    renderImgGenStageRail().catch(() => {});
+    scheduleStageReleaseAfterpaint(() => {
+        if (restored.length > 0) {
+            const writeRestored = typeof saveTaskBatchDB === 'function'
+                ? saveTaskBatchDB(restored)
+                : Promise.all(restored.map((item) => saveTaskDB(item)));
+            writeRestored.catch(() => {});
+        }
+        setTimeout(() => restoreVisibleImgGenStageCards(taskId).catch(() => {}), 360);
+        saveTaskDB(task).catch(() => {});
+        scheduleViewportCulling(120);
+        renderMinimap();
+        renderImgGenStageRail().catch(() => {});
+    });
     showToast(restored.length > 0 ? '已切换台前卡片，上一张已自动收纳' : '已从台前调度释放到画布', 'success');
 }
 
