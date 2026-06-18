@@ -1093,6 +1093,23 @@ function ensureCardElementForTask(task) {
     return cardEl;
 }
 
+function centerImgGenStageTaskInViewport(task, cardEl = null) {
+    if (!task || task.type !== 'tool_image_gen') return;
+    ensureImgGenState(task);
+    const viewportRect = (viewport && typeof viewport.getBoundingClientRect === 'function')
+        ? viewport.getBoundingClientRect()
+        : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const centerClientX = viewportRect.left + Math.max(1, toFiniteNumber(viewportRect.width, window.innerWidth)) / 2;
+    const centerClientY = viewportRect.top + Math.max(1, toFiniteNumber(viewportRect.height, window.innerHeight)) / 2;
+    const center = clientToBoard(centerClientX, centerClientY);
+    const fallbackSize = getTaskFallbackSize(task);
+    const measuredSize = cardEl ? getCardWorldSize(cardEl, task) : fallbackSize;
+    const width = Math.max(1, toFiniteNumber(measuredSize && measuredSize.width, fallbackSize.width));
+    const height = Math.max(1, toFiniteNumber(measuredSize && measuredSize.height, fallbackSize.height));
+    task.x = Math.round(center.x - width / 2);
+    task.y = Math.round(center.y - height / 2);
+}
+
 function selectStageReleasedCard(taskId, cardEl) {
     if (!taskId || !cardEl) return;
     clearSelection();
@@ -1195,16 +1212,19 @@ async function focusImgGenStageCard(event, taskId) {
 
     activeImgGenStageTaskId = taskId;
     const restored = restoreMountedImgGenStageCards(taskId);
+    const existingCardEl = document.getElementById('card-' + taskId);
     task.state.stageDocked = false;
     task.state.stageReleased = true;
+    centerImgGenStageTaskInViewport(task, existingCardEl);
     task.timestamp = Date.now();
     setTaskShadow(task);
     activeImgGenStageReleasedTaskId = taskId;
     imgGenStageRailFingerprint = '';
 
-    const wasMounted = !!document.getElementById('card-' + taskId);
+    const wasMounted = !!existingCardEl;
     const cardEl = ensureCardElementForTask(task);
     if (!cardEl) return;
+    cardEl.style.transform = `translate3d(${toFiniteNumber(task.x, 0)}px, ${toFiniteNumber(task.y, 0)}px, 0)`;
     if (!wasMounted) {
         await renderCard(taskId, task);
     } else {
