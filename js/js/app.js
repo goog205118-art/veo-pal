@@ -333,12 +333,6 @@ const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
 const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
 const IMG_GEN_TRIAL_AVAILABLE = false;
-const IMG_GEN_DEFAULT_ROUTE_SUFFIXES = Object.freeze({
-    floor: Object.freeze({ key: 'floor', suffix: ':floor', mode: 'price', label: '最低价格', title: 'Floor · 价格最低' }),
-    nitro: Object.freeze({ key: 'nitro', suffix: ':nitro', mode: 'speed', label: '最快速度', title: 'Nitro · 速度最快' }),
-    stable: Object.freeze({ key: 'stable', suffix: ':stable', mode: 'success_rate', label: '最高成功率', title: 'Stable · 成功率最高' })
-});
-const IMG_GEN_DEFAULT_ROUTE_FALLBACK = 'stable';
 function normalizeWebhookEndpointForCompare(rawUrl) {
     const raw = String(rawUrl || '').trim();
     if (!raw) return '';
@@ -5058,11 +5052,7 @@ function renderImgGenParams(task) {
     const ratioValue = isPro ? state.proRatio : state.trialRatio;
     const showCustomRatio = ratioValue === 'custom';
     const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
-    const modelRoute = resolveImgGenModelRouteForState(state);
-    const proRouteLabel = route.key === 'ai666'
-        ? `GPT Image 2 · AI666 中转站 · ${resolvedSize}`
-        : `GPT Image 2${modelRoute.suffix} · ${modelRoute.label} · ${resolvedSize}`;
-    const routeLabel = isPro ? proRouteLabel : '试用版服务已关闭';
+    const routeLabel = isPro ? `GPT Image 2 · ${route.label} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
         <label class="img-gen-field img-gen-seed-field">
@@ -5087,22 +5077,6 @@ function renderImgGenParams(task) {
         </div>
     ` : '';
 
-    const modelRouteHtml = (isPro && route.key !== 'ai666') ? `
-        <label class="img-gen-field">
-            <span>模型路由</span>
-            <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'modelRoute', this.value)" data-tip="仅默认专业通道生效，会追加到模型名末尾">
-                <option value="floor" ${modelRoute.key === 'floor' ? 'selected' : ''}>:floor · 价格最低</option>
-                <option value="nitro" ${modelRoute.key === 'nitro' ? 'selected' : ''}>:nitro · 速度最快</option>
-                <option value="stable" ${modelRoute.key === 'stable' ? 'selected' : ''}>:stable · 成功率最高</option>
-            </select>
-        </label>
-    ` : `
-        <div class="img-gen-route-note" data-tip="AI666 中转站不支持模型名后缀，系统会固定发送 gpt-image-2">
-            <span class="material-symbols-outlined">route</span>
-            AI666 固定 gpt-image-2
-        </div>
-    `;
-
     const advancedHtml = isPro ? `
         <div class="img-gen-controls img-gen-controls-pro">
             ${seedControlHtml}
@@ -5113,7 +5087,6 @@ function renderImgGenParams(task) {
                     <option value="ai666" ${route.key === 'ai666' ? 'selected' : ''}>AI666 中转站</option>
                 </select>
             </label>
-            ${modelRouteHtml}
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：分辨率档位">
@@ -5166,10 +5139,13 @@ function renderImgGenParams(task) {
     ` : `
         <div class="img-gen-controls">
             ${seedControlHtml}
-            <div class="img-gen-unavailable-note">
-                <span class="material-symbols-outlined">block</span>
-                试用版服务通道已关闭，请切换专业版
-            </div>
+            <label class="img-gen-field">
+                <span>试用通道</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" data-tip="试用版双通道切换">
+                    <option value="channel_1" ${state.channel === 'channel_1' || !state.channel ? 'selected' : ''}>通道 1 主</option>
+                    <option value="channel_2" ${state.channel === 'channel_2' ? 'selected' : ''}>通道 2 备</option>
+                </select>
+            </label>
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" disabled data-tip="试用版分辨率固定为 1K">
@@ -6128,41 +6104,16 @@ function normalizeImgGenRoute(raw = 'stable') {
     return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
 }
 
-function normalizeImgGenModelRoute(raw = IMG_GEN_DEFAULT_ROUTE_FALLBACK) {
-    const key = String(raw || IMG_GEN_DEFAULT_ROUTE_FALLBACK).trim().toLowerCase().replace(/^:/, '');
-    if (IMG_GEN_DEFAULT_ROUTE_SUFFIXES[key]) return IMG_GEN_DEFAULT_ROUTE_SUFFIXES[key];
-    if (['price', 'cheap', 'lowest'].includes(key)) return IMG_GEN_DEFAULT_ROUTE_SUFFIXES.floor;
-    if (['speed', 'fast', 'fastest'].includes(key)) return IMG_GEN_DEFAULT_ROUTE_SUFFIXES.nitro;
-    if (['success_rate', 'success', 'default'].includes(key)) return IMG_GEN_DEFAULT_ROUTE_SUFFIXES.stable;
-    return IMG_GEN_DEFAULT_ROUTE_SUFFIXES[IMG_GEN_DEFAULT_ROUTE_FALLBACK];
-}
-
-function resolveImgGenModelRouteForState(state = {}) {
-    const provider = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
-    if (provider.key === 'ai666') {
-        return { key: 'none', suffix: '', mode: provider.mode, label: 'AI666 无后缀', title: 'AI666 · gpt-image-2' };
-    }
-    return normalizeImgGenModelRoute(state.modelRoute || state.modelSuffix || state.routeMode || state.providerSort || IMG_GEN_DEFAULT_ROUTE_FALLBACK);
-}
-
-function buildImgGenModelNameForState(state = {}) {
-    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
-    const modelRoute = resolveImgGenModelRouteForState(state);
-    return route.key === 'ai666' ? 'gpt-image-2' : `gpt-image-2${modelRoute.suffix}`;
-}
-
 function ensureImgGenState(task) {
     if (!task || task.type !== 'tool_image_gen') return;
     if (!task.state || typeof task.state !== 'object') task.state = {};
     if (!Array.isArray(task.state.images)) task.state.images = [];
     if (!task.state.version || (task.state.version === 'trial' && !IMG_GEN_TRIAL_AVAILABLE)) task.state.version = 'pro';
-    const route = normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || 'stable');
-    const modelRoute = normalizeImgGenModelRoute(task.state.modelRoute || task.state.modelSuffix || task.state.routeMode || task.state.providerSort || IMG_GEN_DEFAULT_ROUTE_FALLBACK);
+    const route = normalizeImgGenRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'stable');
     task.state.providerSort = route.key;
-    task.state.modelRoute = modelRoute.key;
-    task.state.modelSuffix = route.key === 'ai666' ? '' : modelRoute.suffix;
-    task.state.routeMode = route.key === 'ai666' ? route.mode : modelRoute.mode;
-    task.state.imageModel = buildImgGenModelNameForState(task.state);
+    task.state.modelSuffix = route.suffix;
+    task.state.routeMode = route.mode;
+    task.state.imageModel = `gpt-image-2${route.suffix}`;
     enforceImgGenRouteReferenceLimit(task);
     if (!task.state.quality) task.state.quality = 'auto';
     if (!task.state.format) task.state.format = 'png';
@@ -7271,17 +7222,14 @@ async function switchImgGenChannelAndRetry(e, taskId) {
         ensureImgGenState(task);
         if (task.state.version === 'pro') {
             const route = normalizeImgGenRoute();
-            const modelRoute = normalizeImgGenModelRoute(task.state.modelRoute || task.state.modelSuffix || IMG_GEN_DEFAULT_ROUTE_FALLBACK);
             task.state.providerSort = route.key;
-            task.state.modelRoute = modelRoute.key;
-            task.state.modelSuffix = modelRoute.suffix;
-            task.state.routeMode = modelRoute.mode;
-            task.state.imageModel = buildImgGenModelNameForState(task.state);
+            task.state.modelSuffix = route.suffix;
+            task.state.routeMode = route.mode;
+            task.state.imageModel = `gpt-image-2${route.suffix}`;
             showToast('Pro 将使用默认通道重试', 'info');
         } else {
-            task.state.version = 'pro';
-            task.state.size = resolveImgGenSize(task.state);
-            showToast('试用版服务通道已关闭，已切换专业版重试', 'warning');
+            task.state.channel = task.state.channel === 'channel_2' ? 'channel_1' : 'channel_2';
+            showToast(`已切换试用通道：${task.state.channel === 'channel_2' ? '通道 2' : '通道 1'}，准备重试`, 'info');
         }
         task.state.nextSubmitAt = 0;
         task.retryCount = 0;
@@ -7535,19 +7483,10 @@ async function updateImgGenState(taskId, key, val) {
             if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
         } else if (key === 'providerSort') {
             const route = normalizeImgGenRoute(val);
-            const modelRoute = normalizeImgGenModelRoute(task.state.modelRoute || task.state.modelSuffix || IMG_GEN_DEFAULT_ROUTE_FALLBACK);
             task.state.providerSort = route.key;
-            task.state.modelRoute = modelRoute.key;
-            task.state.modelSuffix = route.key === 'ai666' ? '' : modelRoute.suffix;
-            task.state.routeMode = route.key === 'ai666' ? route.mode : modelRoute.mode;
-            task.state.imageModel = buildImgGenModelNameForState(task.state);
-        } else if (key === 'modelRoute') {
-            const modelRoute = normalizeImgGenModelRoute(val);
-            task.state.modelRoute = modelRoute.key;
-            const route = normalizeImgGenRoute(task.state.providerSort || 'stable');
-            task.state.modelSuffix = route.key === 'ai666' ? '' : modelRoute.suffix;
-            task.state.routeMode = route.key === 'ai666' ? route.mode : modelRoute.mode;
-            task.state.imageModel = buildImgGenModelNameForState(task.state);
+            task.state.modelSuffix = route.suffix;
+            task.state.routeMode = route.mode;
+            task.state.imageModel = `gpt-image-2${route.suffix}`;
         } else if (key === 'maskBrushSize') {
             task.state.maskBrushSize = clampImgMaskBrushSize(val);
         } else if (key === 'maskStageHeight') {
@@ -7857,16 +7796,13 @@ async function submitImgGen(taskId) {
     task.state.size = resolvedSize;
     const sizeToSend = resolvedSize;
     const route = normalizeImgGenRoute(task.state.providerSort);
-    const modelRoute = resolveImgGenModelRouteForState(task.state);
-    const routeModeToSend = route.key === 'ai666' ? route.mode : modelRoute.mode;
-    const modelSuffixToSend = route.key === 'ai666' ? '' : modelRoute.suffix;
     enforceImgGenRouteReferenceLimit(task);
     const maxImageCount = getImgGenMaxReferenceCount(task);
     const imagesForSubmit = limitImgGenReferencesForRoute(task, task.state.images);
     task.state.images = imagesForSubmit;
     normalizeImgGenRefControls(task);
     const mode = resolveImgGenMode(task.state);
-    const imageModel = version === 'pro' ? buildImgGenModelNameForState(task.state) : 'legacy-image';
+    const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
     const imageEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'image');
     const maskEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'mask');
     const imagesBase64 = await blobsToBase64Sequential(imagesForSubmit, imageEncodeOptions);
@@ -7892,18 +7828,14 @@ async function submitImgGen(taskId) {
         mode: mode,
         model: imageModel,
         imageModel: imageModel,
-        modelRoute: route.key === 'ai666' ? 'ai666' : modelRoute.key,
-        model_route: route.key === 'ai666' ? 'ai666' : modelRoute.key,
-        modelSuffix: modelSuffixToSend,
-        model_suffix: modelSuffixToSend,
-        routeMode: routeModeToSend,
-        route_mode: routeModeToSend,
+        modelSuffix: route.suffix,
+        routeMode: route.mode,
         prompt: finalPrompt,
         size: sizeToSend,
         providerSort: route.key,
         providerKey: route.key,
         provider_key: route.key,
-        provider: { key: route.key, sort: routeModeToSend, suffix: modelSuffixToSend, model: imageModel },
+        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
@@ -7943,12 +7875,8 @@ async function submitImgGen(taskId) {
         channel: task.state.channel || 'channel_1',
         model: imageModel,
         imageModel: imageModel,
-        modelRoute: route.key === 'ai666' ? 'ai666' : modelRoute.key,
-        model_route: route.key === 'ai666' ? 'ai666' : modelRoute.key,
-        modelSuffix: modelSuffixToSend,
-        model_suffix: modelSuffixToSend,
-        routeMode: routeModeToSend,
-        route_mode: routeModeToSend,
+        modelSuffix: route.suffix,
+        routeMode: route.mode,
         n: nValue,
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
@@ -7958,7 +7886,7 @@ async function submitImgGen(taskId) {
         providerSort: route.key,
         providerKey: route.key,
         provider_key: route.key,
-        provider: { key: route.key, sort: routeModeToSend, suffix: modelSuffixToSend, model: imageModel },
+        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
         clientRequestId,
         client_request_id: clientRequestId,
         previewItemId: previewItemId,
