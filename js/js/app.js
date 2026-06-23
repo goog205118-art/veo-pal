@@ -3908,7 +3908,7 @@ viewport.addEventListener('drop', async (e) => {
             timestamp: Date.now(),
             status: 'idle',
             state: {
-                version: 'trial',
+                version: 'pro',
                 providerSort: 'stable',
                 modelSuffix: '',
                 routeMode: 'success_rate',
@@ -5085,6 +5085,9 @@ function renderImgGenParams(task) {
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
                     <option value="stable" ${route.key === 'stable' ? 'selected' : ''}>默认专业通道</option>
                     <option value="ai666" ${route.key === 'ai666' ? 'selected' : ''}>AI666 中转站</option>
+                    <option value="change2pro_active" ${route.key === 'change2pro_active' ? 'selected' : ''}>change2pro 活动组</option>
+                    <option value="change2pro_stable" ${route.key === 'change2pro_stable' ? 'selected' : ''}>change2pro 稳定组</option>
+                    <option value="change2pro_4k" ${route.key === 'change2pro_4k' ? 'selected' : ''}>change2pro 4K 狂欢</option>
                 </select>
             </label>
             <label class="img-gen-field">
@@ -6100,6 +6103,15 @@ function normalizeImgGenRoute(raw = 'stable') {
     const key = String(raw || 'stable').trim().toLowerCase().replace(/^:/, '');
     if (['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'].includes(key)) {
         return { key: 'ai666', suffix: '', mode: 'ai666', label: 'AI666 中转站' };
+    }
+    if (['change2pro_active', 'change2pro-active', 'change2pro_activity', 'change2pro-activity', 'c2p_active'].includes(key)) {
+        return { key: 'change2pro_active', suffix: '', mode: 'change2pro_active', label: 'change2pro 活动组' };
+    }
+    if (['change2pro_stable', 'change2pro-stable', 'c2p_stable'].includes(key)) {
+        return { key: 'change2pro_stable', suffix: '', mode: 'change2pro_stable', label: 'change2pro 稳定组' };
+    }
+    if (['change2pro_4k', 'change2pro-4k', 'change2pro_4k_carnival', 'change2pro-4k-carnival', 'c2p_4k'].includes(key)) {
+        return { key: 'change2pro_4k', suffix: '', mode: 'change2pro_4k', label: 'change2pro 4K 狂欢' };
     }
     return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
 }
