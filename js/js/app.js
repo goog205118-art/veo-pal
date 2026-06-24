@@ -619,7 +619,9 @@ function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null, maxImage
     const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, maxCount) : [];
     return {
         images,
+        image_urls: images,
         mask: maskBase64 || null,
+        mask_url: maskBase64 || null,
         image_count: images.length,
         reference_count: Math.max(0, images.length - 1)
     };
@@ -6109,6 +6111,12 @@ function normalizeImgGenRoute(raw = 'stable') {
     return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
 }
 
+function getImgGenModelForRoute(route) {
+    const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'stable');
+    if (safeRoute.key === 'apimart_stable_co') return 'gpt-image-2-official';
+    return `gpt-image-2${safeRoute.suffix || ''}`;
+}
+
 function ensureImgGenState(task) {
     if (!task || task.type !== 'tool_image_gen') return;
     if (!task.state || typeof task.state !== 'object') task.state = {};
@@ -6118,7 +6126,7 @@ function ensureImgGenState(task) {
     task.state.providerSort = route.key;
     task.state.modelSuffix = route.suffix;
     task.state.routeMode = route.mode;
-    task.state.imageModel = `gpt-image-2${route.suffix}`;
+    task.state.imageModel = getImgGenModelForRoute(route);
     enforceImgGenRouteReferenceLimit(task);
     if (!task.state.quality) task.state.quality = 'auto';
     if (!task.state.format) task.state.format = 'png';
@@ -7286,7 +7294,7 @@ async function switchImgGenChannelAndRetry(e, taskId) {
             task.state.providerSort = route.key;
             task.state.modelSuffix = route.suffix;
             task.state.routeMode = route.mode;
-            task.state.imageModel = `gpt-image-2${route.suffix}`;
+            task.state.imageModel = getImgGenModelForRoute(route);
             showToast('Pro 将使用默认通道重试', 'info');
         } else {
             task.state.channel = task.state.channel === 'channel_2' ? 'channel_1' : 'channel_2';
@@ -7547,7 +7555,7 @@ async function updateImgGenState(taskId, key, val) {
             task.state.providerSort = route.key;
             task.state.modelSuffix = route.suffix;
             task.state.routeMode = route.mode;
-            task.state.imageModel = `gpt-image-2${route.suffix}`;
+            task.state.imageModel = getImgGenModelForRoute(route);
         } else if (key === 'maskBrushSize') {
             task.state.maskBrushSize = clampImgMaskBrushSize(val);
         } else if (key === 'maskStageHeight') {
@@ -7863,7 +7871,7 @@ async function submitImgGen(taskId) {
     task.state.images = imagesForSubmit;
     normalizeImgGenRefControls(task);
     const mode = resolveImgGenMode(task.state);
-    const imageModel = version === 'pro' ? `gpt-image-2${route.suffix}` : 'legacy-image';
+    const imageModel = version === 'pro' ? getImgGenModelForRoute(route) : 'legacy-image';
     const imageEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'image');
     const maskEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'mask');
     const imagesBase64 = await blobsToBase64Sequential(imagesForSubmit, imageEncodeOptions);
@@ -7882,6 +7890,10 @@ async function submitImgGen(taskId) {
     const lockedSeed = task.state.seedLocked && task.state.seed !== '' ? parseInt(task.state.seed, 10) : null;
     const clientRequestId = `${task.id}_${previewItemId}`;
     const nValue = 1;
+    const rawOutputCompression = toFiniteNumber(task.state.outputCompression ?? task.state.output_compression, NaN);
+    const outputCompression = Number.isFinite(rawOutputCompression)
+        ? Math.max(0, Math.min(100, Math.round(rawOutputCompression)))
+        : undefined;
 
     const unifiedPayloadCore = {
         version: version,
@@ -7905,6 +7917,8 @@ async function submitImgGen(taskId) {
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
+        outputCompression,
+        output_compression: outputCompression,
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         n: nValue,
@@ -7952,6 +7966,8 @@ async function submitImgGen(taskId) {
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
         output_format: task.state.format || 'png',
+        outputCompression,
+        output_compression: outputCompression,
         background: task.state.background || 'auto',
         moderation: task.state.moderation || 'auto',
         providerSort: route.key,
