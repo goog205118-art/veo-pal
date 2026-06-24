@@ -322,7 +322,7 @@ const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit';
 const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll';
 const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
 const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
-const API_IMAGE_POLL = (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || '';
+const API_IMAGE_POLL = (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || API_IMAGE_GEN;
 const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
 const IMG_GEN_PRO_INPUT_PRICE_PER_1M = 5;
 const IMG_GEN_PRO_OUTPUT_PRICE_PER_1M = 30;
@@ -358,7 +358,8 @@ function isImageGenerationWebhookEndpoint(rawUrl) {
 function resolveImgGenPollEndpoint() {
     const url = String(API_IMAGE_POLL || '').trim();
     if (!url) return { url: '', reason: 'missing' };
-    if (isImageGenerationWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
+    if (isSameWebhookEndpoint(url, API_IMAGE_GEN)) return { url, reason: 'unified_poll' };
+    if (isImageGenerationWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
         return { url: '', reason: 'points_to_generation' };
     }
     return { url, reason: '' };
@@ -5085,9 +5086,7 @@ function renderImgGenParams(task) {
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
                     <option value="stable" ${route.key === 'stable' ? 'selected' : ''}>默认专业通道</option>
                     <option value="ai666" ${route.key === 'ai666' ? 'selected' : ''}>AI666 中转站</option>
-                    <option value="change2pro_active" ${route.key === 'change2pro_active' ? 'selected' : ''}>change2pro 活动组</option>
-                    <option value="change2pro_stable" ${route.key === 'change2pro_stable' ? 'selected' : ''}>change2pro 稳定组</option>
-                    <option value="change2pro_4k" ${route.key === 'change2pro_4k' ? 'selected' : ''}>change2pro 4K 狂欢</option>
+                    <option value="apimart_stable_co" ${route.key === 'apimart_stable_co' ? 'selected' : ''}>APIMart 稳定co</option>
                 </select>
             </label>
             <label class="img-gen-field">
@@ -6104,14 +6103,8 @@ function normalizeImgGenRoute(raw = 'stable') {
     if (['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'].includes(key)) {
         return { key: 'ai666', suffix: '', mode: 'ai666', label: 'AI666 中转站' };
     }
-    if (['change2pro_active', 'change2pro-active', 'change2pro_activity', 'change2pro-activity', 'c2p_active'].includes(key)) {
-        return { key: 'change2pro_active', suffix: '', mode: 'change2pro_active', label: 'change2pro 活动组' };
-    }
-    if (['change2pro_stable', 'change2pro-stable', 'c2p_stable'].includes(key)) {
-        return { key: 'change2pro_stable', suffix: '', mode: 'change2pro_stable', label: 'change2pro 稳定组' };
-    }
-    if (['change2pro_4k', 'change2pro-4k', 'change2pro_4k_carnival', 'change2pro-4k-carnival', 'c2p_4k'].includes(key)) {
-        return { key: 'change2pro_4k', suffix: '', mode: 'change2pro_4k', label: 'change2pro 4K 狂欢' };
+    if (['apimart_stable_co', 'apimart-stable-co', 'apimart_stable', 'stable_co', 'stable-co'].includes(key)) {
+        return { key: 'apimart_stable_co', suffix: '', mode: 'apimart_stable_co', label: 'APIMart 稳定co' };
     }
     return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
 }
@@ -6763,6 +6756,10 @@ function extractImageUrlsFromResponse(rawData) {
     if (!resData) return [];
     const urls = [];
     const pushIf = (u) => {
+        if (Array.isArray(u)) {
+            u.forEach((item) => pushIf(item));
+            return;
+        }
         if (!u || typeof u !== 'string') return;
         const v = u.trim();
         if (!v) return;
@@ -6793,6 +6790,54 @@ function extractImageUrlsFromResponse(rawData) {
             else if (d && d.imageUrl) pushIf(d.imageUrl);
             else if (d && d.image_url) pushIf(d.image_url);
             else if (d && d.b64_json) pushIf(toDataUrl(d.b64_json));
+            if (d && d.result && typeof d.result === 'object') {
+                pushIf(d.result.url);
+                pushIf(d.result.imageUrl);
+                pushIf(d.result.image_url);
+                if (Array.isArray(d.result.images)) {
+                    d.result.images.forEach((item) => {
+                        if (typeof item === 'string') pushIf(item);
+                        else if (item && item.url) pushIf(item.url);
+                        else if (item && item.imageUrl) pushIf(item.imageUrl);
+                        else if (item && item.image_url) pushIf(item.image_url);
+                    });
+                }
+            }
+            if (d && Array.isArray(d.images)) {
+                d.images.forEach((item) => {
+                    if (typeof item === 'string') pushIf(item);
+                    else if (item && item.url) pushIf(item.url);
+                    else if (item && item.imageUrl) pushIf(item.imageUrl);
+                    else if (item && item.image_url) pushIf(item.image_url);
+                });
+            }
+        }
+    }
+    if (resData.data && typeof resData.data === 'object' && !Array.isArray(resData.data)) {
+        const dataObj = resData.data;
+        pushIf(dataObj.url);
+        pushIf(dataObj.imageUrl);
+        pushIf(dataObj.image_url);
+        if (Array.isArray(dataObj.images)) {
+            dataObj.images.forEach((item) => {
+                if (typeof item === 'string') pushIf(item);
+                else if (item && item.url) pushIf(item.url);
+                else if (item && item.imageUrl) pushIf(item.imageUrl);
+                else if (item && item.image_url) pushIf(item.image_url);
+            });
+        }
+        if (dataObj.result && typeof dataObj.result === 'object') {
+            pushIf(dataObj.result.url);
+            pushIf(dataObj.result.imageUrl);
+            pushIf(dataObj.result.image_url);
+            if (Array.isArray(dataObj.result.images)) {
+                dataObj.result.images.forEach((item) => {
+                    if (typeof item === 'string') pushIf(item);
+                    else if (item && item.url) pushIf(item.url);
+                    else if (item && item.imageUrl) pushIf(item.imageUrl);
+                    else if (item && item.image_url) pushIf(item.image_url);
+                });
+            }
         }
     }
     if (resData.result && typeof resData.result === 'object') {
@@ -6929,12 +6974,16 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     const version = (task && task.state && task.state.version === 'pro') ? 'pro' : 'trial';
     const channel = (task && task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const mode = task && task.state ? resolveImgGenMode(task.state) : 'text2img';
+    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'stable') : normalizeImgGenRoute('stable');
     const core = {
         action: 'poll',
         poll: true,
         version,
         channel,
         mode,
+        providerSort: route.key,
+        providerKey: route.key,
+        provider_key: route.key,
         taskId: remoteTaskId,
         task_id: remoteTaskId,
         request_id: remoteTaskId
@@ -7842,6 +7891,11 @@ async function submitImgGen(taskId) {
         imageModel: imageModel,
         modelSuffix: route.suffix,
         routeMode: route.mode,
+        ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
+        aspect_ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
+        resolution: version === 'pro' ? (task.state.proResolution || '1k') : '1k',
+        proRatio: task.state.proRatio || '1:1',
+        proResolution: task.state.proResolution || '1k',
         prompt: finalPrompt,
         size: sizeToSend,
         providerSort: route.key,
@@ -7889,6 +7943,11 @@ async function submitImgGen(taskId) {
         imageModel: imageModel,
         modelSuffix: route.suffix,
         routeMode: route.mode,
+        ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
+        aspect_ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
+        resolution: version === 'pro' ? (task.state.proResolution || '1k') : '1k',
+        proRatio: task.state.proRatio || '1:1',
+        proResolution: task.state.proResolution || '1k',
         n: nValue,
         quality: task.state.quality || 'auto',
         format: task.state.format || 'png',
