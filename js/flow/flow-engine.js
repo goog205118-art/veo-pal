@@ -2866,9 +2866,20 @@ PluginManager.register('tool_image_gen',
         let finalSize = nodeData.size || '1024x1024';
         if (finalSize === '自定义 (AI嗅探)') { finalSize = ""; finalPrompt += ` 画面比例${nodeData.customW || 9}:${nodeData.customH || 21}`; }
         const refImgSource = resolvePayloadData(upstreamInputs.in_ref) || resolvePayloadData(nodeData.local_ref);
-        const payload = { prompt: finalPrompt.trim(), size: finalSize, channel: (nodeData.channel && nodeData.channel.includes('2')) ? 'channel_2' : 'channel_1', images: refImgSource ? [refImgSource] : [] };
+        const payload = {
+            version: 'pro',
+            mode: refImgSource ? 'edit' : 'generate',
+            model: 'gpt-image-2',
+            imageModel: 'gpt-image-2',
+            providerSort: 'stable',
+            providerKey: 'stable',
+            prompt: finalPrompt.trim(),
+            size: finalSize || '1024x1024',
+            channel: (nodeData.channel && nodeData.channel.includes('2')) ? 'channel_2' : 'channel_1',
+            images: refImgSource ? [refImgSource] : []
+        };
         
-        const res = await fetch(`${BASE_N8N_URL}/proxy-image-gen`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
+        const res = await fetch(`${BASE_N8N_URL}/proxy-image-unified`, { method: 'POST', headers: getApiHeaders(), body: JSON.stringify(payload) });
         const rawText = await res.text();
         if (!res.ok) throw new Error(`HTTP ${res.status} 异常: ${rawText}`);
         

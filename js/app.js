@@ -318,12 +318,20 @@ async function handleLoginSubmit(e) {
     }, 600);
 }
 
-const API_SUBMIT = 'https://api.wallyai.top/webhook/proxy-submit';
-const API_POLL = 'https://api.wallyai.top/webhook/proxy-poll';
-const API_IMAGE_GEN = (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified';
-const API_IMAGE_GEN_LEGACY = (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen';
-const API_IMAGE_POLL = (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || API_IMAGE_GEN;
-const API_IMAGE_AUTH = (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || '';
+const APP_API_CONFIG = {
+    videoSubmit: 'https://api.wallyai.top/webhook/proxy-submit',
+    videoPoll: 'https://api.wallyai.top/webhook/proxy-poll',
+    imageUnified: (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified',
+    imageLegacy: (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen',
+    imagePoll: (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || '',
+    imageAuth: (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || ''
+};
+const API_SUBMIT = APP_API_CONFIG.videoSubmit;
+const API_POLL = APP_API_CONFIG.videoPoll;
+const API_IMAGE_GEN = APP_API_CONFIG.imageUnified;
+const API_IMAGE_GEN_LEGACY = APP_API_CONFIG.imageLegacy;
+const API_IMAGE_POLL = APP_API_CONFIG.imagePoll;
+const API_IMAGE_AUTH = APP_API_CONFIG.imageAuth;
 const IMG_GEN_PRO_INPUT_PRICE_PER_1M = 5;
 const IMG_GEN_PRO_OUTPUT_PRICE_PER_1M = 30;
 const IMG_GEN_PROXY_RECHARGE_FACTOR = 0.5;
@@ -332,7 +340,15 @@ const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
 const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
-const IMG_GEN_TRIAL_AVAILABLE = false;
+const IMG_GEN_FEATURES = {
+    trialAvailable: false
+};
+const IMG_GEN_ROUTE_CONFIG = {
+    stable: { key: 'stable', aliases: ['stable', 'success_rate', 'default'], suffix: '', mode: 'success_rate', label: '默认专业通道', maxRefs: 5 },
+    ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 },
+    apimart_stable_co: { key: 'apimart_stable_co', aliases: ['apimart_stable_co', 'apimart-stable-co', 'apimart_stable', 'stable_co', 'stable-co', 'apimart'], suffix: '', mode: 'apimart_stable_co', label: 'APIMart 官方通道', maxRefs: 5 }
+};
+const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     const raw = String(rawUrl || '').trim();
     if (!raw) return '';
@@ -355,11 +371,25 @@ function isImageGenerationWebhookEndpoint(rawUrl) {
     return endpoint.endsWith('/proxy-image-unified') || endpoint.endsWith('/proxy-image-gen');
 }
 
+function isUnifiedImageWebhookEndpoint(rawUrl) {
+    return normalizeWebhookEndpointForCompare(rawUrl).endsWith('/proxy-image-unified');
+}
+
+function isLegacyImageWebhookEndpoint(rawUrl) {
+    return normalizeWebhookEndpointForCompare(rawUrl).endsWith('/proxy-image-gen');
+}
+
 function resolveImgGenPollEndpoint() {
     const url = String(API_IMAGE_POLL || '').trim();
-    if (!url) return { url: '', reason: 'missing' };
-    if (isSameWebhookEndpoint(url, API_IMAGE_GEN)) return { url, reason: 'unified_poll' };
-    if (isImageGenerationWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
+    if (!url) {
+        return isUnifiedImageWebhookEndpoint(API_IMAGE_GEN)
+            ? { url: API_IMAGE_GEN, reason: 'unified_fallback' }
+            : { url: '', reason: 'missing' };
+    }
+    if (isUnifiedImageWebhookEndpoint(url) || (isSameWebhookEndpoint(url, API_IMAGE_GEN) && isUnifiedImageWebhookEndpoint(API_IMAGE_GEN))) {
+        return { url, reason: 'unified_poll' };
+    }
+    if (isLegacyImageWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
         return { url: '', reason: 'points_to_generation' };
     }
     return { url, reason: '' };
@@ -630,7 +660,9 @@ function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null, maxImage
 function getImgGenMaxReferenceCount(task) {
     if (!task || task.type !== 'tool_image_gen') return 5;
     const state = task.state && typeof task.state === 'object' ? task.state : {};
-    return state.version === 'pro' && normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix).key === 'ai666' ? 1 : 5;
+    if (state.version !== 'pro') return 5;
+    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix);
+    return route.maxRefs || 5;
 }
 
 function limitImgGenReferencesForRoute(task, incomingImages = []) {
@@ -5086,9 +5118,7 @@ function renderImgGenParams(task) {
             <label class="img-gen-field">
                 <span>专业通道</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
-                    <option value="stable" ${route.key === 'stable' ? 'selected' : ''}>默认专业通道</option>
-                    <option value="ai666" ${route.key === 'ai666' ? 'selected' : ''}>AI666 中转站</option>
-                    <option value="apimart_stable_co" ${route.key === 'apimart_stable_co' ? 'selected' : ''}>APIMart 稳定co</option>
+                    ${Object.values(IMG_GEN_ROUTE_CONFIG).map((item) => `<option value="${item.key}" ${route.key === item.key ? 'selected' : ''}>${item.label}</option>`).join('')}
                 </select>
             </label>
             <label class="img-gen-field">
@@ -6102,13 +6132,12 @@ function resolveImgGenSize(state) {
 
 function normalizeImgGenRoute(raw = 'stable') {
     const key = String(raw || 'stable').trim().toLowerCase().replace(/^:/, '');
-    if (['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'].includes(key)) {
-        return { key: 'ai666', suffix: '', mode: 'ai666', label: 'AI666 中转站' };
+    for (const route of Object.values(IMG_GEN_ROUTE_CONFIG)) {
+        if (route.key === key || (Array.isArray(route.aliases) && route.aliases.includes(key))) {
+            return { ...route };
+        }
     }
-    if (['apimart_stable_co', 'apimart-stable-co', 'apimart_stable', 'stable_co', 'stable-co'].includes(key)) {
-        return { key: 'apimart_stable_co', suffix: '', mode: 'apimart_stable_co', label: 'APIMart 稳定co' };
-    }
-    return { key: 'stable', suffix: '', mode: 'success_rate', label: '默认专业通道' };
+    return { ...IMG_GEN_ROUTE_CONFIG.stable };
 }
 
 function getImgGenModelForRoute(route) {
@@ -6982,7 +7011,7 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     const version = (task && task.state && task.state.version === 'pro') ? 'pro' : 'trial';
     const channel = (task && task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const mode = task && task.state ? resolveImgGenMode(task.state) : 'text2img';
-    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'stable') : normalizeImgGenRoute('stable');
+    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'stable') : normalizeImgGenRoute();
     const core = {
         action: 'poll',
         poll: true,
@@ -6992,6 +7021,8 @@ function buildImgGenPollPayload(task, remoteTaskId) {
         providerSort: route.key,
         providerKey: route.key,
         provider_key: route.key,
+        routeMode: route.mode,
+        route_mode: route.mode,
         taskId: remoteTaskId,
         task_id: remoteTaskId,
         request_id: remoteTaskId
@@ -7089,7 +7120,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
         if (!pollEndpoint.url) {
             const reason = pollEndpoint.reason === 'points_to_generation'
                 ? '图片轮询接口误指向生图生成入口，已停止轮询，避免 n8n 空 prompt 刷屏'
-                : '未配置图片轮询接口，已停止轮询；请让 n8n 生成入口直接返回图片，或配置 VEO_IMAGE_POLL_WEBHOOK';
+                : '未配置可用图片轮询接口，已停止轮询；默认 unified 入口需支持 action=poll，或单独配置 VEO_IMAGE_POLL_WEBHOOK';
             const writeTask = await getImgGenTaskForPreviewWrite(taskId, itemId, task);
             if (!writeTask) { clearImgGenPolling(taskId, itemId); return; }
             markImgGenPreviewFailed(writeTask, itemId, reason);
@@ -7107,7 +7138,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
                 legacyWebhook: API_IMAGE_GEN_LEGACY,
                 remoteId
             });
-            showToast('图片轮询已熔断：请检查 VEO_IMAGE_POLL_WEBHOOK，不要填生成入口', 'warning');
+            showToast('图片轮询已熔断：请检查 VEO_IMAGE_POLL_WEBHOOK，不要填旧版生成入口', 'warning');
             return;
         }
         attemptsList.push({ url: pollEndpoint.url, body: pollPayload.unified });

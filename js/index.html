@@ -381,14 +381,14 @@
     <script>
       // Optional: override image generation webhook. Empty means use app.js default.
       window.VEO_IMAGE_UNIFIED_WEBHOOK = window.VEO_IMAGE_UNIFIED_WEBHOOK || '';
-      // Optional: image polling webhook. Do not point this to proxy-image-unified/proxy-image-gen.
+      // Optional: image polling webhook. Empty reuses proxy-image-unified when it supports action=poll. Do not point this to legacy proxy-image-gen.
       window.VEO_IMAGE_POLL_WEBHOOK = window.VEO_IMAGE_POLL_WEBHOOK || '';
       // Optional: unified webhook auth header, for example "Bearer sk-xxxx".
       window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
       // Optional: legacy trial image webhook fallback.
       window.VEO_IMAGE_LEGACY_WEBHOOK = window.VEO_IMAGE_LEGACY_WEBHOOK || '';
-    </script><script src="js/db.js"></script>
-    <script src="js/store.js"></script>
-    <script src="js/app.js"></script>
+    </script><script src="../js/db.js"></script>
+    <script src="../js/store.js"></script>
+    <script src="../js/app.js"></script>
 </body>
 </html>
