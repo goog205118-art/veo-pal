@@ -19,8 +19,6 @@
     --nav-h: 74px;
     --mx: 0px;
     --my: 0px;
-    --flow-mx: 0px;
-    --flow-my: 0px;
 
     --noise-a: rgba(255, 255, 255, 0.75);
     --noise-b: rgba(255, 255, 255, 0.55);
@@ -62,17 +60,6 @@
 
     --list-text: #d2d2cd;
     --list-number: #ffffff;
-    --flow-board-bg: rgba(255, 255, 255, 0.03);
-    --flow-grid: rgba(255, 255, 255, 0.03);
-    --flow-link: rgba(255, 255, 255, 0.35);
-    --flow-link-hot: rgba(255, 255, 255, 0.95);
-    --flow-node-bg: rgba(7, 7, 7, 0.92);
-    --flow-node-bg-hover: rgba(16, 16, 16, 0.96);
-    --flow-node-border: rgba(255, 255, 255, 0.26);
-    --flow-node-border-hover: rgba(255, 255, 255, 0.72);
-    --flow-node-sub: #b5b5af;
-    --flow-tip-text: #d2d2cb;
-    --flow-tip-border: rgba(255, 255, 255, 0.38);
 
     --metric-text: #b8b8b2;
     --metric-num: #ffffff;
@@ -458,104 +445,6 @@ button {
     letter-spacing: 0.12em;
 }
 
-.flow-title {
-    font-size: clamp(30px, 5.2vw, 56px);
-    margin-bottom: 20px;
-    line-height: 1.15;
-}
-
-.flow-board {
-    position: relative;
-    min-height: 500px;
-    border-radius: var(--radius-xl);
-    border: 1px solid var(--border-soft);
-    background:
-        linear-gradient(var(--flow-grid) 1px, transparent 1px),
-        linear-gradient(90deg, var(--flow-grid) 1px, transparent 1px),
-        var(--flow-board-bg);
-    background-size: 26px 26px, 26px 26px, auto;
-    overflow: hidden;
-}
-
-.flow-board::after {
-    content: "";
-    position: absolute;
-    inset: -40%;
-    background: radial-gradient(circle at calc(50% + var(--flow-mx) * 12px) calc(40% + var(--flow-my) * 10px), var(--hero-highlight) 0%, transparent 56%);
-    pointer-events: none;
-}
-
-.flow-svg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-}
-
-.flow-link {
-    fill: none;
-    stroke: var(--flow-link);
-    stroke-width: 2.4;
-    stroke-dasharray: 10 12;
-    animation: dash 1s linear infinite;
-    opacity: 0.52;
-    transition: opacity 0.2s ease, stroke 0.2s ease;
-}
-
-.flow-link.is-hot {
-    stroke: var(--flow-link-hot);
-    opacity: 1;
-}
-
-.flow-node {
-    position: absolute;
-    min-width: 165px;
-    border-radius: 12px;
-    border: 1px solid var(--flow-node-border);
-    background: var(--flow-node-bg);
-    color: var(--text-main);
-    padding: 12px 14px;
-    text-align: left;
-    box-shadow: var(--panel-shadow);
-    cursor: pointer;
-    transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-}
-
-.flow-node strong {
-    display: block;
-    font-size: 14px;
-    margin-bottom: 4px;
-    letter-spacing: 0.05em;
-}
-
-.flow-node span {
-    display: block;
-    font-size: 12px;
-    color: var(--flow-node-sub);
-}
-
-.flow-node:hover,
-.flow-node.active {
-    border-color: var(--flow-node-border-hover);
-    transform: translateY(-2px);
-    background: var(--flow-node-bg-hover);
-    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--accent-soft);
-}
-
-[data-node="p"] { top: 80px; left: 68px; }
-[data-node="i"] { top: 150px; left: 480px; }
-[data-node="v"] { top: 96px; left: 920px; }
-[data-node="q"] { top: 335px; left: 505px; }
-[data-node="o"] { top: 285px; left: 930px; }
-
-.flow-tip {
-    margin-top: 14px;
-    font-size: 14px;
-    color: var(--flow-tip-text);
-    border-left: 2px solid var(--flow-tip-border);
-    padding-left: 12px;
-}
-
 .metrics {
     margin-top: 12px;
     display: grid;
@@ -733,14 +622,6 @@ button {
     100% { transform: translateX(-50%); }
 }
 
-@media (max-width: 1100px) {
-    [data-node="p"] { top: 68px; left: 36px; }
-    [data-node="i"] { top: 150px; left: 370px; }
-    [data-node="v"] { top: 90px; left: 700px; }
-    [data-node="q"] { top: 334px; left: 380px; }
-    [data-node="o"] { top: 282px; left: 710px; }
-}
-
 @media (max-width: 900px) {
     .topbar {
         top: 12px;
@@ -762,16 +643,6 @@ button {
     .split {
         grid-template-columns: 1fr;
     }
-
-    .flow-board {
-        min-height: 620px;
-    }
-
-    [data-node="p"] { top: 66px; left: 18px; }
-    [data-node="i"] { top: 186px; left: 152px; }
-    [data-node="v"] { top: 78px; left: auto; right: 16px; }
-    [data-node="q"] { top: 380px; left: 124px; }
-    [data-node="o"] { top: 486px; left: auto; right: 16px; }
 
     .metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -803,19 +674,6 @@ button {
 
     .hero-title .line-b {
         margin-left: 12px;
-    }
-
-    .flow-node {
-        min-width: 128px;
-        padding: 10px;
-    }
-
-    .flow-node strong {
-        font-size: 12px;
-    }
-
-    .flow-node span {
-        font-size: 11px;
     }
 
     .metrics {

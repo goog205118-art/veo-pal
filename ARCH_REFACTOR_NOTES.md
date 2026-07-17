@@ -50,13 +50,13 @@
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
 - `node --check js/app.js`: pass (source-equivalent)
-- `node --check js/flow/flow-engine.js`: pass
+- Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
 ## Compatibility Notes
-- `db` starts as `undefined` before `initDB` success, preserving old guard behavior in `flow-engine.js`.
+- `db` starts as `undefined` before `initDB` success, preserving old guard behavior for app storage paths.
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
 1. Refactor should proceed from source-equivalent `app.js` baseline to avoid feature drift.
-2. Isolate node execution scheduling from DOM rendering in `flow-engine.js`.
-3. Split material library logic into dedicated module shared by `app.js` and `flow-engine.js`.
+2. Split material library logic into a dedicated module shared by active app entrypoints.
+3. Keep launch and studio entrypoints free of removed node workflow dependencies.

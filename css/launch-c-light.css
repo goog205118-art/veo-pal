@@ -56,17 +56,6 @@
 
     --list-text: #42536e;
     --list-number: #1b66ff;
-    --flow-board-bg: rgba(255, 255, 255, 0.9);
-    --flow-grid: rgba(27, 102, 255, 0.07);
-    --flow-link: rgba(26, 85, 181, 0.38);
-    --flow-link-hot: rgba(19, 66, 145, 0.94);
-    --flow-node-bg: rgba(255, 255, 255, 0.95);
-    --flow-node-bg-hover: rgba(255, 255, 255, 1);
-    --flow-node-border: rgba(25, 84, 170, 0.26);
-    --flow-node-border-hover: rgba(25, 84, 170, 0.58);
-    --flow-node-sub: #60708b;
-    --flow-tip-text: #415470;
-    --flow-tip-border: rgba(27, 102, 255, 0.45);
 
     --metric-text: #60708b;
     --metric-num: #173764;
@@ -109,14 +98,8 @@ body[data-theme="light"] .panel-inner {
 body[data-theme="light"] .mono-list li,
 body[data-theme="light"] .metric,
 body[data-theme="light"] .ticker-wrap,
-body[data-theme="light"] .boot-panel,
-body[data-theme="light"] .flow-board {
+body[data-theme="light"] .boot-panel {
     box-shadow: 0 14px 30px rgba(22, 56, 109, 0.08);
-}
-
-body[data-theme="light"] .flow-node:hover,
-body[data-theme="light"] .flow-node.active {
-    box-shadow: 0 14px 28px rgba(22, 56, 109, 0.16), 0 0 0 1px rgba(27, 102, 255, 0.18);
 }
 
 body[data-theme="light"] .boot-overlay {

@@ -34,8 +34,7 @@
         <button class="rail-dot" data-panel-target="1" type="button" aria-label="Panel 2"></button>
         <button class="rail-dot" data-panel-target="2" type="button" aria-label="Panel 3"></button>
         <button class="rail-dot" data-panel-target="3" type="button" aria-label="Panel 4"></button>
-        <button class="rail-dot" data-panel-target="4" type="button" aria-label="Panel 5"></button>
-        <div id="rail-label" class="rail-label">01 / 05</div>
+        <div id="rail-label" class="rail-label">01 / 04</div>
     </aside>
 
     <main id="snap-root" aria-label="Launch C Scroll Panels">
@@ -48,10 +47,9 @@
                 </h1>
                 <p class="desc">
                     Veo Studio 是一套可落地生产的 AIGC 工作台：无限画布编排、文生视频与生图双通道、
-                    IndexedDB 素材记忆、自动重试轮询、账单追踪与节点流模板化，全部在同一中控完成。
+                    IndexedDB 素材记忆、自动重试轮询、账单追踪与模板化，全部在同一中控完成。
                 </p>
                 <div class="action-row">
-                    <button id="hero-flow-btn" class="btn solid magnetic" type="button">查看节点链路</button>
                     <button id="hero-enter-btn" class="btn ghost magnetic" type="button">立即登录</button>
                 </div>
             </div>
@@ -68,50 +66,12 @@
                         <li><span>01</span> 无限画布支持平移缩放、框选、打组、网格排版与便签协作。</li>
                         <li><span>02</span> 主控台内置文生视频（首尾帧/参考图）与生图模块双链路。</li>
                         <li><span>03</span> 全局素材库支持拖拽复用、Ctrl+V 收图、去重与彻底清理。</li>
-                        <li><span>04</span> 节点流支持导入导出与连线调度，方便沉淀为模板资产。</li>
                     </ul>
                 </div>
             </div>
         </section>
 
-        <section id="flow-panel" class="panel flow-panel" data-panel="2" data-panel-name="FLOW">
-            <div class="panel-inner">
-                <p class="tag">FLOW LAB / LIVE INTERACTION</p>
-                <h2 class="flow-title">节点链路在首屏即可直接交互</h2>
-                <div class="flow-board">
-                    <svg class="flow-svg" viewBox="0 0 1200 520" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="flow-link" data-link="p-i" d="M160 120 C 280 120, 350 150, 500 170"></path>
-                        <path class="flow-link" data-link="i-v" d="M560 190 C 700 220, 820 180, 960 140"></path>
-                        <path class="flow-link" data-link="p-q" d="M170 120 C 320 270, 380 330, 520 360"></path>
-                        <path class="flow-link" data-link="q-o" d="M580 380 C 720 410, 840 350, 970 320"></path>
-                        <path class="flow-link" data-link="v-o" d="M970 160 C 1040 210, 1040 270, 970 320"></path>
-                    </svg>
-                    <button class="flow-node active magnetic" data-node="p" type="button">
-                        <strong>Prompt</strong>
-                        <span>策略注入</span>
-                    </button>
-                    <button class="flow-node magnetic" data-node="i" type="button">
-                        <strong>Image</strong>
-                        <span>生图执行</span>
-                    </button>
-                    <button class="flow-node magnetic" data-node="v" type="button">
-                        <strong>Video</strong>
-                        <span>视频合成</span>
-                    </button>
-                    <button class="flow-node magnetic" data-node="q" type="button">
-                        <strong>QA</strong>
-                        <span>质量回环</span>
-                    </button>
-                    <button class="flow-node magnetic" data-node="o" type="button">
-                        <strong>Output</strong>
-                        <span>发布输出</span>
-                    </button>
-                </div>
-                <div id="flow-tip" class="flow-tip">Prompt：注入策略模板，驱动整个 DAG 的输入语义。</div>
-            </div>
-        </section>
-
-        <section class="panel pulse-panel" data-panel="3" data-panel-name="PULSE">
+        <section class="panel pulse-panel" data-panel="2" data-panel-name="PULSE">
             <div class="panel-inner">
                 <p class="tag">RUNTIME PULSE</p>
                 <div class="metrics">
@@ -147,12 +107,12 @@
             </div>
         </section>
 
-        <section class="panel cta-panel" data-panel="4" data-panel-name="GATE">
+        <section class="panel cta-panel" data-panel="3" data-panel-name="GATE">
             <div class="panel-inner center">
                 <p class="tag">FINAL GATE</p>
                 <h2>Launch-C：电影感首页，可直接进入同一套工作台</h2>
                 <p class="desc">
-                    该入口只负责品牌展示与流程引导，不改动你的登录、画布、节点流与数据存储逻辑。
+                    该入口只负责品牌展示与流程引导，不改动你的登录、画布与数据存储逻辑。
                 </p>
                 <button id="final-enter-btn" class="btn solid large magnetic" type="button">进入 Veo Studio</button>
             </div>
@@ -172,9 +132,9 @@
             </div>
             <ul id="boot-steps" class="boot-steps">
                 <li>校验本地配置与会话</li>
-                <li>连接节点调度状态</li>
+                <li>检查生成队列状态</li>
                 <li>加载素材与画布缓存</li>
-                <li>进入 Infinity Flow</li>
+                <li>进入 Veo Studio</li>
             </ul>
         </div>
     </div>

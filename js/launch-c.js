@@ -63,7 +63,7 @@
             ring.style.opacity = "1";
         }, { passive: true });
 
-        document.querySelectorAll("button, a, .flow-node").forEach(function (el) {
+        document.querySelectorAll("button, a").forEach(function (el) {
             el.addEventListener("mouseenter", function () {
                 ring.classList.add("is-hover");
             });
@@ -277,83 +277,6 @@
         setActive(0);
     }
 
-    function initFlowBoard() {
-        var nodes = document.querySelectorAll(".flow-node");
-        var links = document.querySelectorAll(".flow-link");
-        var tip = byId("flow-tip");
-        var board = document.querySelector(".flow-board");
-        if (!nodes.length || !links.length) return;
-
-        var map = {
-            p: {
-                links: ["p-i", "p-q"],
-                text: "Prompt：注入策略模板，驱动整个 DAG 的输入语义。"
-            },
-            i: {
-                links: ["p-i", "i-v"],
-                text: "Image：执行生图与多次重试，确保素材可用。"
-            },
-            v: {
-                links: ["i-v", "v-o"],
-                text: "Video：拼接镜头并处理时序，输出可发布视频。"
-            },
-            q: {
-                links: ["p-q", "q-o"],
-                text: "QA：质量闸门节点，决定是否回环重试。"
-            },
-            o: {
-                links: ["v-o", "q-o"],
-                text: "Output：汇总合格结果，进入分发队列。"
-            }
-        };
-
-        function setActive(key) {
-            var config = map[key];
-            if (!config) return;
-            nodes.forEach(function (node) {
-                node.classList.toggle("active", node.getAttribute("data-node") === key);
-            });
-            links.forEach(function (link) {
-                var linkKey = link.getAttribute("data-link");
-                link.classList.toggle("is-hot", config.links.indexOf(linkKey) !== -1);
-            });
-            if (tip) tip.textContent = config.text;
-        }
-
-        nodes.forEach(function (node) {
-            node.addEventListener("mouseenter", function () {
-                var key = node.getAttribute("data-node");
-                if (key) setActive(key);
-            });
-            node.addEventListener("focus", function () {
-                var key = node.getAttribute("data-node");
-                if (key) setActive(key);
-            });
-            node.addEventListener("click", function () {
-                var key = node.getAttribute("data-node");
-                if (key) setActive(key);
-            });
-        });
-
-        if (board && !reduceMotion) {
-            board.addEventListener("pointermove", function (event) {
-                var rect = board.getBoundingClientRect();
-                if (!rect.width || !rect.height) return;
-                var nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                var ny = ((event.clientY - rect.top) / rect.height) * 2 - 1;
-                document.documentElement.style.setProperty("--flow-mx", (nx * 1.15).toFixed(3));
-                document.documentElement.style.setProperty("--flow-my", (ny * 1.15).toFixed(3));
-            });
-
-            board.addEventListener("pointerleave", function () {
-                document.documentElement.style.setProperty("--flow-mx", "0px");
-                document.documentElement.style.setProperty("--flow-my", "0px");
-            });
-        }
-
-        setActive("p");
-    }
-
     function initCounters() {
         var counters = document.querySelectorAll("[data-counter]");
         if (!counters.length) return;
@@ -415,16 +338,9 @@
     function initSectionButtons() {
         var root = byId("snap-root");
         var explore = byId("top-explore-btn");
-        var flowBtn = byId("hero-flow-btn");
-        var flowPanel = byId("flow-panel");
         if (explore && root) {
             explore.addEventListener("click", function () {
                 root.scrollTo({ top: window.innerHeight, behavior: reduceMotion ? "auto" : "smooth" });
-            });
-        }
-        if (flowBtn && flowPanel) {
-            flowBtn.addEventListener("click", function () {
-                flowPanel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
             });
         }
     }
@@ -490,7 +406,6 @@
         try { initHeroKinetic(); } catch (err) { console.error(err); }
         try { initMonoGrid(); } catch (err) { console.error(err); }
         try { initSnapRail(); } catch (err) { console.error(err); }
-        try { initFlowBoard(); } catch (err) { console.error(err); }
         try { initCounters(); } catch (err) { console.error(err); }
         try { initScrollProgress(); } catch (err) { console.error(err); }
         try { initSectionButtons(); } catch (err) { console.error(err); }
@@ -499,5 +414,4 @@
 
     document.addEventListener("DOMContentLoaded", init);
 })();
-
 

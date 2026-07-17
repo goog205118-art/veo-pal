@@ -117,14 +117,6 @@ window.navigateWithTransition = function(url, options = {}) {
     }, ROUTE_TRANSITION_MS);
 };
 
-window.openFlowWorkspace = function(event) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-    window.navigateWithTransition('flow.html', { label: 'OPEN NODE FLOW' });
-};
-
 function normalizeThemeMode(rawMode) {
     if (rawMode === THEME_DARK) return THEME_DARK;
     if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
@@ -345,8 +337,7 @@ const IMG_GEN_FEATURES = {
 };
 const IMG_GEN_ROUTE_CONFIG = {
     stable: { key: 'stable', aliases: ['stable', 'success_rate', 'default'], suffix: '', mode: 'success_rate', label: '默认专业通道', maxRefs: 5 },
-    ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 },
-    apimart_stable_co: { key: 'apimart_stable_co', aliases: ['apimart_stable_co', 'apimart-stable-co', 'apimart_stable', 'stable_co', 'stable-co', 'apimart'], suffix: '', mode: 'apimart_stable_co', label: 'APIMart 官方通道', maxRefs: 5 }
+    ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 }
 };
 const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
 function normalizeWebhookEndpointForCompare(rawUrl) {
@@ -6142,7 +6133,6 @@ function normalizeImgGenRoute(raw = 'stable') {
 
 function getImgGenModelForRoute(route) {
     const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'stable');
-    if (safeRoute.key === 'apimart_stable_co') return 'gpt-image-2-official';
     return `gpt-image-2${safeRoute.suffix || ''}`;
 }
 

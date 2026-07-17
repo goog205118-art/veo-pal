@@ -25,7 +25,6 @@
                     <h1>Redefine workflow with AI.</h1>
                     <p class="login-subtitle">一个面向 AIGC 生产、节点自动化、专业生图与视频生成的无限工作台。</p>
                     <div class="login-chip-grid">
-                        <span class="login-chip"><span class="material-symbols-outlined">account_tree</span> Node Flow</span>
                         <span class="login-chip"><span class="material-symbols-outlined">auto_awesome</span> GPT Image 2</span>
                         <span class="login-chip"><span class="material-symbols-outlined">movie</span> Veo 3.1</span>
                         <span class="login-chip"><span class="material-symbols-outlined">database</span> IndexedDB</span>
@@ -77,11 +76,6 @@
             <button class="top-btn" onclick="toggleDrawer()" data-tip="展开工具箱，拖拽 AI 插件组件至画布">
                 <span class="material-symbols-outlined" style="font-size: 16px;">grid_view</span> 工具箱
             </button>
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-            <button class="top-btn top-btn-pro" onclick="openFlowWorkspace(event)" data-tip="进入高级节点工作流 (Pro)">
-                <span class="material-symbols-outlined" style="font-size: 16px;">account_tree</span> 节点流
-            </button>
-
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
             <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
                 <span class="material-symbols-outlined">perm_media</span>
@@ -374,7 +368,6 @@
                         <li>🎞️ 文生视频 + Veo 3.1 普通 / 4K + 参考图 / 首尾帧独立切换</li>
                         <li>🎨 生图模块（Trial 通道 + GPT Image 2 Pro + 蒙版编辑 + 预览历史）</li>
                         <li>🗂 全局素材库（拖入、Ctrl+V、去重、彻底清理）</li>
-                        <li>⛓ Pro 节点流（端口校验、导入导出、调度执行）</li>
                         <li>💾 IndexedDB 本地持久化 + 账单统计与任务追踪</li>
                     </ul>
                 </div>
@@ -387,7 +380,7 @@
                         <li>🎨 生图专业版：<span style="color: var(--accent);">输入 ￥5.0000 / 1M tokens</span>，<span style="color: var(--accent);">输出 ￥30.0000 / 1M tokens</span>，再按中转半价 × 1/2 入账</li>
                     </ul>
                 </div>
-                <p style="font-size: 11px; color: var(--text-sub);">Pro 生图按 usage 实时计费；示例 1643 输入 tokens + 1413 输出 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。建议先在画布快速试产，再进入节点流固化为可复用模板。</p>
+                <p style="font-size: 11px; color: var(--text-sub);">Pro 生图按 usage 实时计费；示例 1643 输入 tokens + 1413 输出 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。建议先在画布快速试产并保留可复用素材。</p>
             </div>
             <button onclick="closeAnnouncement()" style="width: 100%; justify-content: center; background: var(--accent); color: white; border: none; padding: 14px; font-weight: 600; cursor: pointer; transition: 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
                 进入工作台
