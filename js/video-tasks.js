@@ -29,15 +29,6 @@
         if (removeActiveTask) removeActive(taskId);
     }
 
-    function getVideoBillingInfo(modelVal) {
-        const model = String(modelVal || '');
-        if (model === 'veo3.1-components') return { cost: 0.35, detail: 'Veo 3.1 Cmp (参考图)' };
-        if (model === 'veo3.1-4k') return { cost: 0.50, detail: 'Veo 3.1 4K (首尾帧)' };
-        if (model === 'veo3.1-components-4k') return { cost: 0.50, detail: 'Veo 3.1 Cmp 4K (参考图)' };
-        if (model.includes('lite')) return { cost: 0.20, detail: '极速特惠版模型' };
-        return { cost: 0.35, detail: 'Veo 3.1 (首尾帧)' };
-    }
-
     async function submitBatchTask() {
         const promptInput = document.getElementById('prompt-input');
         const prompt = promptInput ? promptInput.value.trim() : '';

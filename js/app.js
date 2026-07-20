@@ -3166,37 +3166,6 @@ function formatImgGenMoney(amount) {
     return `￥${value.toFixed(4)}`;
 }
 
-function getVideoInputModeLabel(mode) {
-    return mode === 'frame' ? '首尾帧' : '参考图';
-}
-
-function getVideoQualityModel(modelValue) {
-    const raw = String(modelValue || '').toLowerCase();
-    return raw.includes('4k') ? 'veo3.1-4k' : 'veo3.1';
-}
-
-function getVideoInputModeFromTask(task) {
-    const rawMode = task && (task.inputMode || task.mode);
-    if (rawMode === 'frame' || rawMode === 'ref') return rawMode;
-    return task && String(task.modelVal || '').includes('components') ? 'ref' : 'frame';
-}
-
-function buildVideoSubmitModel(modelValue, inputMode) {
-    const qualityModel = getVideoQualityModel(modelValue);
-    const safeMode = inputMode === 'frame' ? 'frame' : 'ref';
-    if (qualityModel === 'veo3.1-4k') {
-        return safeMode === 'ref' ? 'veo3.1-components-4k' : 'veo3.1-4k';
-    }
-    return safeMode === 'ref' ? 'veo3.1-components' : 'veo3.1';
-}
-
-function getVideoModelDisplayName(modelValue, inputMode) {
-    const raw = String(modelValue || '').toLowerCase();
-    if (raw.includes('lite')) return '极速特惠版';
-    const modelName = getVideoQualityModel(modelValue) === 'veo3.1-4k' ? 'Veo 3.1 4K' : 'Veo 3.1 普通';
-    return `${modelName} · ${getVideoInputModeLabel(inputMode)}`;
-}
-
 function extractImgGenUsage(rawData) {
     const roots = [];
     const queue = [];

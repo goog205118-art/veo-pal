@@ -12,13 +12,6 @@
         return Number.isFinite(value) && value > 0 ? value : 1;
     }
 
-    function getVideoUnitCost(modelValue) {
-        const normalized = String(modelValue || '').toLowerCase();
-        if (normalized.includes('4k')) return 0.50;
-        if (normalized.includes('lite')) return 0.20;
-        return 0.35;
-    }
-
     async function updateTopBar() {
         if (typeof getBillingStats !== 'function') return null;
         const stats = await getBillingStats();
@@ -60,7 +53,9 @@
         const state = store && typeof store.getState === 'function'
             ? store.getState()
             : {};
-        const unitCost = getVideoUnitCost(state.model);
+        const unitCost = typeof window.getVideoUnitCost === 'function'
+            ? window.getVideoUnitCost(state.model)
+            : 0.35;
         const total = (unitCost * getSelectedBatch()).toFixed(2);
 
         const btn = getEl('generate-btn');
@@ -82,6 +77,8 @@
         closeModal,
         updateEstimatedCost,
         updateBatchCount,
-        getVideoUnitCost
+        getVideoUnitCost: (modelValue) => typeof window.getVideoUnitCost === 'function'
+            ? window.getVideoUnitCost(modelValue)
+            : 0.35
     };
 })();
