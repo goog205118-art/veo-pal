@@ -235,7 +235,7 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     const version = (task && task.state && task.state.version === 'pro') ? 'pro' : 'trial';
     const channel = (task && task.state && task.state.channel) ? task.state.channel : 'channel_1';
     const mode = task && task.state ? resolveImgGenMode(task.state) : 'text2img';
-    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'stable') : normalizeImgGenRoute();
+    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'ai666') : normalizeImgGenRoute();
     const core = {
         action: 'poll',
         poll: true,

@@ -23,8 +23,8 @@
   - `globalStore`
   - `globalStore.dispatch(...)`
   - `globalStore.getState()`
-- Added internal mutation table for stable action routing.
-- Added media/state actions for console workflow:
+- Added internal mutation table for predictable action routing.
+- Added media/state actions for console control:
   - `SET_FIRST_FRAME`
   - `SET_LAST_FRAME`
   - `SET_REFERENCES`
@@ -88,13 +88,13 @@
 - `node --check js/billing.js`: pass
 - `node --check js/video-tasks.js`: pass
 - `node --check js/app.js`: pass
-- Node workflow runtime removed in slimming pass; no flow runtime check remains.
+- Retired canvas-flow runtime removed in slimming pass; no legacy runtime check remains.
 
 ## Compatibility Notes
 - `db` starts as `undefined` before `initDB` success, preserving old guard behavior for app storage paths.
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
-1. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
+1. Continue moving app state orchestration out of `js/app.js` behind predictable global adapters.
 2. Extract image generation polling modules so model routing and usage tracking can evolve independently.
 3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.

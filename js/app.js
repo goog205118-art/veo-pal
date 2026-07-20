@@ -1,5 +1,5 @@
 ﻿// ==========================================
-// 🟢 核心应用逻辑与安全拦截 (Veo Studio Infinity Flow)
+// 🟢 核心应用逻辑与安全拦截 (Veo Studio)
 // ==========================================
 let loginAnimationId = null;
 
@@ -2751,9 +2751,9 @@ viewport.addEventListener('drop', async (e) => {
             status: 'idle',
             state: {
                 version: 'pro',
-                providerSort: 'stable',
+                providerSort: 'ai666',
                 modelSuffix: '',
-                routeMode: 'success_rate',
+                routeMode: 'ai666',
                 imageModel: 'gpt-image-2',
                 quality: 'auto',
                 format: 'png',
@@ -3248,8 +3248,8 @@ function calculateImgGenBilling(task, rawData) {
     if (version === 'pro') {
         const usage = extractImgGenUsage(rawData);
         if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
-            const officialCost = ((usage.inputTokens * IMG_GEN_PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * IMG_GEN_PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
-            const cost = officialCost * IMG_GEN_PROXY_RECHARGE_FACTOR;
+            const meteredCost = ((usage.inputTokens * IMG_GEN_PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * IMG_GEN_PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
+            const cost = meteredCost * IMG_GEN_PROXY_RECHARGE_FACTOR;
             return {
                 cost,
                 detail: `AI生图 专业版 GPT Image 2 · 输入 ${usage.inputTokens} / 输出 ${usage.outputTokens} tokens · 中转半价`,
@@ -3817,7 +3817,7 @@ function resolveImgGenSize(state) {
     return enforceProSizeRules('1024x1024').size;
 }
 
-function normalizeImgGenRoute(raw = 'stable') {
+function normalizeImgGenRoute(raw = 'ai666') {
     return window.VeoMedia.normalizeImgGenRoute(raw);
 }
 
@@ -3830,7 +3830,7 @@ function ensureImgGenState(task) {
     if (!task.state || typeof task.state !== 'object') task.state = {};
     if (!Array.isArray(task.state.images)) task.state.images = [];
     if (!task.state.version || (task.state.version === 'trial' && !IMG_GEN_TRIAL_AVAILABLE)) task.state.version = 'pro';
-    const route = normalizeImgGenRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'stable');
+    const route = normalizeImgGenRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'ai666');
     task.state.providerSort = route.key;
     task.state.modelSuffix = route.suffix;
     task.state.routeMode = route.mode;

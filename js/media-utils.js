@@ -6,7 +6,6 @@
     };
 
     const routeConfig = {
-        stable: { key: 'stable', aliases: ['stable', 'success_rate', 'default'], suffix: '', mode: 'success_rate', label: '默认专业通道', maxRefs: 5 },
         ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 }
     };
 
@@ -45,18 +44,18 @@
         };
     }
 
-    function normalizeImgGenRoute(raw = 'stable') {
-        const key = String(raw || 'stable').trim().toLowerCase().replace(/^:/, '');
+    function normalizeImgGenRoute(raw = 'ai666') {
+        const key = String(raw || 'ai666').trim().toLowerCase().replace(/^:/, '');
         for (const route of Object.values(routeConfig)) {
             if (route.key === key || (Array.isArray(route.aliases) && route.aliases.includes(key))) {
                 return { ...route };
             }
         }
-        return { ...routeConfig.stable };
+        return { ...routeConfig.ai666 };
     }
 
     function getImgGenModelForRoute(route) {
-        const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'stable');
+        const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'ai666');
         return `gpt-image-2${safeRoute.suffix || ''}`;
     }
 

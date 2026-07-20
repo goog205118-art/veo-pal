@@ -197,7 +197,7 @@ function renderImgGenParams(task) {
     const ratioKey = isPro ? 'proRatio' : 'trialRatio';
     const ratioValue = isPro ? state.proRatio : state.trialRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
+    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'ai666');
     const routeLabel = isPro ? `GPT Image 2 · ${route.label} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
@@ -518,7 +518,7 @@ function renderImgGenHelpContent() {
                     <p>专业版面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
                 </div>
             </div>
-            <p class="img-gen-help-note">官方边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
+            <p class="img-gen-help-note">使用边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
         </section>
         <section class="img-gen-help-section">
             <h3>价格体系</h3>
@@ -554,7 +554,7 @@ function renderImgGenHelpContent() {
             <div class="img-gen-help-table">
                 <div><strong>质量</strong><span>low 适合草稿和缩略图，medium 是速度/画质平衡，high 适合终稿。高质量 + 4K 会显著增加等待时间。</span></div>
                 <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
-                <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前官方支持项，如果需要抠图请后续走单独抠图/去背节点。</span></div>
+                <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前支持项，如果需要抠图请后续走单独抠图/去背工具。</span></div>
                 <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
                 <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
                 <div><strong>Seed</strong><span>锁定后会尽量复现构图与随机性，适合在同一张产品图上连续做细节微调；点击 V1-4 时会沿用当前配置并分裂 4 个子节点。</span></div>
@@ -594,7 +594,7 @@ function renderImgGenHelpContent() {
             <ul>
                 <li><strong>文字排版</strong>：GPT Image 2 的文字能力更强，但复杂小字、严密表格和品牌字体仍可能漂移。</li>
                 <li><strong>主体一致性</strong>：多轮生成能保持大体风格，但人脸、Logo、精密产品结构仍建议用 Base 图和明确 Prompt 约束。</li>
-                <li><strong>等待时间</strong>：复杂 Prompt、参考图、4K 和 high 质量会更慢，官方也提示复杂请求可能需要较长处理时间。</li>
+                <li><strong>等待时间</strong>：复杂 Prompt、参考图、4K 和 high 质量会更慢，复杂请求可能需要较长处理时间。</li>
                 <li><strong>成本意识</strong>：Pro 的参考图会按高保真输入处理，参考图越多、分辨率越高，成本和延迟越容易上升。</li>
             </ul>
         </section>
