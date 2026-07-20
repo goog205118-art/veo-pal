@@ -10,6 +10,7 @@
 - js/db.js
 - js/api-client.js
 - js/media-utils.js
+- js/material-library.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -60,11 +61,17 @@
 - `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
 - Entry pages now load `js/media-utils.js` before `js/app.js`.
 
+## Material Library Layer Changes (Compatible)
+- Added `window.VeoMaterials` for the global material drawer, grouped material rendering, duplicate cleanup, delete, and clear actions.
+- `js/app.js` keeps the previous inline handler names while delegating material-library behavior to `js/material-library.js`.
+- Entry pages now load `js/material-library.js` before `js/app.js`.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
 - `node --check js/media-utils.js`: pass
+- `node --check js/material-library.js`: pass
 - `node --check js/app.js`: pass
 - Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
@@ -73,6 +80,6 @@
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
-1. Split material library UI rendering/actions into a dedicated module shared by active app entrypoints.
-2. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
+1. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
+2. Extract billing/task polling modules so model routing and usage tracking can evolve independently.
 3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.

@@ -2172,7 +2172,7 @@ function clearImgGenPromptDraftTimer(taskId) {
 
 function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
 function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
-function toggleMaterialDrawer() { document.getElementById('material-drawer').classList.toggle('open'); }
+function toggleMaterialDrawer() { window.VeoMaterials.toggleDrawer(); }
 
 function handleAuthError() {
     if (!sessionStorage.getItem('veo_admin_pwd')) return;
@@ -2192,95 +2192,19 @@ function handleAuthError() {
 // 🗂️ 智能素材库管理引擎
 // ==========================================
 async function renderMaterialLibrary() {
-    const tasks = await getAllTasksDB();
-    const materials = tasks.filter(t => t.type === 'local_image');
-    const grid = document.getElementById('material-grid');
-    if (!grid) return;
-
-    if (materials.length === 0) {
-        grid.innerHTML = `<div style="grid-column: span 2; text-align: center; padding: 40px 0; color: var(--text-sub); font-size: 12px;">仓库空空如也</div>`;
-        return;
-    }
-
-    const now = Date.now(), ONE_DAY = 86400000;
-    const groups = { "今天": [], "昨天": [], "本周": [], "更早": [] };
-
-    materials.forEach(m => {
-        const diff = now - m.timestamp;
-        if (diff < ONE_DAY) groups["今天"].push(m);
-        else if (diff < ONE_DAY * 2) groups["昨天"].push(m);
-        else if (diff < ONE_DAY * 7) groups["本周"].push(m);
-        else groups["更早"].push(m);
-    });
-
-    let html = '';
-    for (const [groupName, items] of Object.entries(groups)) {
-        if (items.length > 0) {
-            html += `<div style="grid-column: span 2; font-size: 12px; font-weight: 600; color: var(--text-sub); margin-top: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;">${groupName} (${items.length})</div>`;
-            html += items.map(m => `
-                <div class="material-item" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${m.id}', type: 'local'}))" ondblclick="openLightbox(this.querySelector('img').src)" data-tip="按住拖拽复用 | 双击放大">
-                    <img src="${getBlobUrl(m.id, m.src)}" loading="lazy">
-                    <button class="delete-btn material-symbols-outlined" onclick="deleteMaterial(event, '${m.id}')" data-tip="彻底删除素材">close</button>
-                </div>
-            `).join('');
-        }
-    }
-    grid.innerHTML = html;
+    return window.VeoMaterials.render();
 }
 
 async function deduplicateMaterials(event) {
-    const btn = event.currentTarget;
-    const originalHTML = btn.innerHTML;
-    btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 扫描中...`;
-    btn.style.pointerEvents = 'none';
-
-    try {
-        const tasks = await getAllTasksDB();
-        const materials = tasks.filter(t => t.type === 'local_image');
-        const seenSignatures = new Set();
-        let removedCount = 0;
-
-        for (let m of materials) {
-            if (!m.src) continue;
-            const signature = await buildBlobSignature(m.src);
-            if (!signature) continue;
-
-            if (seenSignatures.has(signature)) {
-                await deleteTaskDB(m.id);
-                removedCount++;
-            } else {
-                seenSignatures.add(signature);
-            }
-        }
-
-        if (removedCount > 0) {
-            await renderMaterialLibrary();
-            showToast(`✨ 清理完毕：已成功剔除 ${removedCount} 张完全重复的素材！`, "success");
-        } else {
-            showToast("🌟 您的素材库很干净，没有发现重复图片。", "info");
-        }
-    } catch (err) {
-        console.error('去重引擎故障:', err);
-        showToast("去重扫描失败", "error");
-    } finally {
-        btn.innerHTML = originalHTML;
-        btn.style.pointerEvents = 'auto';
-    }
+    return window.VeoMaterials.deduplicate(event);
 }
 
 async function clearAllMaterials() {
-    if(confirm('🚨 危险操作！\n确定要清空整个素材库吗？\n(这绝对安全：它只清空侧边栏图库，不会影响您画布上已经垫进去、正在使用的卡片图片！)')) {
-        const tasks = await getAllTasksDB();
-        const materials = tasks.filter(t => t.type === 'local_image');
-        await Promise.all(materials.map(m => deleteTaskDB(m.id)));
-        await renderMaterialLibrary();
-        showToast("🗑️ 素材库已全部清空，空间已释放。", "success");
-    }
+    return window.VeoMaterials.clearAll();
 }
 
 async function deleteMaterial(e, id) {
-    e.stopPropagation();
-    if(confirm('🗑️ 确定要从素材库彻底销毁这张图片吗？')) { await deleteTaskDB(id); renderMaterialLibrary(); showToast("已销毁素材", "success"); }
+    return window.VeoMaterials.deleteOne(e, id);
 }
 
 async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `￥${stats.totalCost}`; }
@@ -3647,7 +3571,7 @@ window.addEventListener('paste', async (e) => {
             await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true;
         }
     }
-    if (added) { await renderMaterialLibrary(); showToast(`✅ 已将剪贴板图片收入全局素材库`, 'success'); document.getElementById('material-drawer').classList.add('open'); }
+    if (added) { await renderMaterialLibrary(); showToast(`✅ 已将剪贴板图片收入全局素材库`, 'success'); window.VeoMaterials.openDrawer(); }
 });
 
 const consoleEl = document.getElementById('floating-console');
@@ -3854,7 +3778,7 @@ viewport.addEventListener('drop', async (e) => {
     if (files && files.length > 0) {
         let added = false;
         for (let file of files) { if (file.type.startsWith('image/')) { const blob = await compressImageToBlob(file, 1024); await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true; } }
-        if(added) { await renderMaterialLibrary(); showToast(`✅ 已将拖入的图片收入全局素材库`, 'success'); document.getElementById('material-drawer').classList.add('open'); }
+        if(added) { await renderMaterialLibrary(); showToast(`✅ 已将拖入的图片收入全局素材库`, 'success'); window.VeoMaterials.openDrawer(); }
     }
 });
 
