@@ -16,6 +16,7 @@
 - js/viewport-culling.js
 - js/minimap.js
 - js/workspace-io.js
+- js/workspace-inputs.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -102,6 +103,11 @@
 - Reduced `js/app.js` import/export functions to compatibility adapters for existing button and input handlers.
 - Entry pages now load `js/workspace-io.js` after minimap and before selection toolbar/app orchestration scripts.
 
+## Workspace Input Layer Changes (Compatible)
+- Added `window.VeoWorkspaceInputs` for clipboard image ingest, viewport file drop, DataTransfer image parsing, and console slot drops.
+- Reduced `js/app.js` paste/drop handlers and `parseDroppedImage` to compatibility adapters for existing console and card workflows.
+- Entry pages now load `js/workspace-inputs.js` after workspace IO and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -155,6 +161,7 @@
 - `node --check js/viewport-culling.js`: pass
 - `node --check js/minimap.js`: pass
 - `node --check js/workspace-io.js`: pass
+- `node --check js/workspace-inputs.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass

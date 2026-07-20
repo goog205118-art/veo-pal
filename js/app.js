@@ -377,6 +377,18 @@ window.VeoWorkspaceIO.configure({
         }
     }
 });
+window.VeoWorkspaceInputs.configure({
+    hooks: {
+        addConsoleReferenceImage: (image) => addConsoleReferenceImage(image),
+        compressImage: (file, maxEdge) => compressImageToBlob(file, maxEdge),
+        getTask: (taskId) => getTaskDB(taskId),
+        openMaterialDrawer: () => window.VeoMaterials.openDrawer(),
+        renderMaterialLibrary: () => renderMaterialLibrary(),
+        saveTask: (task) => saveTaskDB(task),
+        setConsoleFrameImage: (stateKey, image) => setConsoleFrameImage(stateKey, image),
+        showToast: (message, type) => showToast(message, type)
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1154,17 +1166,7 @@ function openLightbox(src) {
     lightboxEl.querySelector('img').src = src; lightboxEl.style.display = 'flex'; lightboxEl.offsetHeight; lightboxEl.classList.add('show');
 }
 
-window.addEventListener('paste', async (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    const items = e.clipboardData?.items; if (!items) return; let added = false;
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-            const file = items[i].getAsFile(); if(!file) continue; const blob = await compressImageToBlob(file, 1024);
-            await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true;
-        }
-    }
-    if (added) { await renderMaterialLibrary(); showToast(`✅ 已将剪贴板图片收入全局素材库`, 'success'); window.VeoMaterials.openDrawer(); }
-});
+window.VeoWorkspaceInputs.bindClipboardIngest();
 
 const consoleEl = document.getElementById('floating-console');
 document.addEventListener('click', (e) => {
@@ -1190,63 +1192,12 @@ async function exportWorkspace() {
 async function importWorkspace(input) {
     return window.VeoWorkspaceIO.importWorkspace(input);
 }
-window.addEventListener("dragover", function(e){ e.preventDefault(); }, false); window.addEventListener("drop", function(e){ e.preventDefault(); }, false);
-
-viewport.addEventListener('dragover', (e) => {
-    e.preventDefault();
-}, false);
-
-viewport.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) {
-        let added = false;
-        for (let file of files) { if (file.type.startsWith('image/')) { const blob = await compressImageToBlob(file, 1024); await saveTaskDB({ id: 'local_img_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'local_image', src: blob, timestamp: Date.now() }); added = true; } }
-        if(added) { await renderMaterialLibrary(); showToast(`✅ 已将拖入的图片收入全局素材库`, 'success'); window.VeoMaterials.openDrawer(); }
-    }
-});
+window.VeoWorkspaceInputs.preventGlobalFileDrop();
+window.VeoWorkspaceInputs.bindViewportDrop(viewport);
 
 // 🌟 强力拖放解析引擎 (通杀所有数据格式)
 async function parseDroppedImage(e) {
-    let srcToUse = null;
-    try {
-        const jsonStr = e.dataTransfer.getData('application/json');
-        if (jsonStr) {
-            const meta = JSON.parse(jsonStr); const t = await getTaskDB(meta.taskId);
-            if (t) {
-                if (meta.type === 'local') srcToUse = t.src;
-                else if (meta.type === 'thumb') srcToUse = t.rawImages?.firstFrame || (t.rawImages?.references && t.rawImages.references[0]);
-                else if (meta.type === 'gen_result') {
-                    if (meta.previewId && Array.isArray(t.state?.previewHistory)) {
-                        const hit = t.state.previewHistory.find((entry) => entry && entry.id === meta.previewId && entry.status === 'success' && entry.image);
-                        if (hit) srcToUse = hit.image;
-                    }
-                    if (!srcToUse) {
-                        const idx = Number.isFinite(Number(meta.index)) ? Number(meta.index) : 0;
-                        if (Array.isArray(t.state?.resultBlobs) && t.state.resultBlobs[idx]) srcToUse = t.state.resultBlobs[idx];
-                        else srcToUse = t.state?.resultBlob;
-                    }
-                }
-                else if (meta.type === 'crop_result') srcToUse = t.state?.resultBlob;
-            }
-        }
-    } catch(err) {}
-
-    // 兜底 1：解析 Base64 文本数据 (从其他网页拖拽)
-    if (!srcToUse) {
-        let textData = e.dataTransfer.getData('text/plain');
-        if (textData && textData.startsWith('data:image')) {
-            try { srcToUse = await (await fetch(textData)).blob(); } catch(err) {}
-        }
-    }
-
-    // 兜底 2：解析纯本地文件 (从电脑桌面或文件夹拖拽)
-    if (!srcToUse && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
-        if (file) srcToUse = await compressImageToBlob(file, 1024);
-    }
-
-    return srcToUse;
+    return window.VeoWorkspaceInputs.parseDroppedImage(e);
 }
 
 function getTaskReusableImage(task) {
@@ -1445,23 +1396,7 @@ async function renderCard(taskId, taskOverride = null) {
 }
 
 function bindMainConsoleDrop(slotId, stateKey) {
-    const slot = document.getElementById(slotId);
-    if (!slot) return;
-    slot.addEventListener('dragover', (e) => { e.preventDefault(); slot.classList.add('drag-over'); });
-    slot.addEventListener('dragleave', (e) => { e.preventDefault(); slot.classList.remove('drag-over'); });
-    slot.addEventListener('drop', async (e) => {
-        e.preventDefault(); slot.classList.remove('drag-over'); const srcToUse = await parseDroppedImage(e);
-        if (srcToUse) {
-            if (stateKey === 'references') {
-                addConsoleReferenceImage(srcToUse);
-                showToast('已送入 Veo 参考图槽', 'success');
-            }
-            else {
-                setConsoleFrameImage(stateKey, srcToUse);
-                showToast(stateKey === 'firstFrame' ? '已送入 Veo 首帧槽' : '已送入 Veo 尾帧槽', 'success');
-            }
-        }
-    });
+    return window.VeoWorkspaceInputs.bindMainConsoleDrop(slotId, stateKey);
 }
 
 function toggleRefPopover(e) { e.stopPropagation(); if (globalStore.getState().references.length === 0) document.getElementById('ref-file').click(); else { const p = document.getElementById('ref-popover'); p.style.display = p.style.display === 'flex' ? 'none' : 'flex'; } }
