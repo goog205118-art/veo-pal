@@ -11,6 +11,7 @@
 - js/api-client.js
 - js/dom-utils.js
 - js/app-shell.js
+- js/app-bootstrap.js
 - js/task-cache.js
 - js/canvas-camera.js
 - js/canvas-selection.js
@@ -198,6 +199,11 @@
 - `js/app.js` keeps existing global names as compatibility wrappers for inline handlers.
 - Entry pages load `js/app-shell.js` before `js/app.js`.
 
+## App Bootstrap Layer Changes (Compatible)
+- Added `window.VeoAppBootstrap` for document click handling, canvas double-click creation, and main workspace initialization.
+- Removed page boot and document-level event binding from `js/app.js`, leaving it focused on module wiring and compatibility adapters.
+- Entry pages load `js/app-bootstrap.js` immediately after `js/app.js`.
+
 ## Image Route Slimming
 - Removed the retired image channel from UI labels, task defaults, request payloads, polling payloads, and billing metadata.
 - Image generation now normalizes to the GPT Image 2 unified route only.
@@ -216,6 +222,7 @@
 - `node --check js/api-client.js`: pass
 - `node --check js/dom-utils.js`: pass
 - `node --check js/app-shell.js`: pass
+- `node --check js/app-bootstrap.js`: pass
 - `node --check js/task-cache.js`: pass
 - `node --check js/canvas-camera.js`: pass
 - `node --check js/canvas-selection.js`: pass

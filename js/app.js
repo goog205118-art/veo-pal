@@ -641,23 +641,6 @@ function openLightbox(src) {
 
 window.VeoWorkspaceInputs.bindClipboardIngest();
 
-const consoleEl = document.getElementById('floating-console');
-document.addEventListener('click', (e) => {
-    const popover = document.getElementById('ref-popover'), slotBox = document.getElementById('slot-ref-box');
-    if (popover && popover.style.display === 'flex' && !popover.contains(e.target) && !slotBox.contains(e.target)) popover.style.display = 'none';
-    if (e.target === viewport || e.target === board) {
-        consoleEl.classList.add('minimized');
-        document.getElementById('material-drawer').classList.remove('open');
-    } else if (consoleEl.contains(e.target)) consoleEl.classList.remove('minimized');
-});
-
-viewport.addEventListener('dblclick', (e) => {
-    if (e.target === viewport || e.target === board) {
-        const p = clientToBoard(e.clientX, e.clientY);
-        createImageGenNode(p.x, p.y);
-    }
-});
-
 async function exportWorkspace() {
     return window.VeoWorkspaceIO.exportWorkspace();
 }
@@ -763,19 +746,6 @@ async function removeTask(id) {
     return window.VeoTaskLifecycle.removeTask(id);
 }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
-
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        await initDB();
-        applyCanvasTransform({ cull: false, revealMinimap: false });
-        await renderBoard(); await renderMaterialLibrary();
-        bindMainConsoleDrop('slot-ref-box', 'references'); bindMainConsoleDrop('slot-first-box', 'firstFrame'); bindMainConsoleDrop('slot-last-box', 'lastFrame');
-        await updateBillingUI(); updateEstimatedCost();
-    } catch (err) {
-        console.error('主工作台初始化失败:', err);
-        showToast('初始化失败，请刷新重试', 'error');
-    }
-});
 
 // ==========================================
 // 🌟 智能克隆引擎 (Alt + Drag 专用)
