@@ -324,35 +324,29 @@ async function checkGroupDrop(draggedInfo) {
 }
 
 const viewport = document.getElementById('canvas-viewport'), board = document.getElementById('canvas-board'), marquee = document.getElementById('selection-marquee');
-let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
+const canvasCamera = window.VeoCanvasCamera.configure({
+    viewport,
+    board,
+    hooks: {
+        syncMinimapViewport: () => syncMinimapViewport(),
+        updateSelectionToolbar: () => updateSelectionToolbar(),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        renderMinimap: () => renderMinimap()
+    }
+});
+let transform = canvasCamera.transform, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let selectionCandidates = [];
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
-const CANVAS_MIN_SCALE = 0.18;
-const CANVAS_MAX_SCALE = 3.5;
-const CANVAS_GRID_BASE = 30;
 const CANVAS_CULL_PADDING = 900;
-let cameraAnimFrame = 0;
-let inertiaFrame = 0;
 let cullTimer = null;
-let minimapAwakeTimer = null;
-let panSamples = [];
 let resizeRefreshTimer = null;
 
 function clientToBoard(clientX, clientY) {
-    const scaleSafe = (Number.isFinite(transform.scale) && transform.scale !== 0) ? transform.scale : 1;
-    const rect = (viewport && typeof viewport.getBoundingClientRect === 'function')
-        ? viewport.getBoundingClientRect()
-        : { left: 0, top: 0 };
-    const localX = (Number.isFinite(clientX) ? clientX : 0) - rect.left;
-    const localY = (Number.isFinite(clientY) ? clientY : 0) - rect.top;
-    return {
-        x: (localX - transform.x) / scaleSafe,
-        y: (localY - transform.y) / scaleSafe
-    };
+    return window.VeoCanvasCamera.clientToBoard(clientX, clientY);
 }
 
 function getEventClientPoint(e) {
@@ -475,17 +469,7 @@ function measureTaskAABB(task) {
 }
 
 function getVisibleWorldRect(screenPadding = 80) {
-    const scaleSafe = Math.max(0.1, toFiniteNumber(transform && transform.scale, 1));
-    const viewportRect = (viewport && typeof viewport.getBoundingClientRect === 'function')
-        ? viewport.getBoundingClientRect()
-        : { width: window.innerWidth, height: window.innerHeight };
-    const pad = Math.max(0, toFiniteNumber(screenPadding, 80));
-    return {
-        left: (pad - toFiniteNumber(transform.x, 0)) / scaleSafe,
-        top: (pad - toFiniteNumber(transform.y, 0)) / scaleSafe,
-        right: (Math.max(1, viewportRect.width) - pad - toFiniteNumber(transform.x, 0)) / scaleSafe,
-        bottom: (Math.max(1, viewportRect.height) - pad - toFiniteNumber(transform.y, 0)) / scaleSafe
-    };
+    return window.VeoCanvasCamera.getVisibleWorldRect(screenPadding);
 }
 
 function clampWorldValue(value, min, max) {
@@ -571,29 +555,19 @@ function detectToolPluginType(el) {
 }
 
 function clampCanvasScale(value) {
-    return Math.min(CANVAS_MAX_SCALE, Math.max(CANVAS_MIN_SCALE, toFiniteNumber(value, 1)));
+    return window.VeoCanvasCamera.clampScale(value);
 }
 
 function cancelCameraAnimation() {
-    if (cameraAnimFrame) {
-        cancelAnimationFrame(cameraAnimFrame);
-        cameraAnimFrame = 0;
-    }
+    return window.VeoCanvasCamera.cancelAnimation();
 }
 
 function cancelCanvasInertia() {
-    if (inertiaFrame) {
-        cancelAnimationFrame(inertiaFrame);
-        inertiaFrame = 0;
-    }
-    panSamples = [];
+    return window.VeoCanvasCamera.cancelInertia();
 }
 
 function setCanvasMoving(active) {
-    if (board) board.classList.toggle('is-moving', !!active);
-    if (viewport) viewport.classList.toggle('is-panning', !!active);
-    document.body.classList.toggle('canvas-camera-active', !!active);
-    if (active) wakeMinimap(900);
+    return window.VeoCanvasCamera.setMoving(active);
 }
 
 function beginCanvasPan(e) {
@@ -608,144 +582,35 @@ function beginCanvasPan(e) {
 }
 
 function wakeMinimap(duration = 900) {
-    const container = document.getElementById('minimap-container');
-    if (!container || container.classList.contains('is-minimized')) return;
-    container.classList.add('is-awake');
-    clearTimeout(minimapAwakeTimer);
-    minimapAwakeTimer = setTimeout(() => {
-        container.classList.remove('is-awake');
-    }, Math.max(260, duration));
+    return window.VeoCanvasCamera.wakeMinimap(duration);
 }
 
 function updateDynamicGrid() {
-    const scaleSafe = clampCanvasScale(transform.scale);
-    let gridSize = CANVAS_GRID_BASE * scaleSafe;
-    while (gridSize < 18) gridSize *= 2;
-    while (gridSize > 72) gridSize /= 2;
-    const posX = ((toFiniteNumber(transform.x, 0) % gridSize) + gridSize) % gridSize;
-    const posY = ((toFiniteNumber(transform.y, 0) % gridSize) + gridSize) % gridSize;
-    document.body.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-    document.body.style.backgroundPosition = `${posX}px ${posY}px`;
-    document.body.style.setProperty('--canvas-grid-size', `${gridSize}px`);
-    document.body.style.setProperty('--canvas-grid-opacity', `${Math.max(0.08, Math.min(0.26, 0.22 - Math.abs(scaleSafe - 1) * 0.035))}`);
+    return window.VeoCanvasCamera.updateDynamicGrid();
 }
 
 function applyCanvasTransform(options = {}) {
-    transform.x = toFiniteNumber(transform.x, window.innerWidth / 2);
-    transform.y = toFiniteNumber(transform.y, 100);
-    transform.scale = clampCanvasScale(transform.scale);
-    if (board) {
-        board.style.transform = `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`;
-    }
-    updateDynamicGrid();
-    syncMinimapViewport();
-    updateSelectionToolbar();
-    if (options.revealMinimap !== false) wakeMinimap(options.minimapDuration || 900);
-    if (options.cull !== false) scheduleViewportCulling(options.cullDelay || 120);
+    return window.VeoCanvasCamera.applyTransform(options);
 }
 
 function zoomCanvasAt(clientX, clientY, nextScale, options = {}) {
-    if (!viewport) return;
-    const rect = viewport.getBoundingClientRect();
-    const oldScale = clampCanvasScale(transform.scale);
-    const scale = clampCanvasScale(nextScale);
-    if (Math.abs(scale - oldScale) < 0.0005) return;
-    const mouseX = toFiniteNumber(clientX, rect.left + rect.width / 2) - rect.left;
-    const mouseY = toFiniteNumber(clientY, rect.top + rect.height / 2) - rect.top;
-    transform.x = mouseX - (mouseX - transform.x) * (scale / oldScale);
-    transform.y = mouseY - (mouseY - transform.y) * (scale / oldScale);
-    transform.scale = scale;
-    applyCanvasTransform(options);
+    return window.VeoCanvasCamera.zoomAt(clientX, clientY, nextScale, options);
 }
 
 function panCanvasBy(deltaX, deltaY, options = {}) {
-    transform.x += toFiniteNumber(deltaX, 0);
-    transform.y += toFiniteNumber(deltaY, 0);
-    applyCanvasTransform(options);
+    return window.VeoCanvasCamera.panBy(deltaX, deltaY, options);
 }
 
 function animateCameraTo(target, options = {}) {
-    if (!target) return;
-    cancelCameraAnimation();
-    cancelCanvasInertia();
-    const from = { x: transform.x, y: transform.y, scale: transform.scale };
-    const to = {
-        x: toFiniteNumber(target.x, from.x),
-        y: toFiniteNumber(target.y, from.y),
-        scale: clampCanvasScale(target.scale !== undefined ? target.scale : from.scale)
-    };
-    const duration = Math.max(120, toFiniteNumber(options.duration, 420));
-    const start = performance.now();
-    setCanvasMoving(true);
-    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-    const step = (now) => {
-        const p = Math.min(1, (now - start) / duration);
-        const eased = easeOutCubic(p);
-        transform.x = from.x + (to.x - from.x) * eased;
-        transform.y = from.y + (to.y - from.y) * eased;
-        transform.scale = from.scale + (to.scale - from.scale) * eased;
-        applyCanvasTransform({ cull: false, minimapDuration: 900 });
-        if (p < 1) {
-            cameraAnimFrame = requestAnimationFrame(step);
-        } else {
-            cameraAnimFrame = 0;
-            setCanvasMoving(false);
-            scheduleViewportCulling(40);
-            renderMinimap();
-        }
-    };
-    cameraAnimFrame = requestAnimationFrame(step);
+    return window.VeoCanvasCamera.animateTo(target, options);
 }
 
 function recordPanSample(clientX, clientY) {
-    const now = performance.now();
-    panSamples.push({ x: toFiniteNumber(clientX, 0), y: toFiniteNumber(clientY, 0), t: now });
-    panSamples = panSamples.filter((sample) => now - sample.t <= 120);
+    return window.VeoCanvasCamera.recordPanSample(clientX, clientY);
 }
 
 function startCanvasInertia() {
-    if (panSamples.length < 2) {
-        scheduleViewportCulling(60);
-        return;
-    }
-    const last = panSamples[panSamples.length - 1];
-    let first = panSamples[0];
-    for (let i = panSamples.length - 2; i >= 0; i--) {
-        if (last.t - panSamples[i].t >= 48) {
-            first = panSamples[i];
-            break;
-        }
-    }
-    const dt = Math.max(16, last.t - first.t);
-    let velocityX = (last.x - first.x) / dt;
-    let velocityY = (last.y - first.y) / dt;
-    const speed = Math.hypot(velocityX, velocityY);
-    panSamples = [];
-    if (speed < 0.05) {
-        scheduleViewportCulling(60);
-        return;
-    }
-    let prev = performance.now();
-    setCanvasMoving(true);
-    const decayPerFrame = 0.91;
-    const step = (now) => {
-        const delta = Math.min(34, Math.max(8, now - prev));
-        prev = now;
-        transform.x += velocityX * delta;
-        transform.y += velocityY * delta;
-        velocityX *= Math.pow(decayPerFrame, delta / 16.67);
-        velocityY *= Math.pow(decayPerFrame, delta / 16.67);
-        applyCanvasTransform({ cull: false, minimapDuration: 700 });
-        if (Math.hypot(velocityX, velocityY) > 0.018) {
-            inertiaFrame = requestAnimationFrame(step);
-        } else {
-            inertiaFrame = 0;
-            setCanvasMoving(false);
-            scheduleViewportCulling(40);
-            renderMinimap();
-        }
-    };
-    inertiaFrame = requestAnimationFrame(step);
+    return window.VeoCanvasCamera.startInertia();
 }
 
 function getCardWorldSize(cardEl, task) {

@@ -11,6 +11,7 @@
 - js/api-client.js
 - js/dom-utils.js
 - js/task-cache.js
+- js/canvas-camera.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/image-core.js
@@ -71,6 +72,11 @@
 - Removed task shadow maps and prompt draft timers from `js/app.js` while preserving `setTaskShadow`, `getTaskShadow`, `updateImgGenPromptDraft`, and related global handler names.
 - Entry pages now load `js/task-cache.js` before image, video, and app orchestration scripts.
 
+## Canvas Camera Layer Changes (Compatible)
+- Added `window.VeoCanvasCamera` for shared transform state, coordinate conversion, zoom/pan, dynamic grid updates, camera animation, minimap wake state, and inertia.
+- Reduced `js/app.js` camera functions to compatibility adapters while keeping pointer-selection and card-drag orchestration in the app layer for the next extraction pass.
+- Entry pages now load `js/canvas-camera.js` before selection toolbar and app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -108,6 +114,7 @@
 - `node --check js/api-client.js`: pass
 - `node --check js/dom-utils.js`: pass
 - `node --check js/task-cache.js`: pass
+- `node --check js/canvas-camera.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
