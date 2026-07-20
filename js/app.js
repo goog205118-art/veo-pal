@@ -293,6 +293,19 @@ window.VeoCanvasCards.configure({
         toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
     }
 });
+window.VeoImageRender.configure({
+    hooks: {
+        applyCardFrame: (cardEl, task) => applyImgGenCardFrame(cardEl, task),
+        cssEscape: (value) => cssEscapeSafe(value),
+        ensureImageState: (task) => ensureImgGenState(task),
+        getPreviewList: (task) => getImgGenPreviewList(task),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        getVisiblePendingCount: (task) => getVisibleImgGenPendingCount(task),
+        renderPreviewFeed: (task, previewEntries) => renderImgGenPreviewFeed(task, previewEntries),
+        setTaskShadow: (task) => setTaskShadow(task),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
+    }
+});
 window.VeoTaskActions.configure({
     hooks: {
         clearSelection: () => clearSelection(),
@@ -969,85 +982,23 @@ function resolveImgGenMode(state) {
 }
 
 function getImgGenPreviewFingerprint(task) {
-    if (!task || task.type !== 'tool_image_gen') return 'na';
-    const list = getImgGenPreviewList(task);
-    return list.map((item) => {
-        if (!item) return 'x';
-        const imageSig = item.image ? (typeof item.image === 'string' ? `url${item.image.length}` : `blob${toFiniteNumber(item.image.size, 0)}`) : 'noimg';
-        return [
-            item.id || '',
-            item.status || '',
-            item.remoteTaskId || '',
-            item.errorReason || '',
-            imageSig,
-            toFiniteNumber(item.costTime, -1)
-        ].join(':');
-    }).join('|');
+    return window.VeoImageRender.getPreviewFingerprint(task);
 }
 
 function scheduleNextPaint(callback) {
-    if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(callback);
-        return;
-    }
-    setTimeout(callback, 16);
+    return window.VeoImageRender.scheduleNextPaint(callback);
 }
 
 function waitNextPaint() {
-    return new Promise((resolve) => scheduleNextPaint(resolve));
+    return window.VeoImageRender.waitNextPaint();
 }
 
 function forceRenderImgGenPreviewPanel(task, focusItemId = '') {
-    if (!task || task.type !== 'tool_image_gen') return false;
-    ensureImgGenState(task);
-    const cardEl = document.getElementById('card-' + task.id);
-    if (!cardEl) return false;
-
-    task.state.previewCollapsed = false;
-    setTaskShadow(task);
-
-    const splitEl = cardEl.querySelector('.img-gen-split');
-    const panelEl = cardEl.querySelector('.img-gen-preview-panel');
-    const bodyEl = cardEl.querySelector('.img-gen-preview-body');
-    const pendingCount = getVisibleImgGenPendingCount(task);
-
-    if (splitEl) splitEl.classList.remove('preview-collapsed');
-    if (panelEl) {
-        panelEl.classList.remove('is-collapsed');
-        panelEl.classList.toggle('is-running', pendingCount > 0);
-    }
-    if (bodyEl) {
-        bodyEl.innerHTML = renderImgGenPreviewFeed(task, task.state.previewHistory || []);
-    }
-    applyImgGenCardFrame(cardEl, task);
-
-    cardEl.setAttribute('data-sync-status', task.status || 'static');
-    cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
-    cardEl.setAttribute('data-sync-preview-collapsed', 'false');
-    cardEl.setAttribute('data-sync-preview-feed', getImgGenPreviewFingerprint(task));
-    cardEl.__veoTask = task;
-
-    if (focusItemId) scrollImgGenPreviewToItem(task.id, focusItemId);
-    return true;
+    return window.VeoImageRender.forcePreviewPanel(task, focusItemId);
 }
 
 function scrollImgGenPreviewToItem(taskId, itemId) {
-    if (!taskId || !itemId) return;
-    scheduleNextPaint(() => {
-        const cardEl = document.getElementById('card-' + taskId);
-        if (!cardEl) return;
-        const feed = cardEl.querySelector('.img-gen-preview-feed');
-        const target = cardEl.querySelector(`[data-preview-id="${cssEscapeSafe(itemId)}"]`) || cardEl.querySelector('.img-gen-preview-pending');
-        if (feed) {
-            try { feed.scrollTo({ top: 0, behavior: 'smooth' }); } catch (err) { feed.scrollTop = 0; }
-        }
-        if (target && typeof target.animate === 'function') {
-            target.animate([
-                { transform: 'scale(0.985)', filter: 'brightness(1.18)' },
-                { transform: 'scale(1)', filter: 'brightness(1)' }
-            ], { duration: 320, easing: 'cubic-bezier(.2,.8,.2,1)' });
-        }
-    });
+    return window.VeoImageRender.scrollPreviewToItem(taskId, itemId);
 }
 
 // ==========================================
