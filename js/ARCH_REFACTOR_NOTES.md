@@ -63,6 +63,11 @@
 - `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
 - Entry pages now load `js/media-utils.js` before `js/app.js`.
 
+## Image Core Layer Changes (Compatible)
+- Added `window.VeoImageCore` for image size rules, route/model adapters, mode detection, usage extraction, and cost calculation.
+- `js/app.js` keeps previous helper names while delegating reusable image-generation rules to `js/image-core.js`.
+- Entry pages now load `js/image-core.js` after `js/media-utils.js` and before `js/app.js`.
+
 ## Material Library Layer Changes (Compatible)
 - Added `window.VeoMaterials` for the global material drawer, grouped material rendering, duplicate cleanup, delete, and clear actions.
 - `js/app.js` keeps the previous inline handler names while delegating material-library behavior to `js/material-library.js`.
@@ -84,6 +89,7 @@
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
 - `node --check js/media-utils.js`: pass
+- `node --check js/image-core.js`: pass
 - `node --check js/material-library.js`: pass
 - `node --check js/billing.js`: pass
 - `node --check js/video-tasks.js`: pass

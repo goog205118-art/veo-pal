@@ -61,40 +61,46 @@
     </div>
 
     <div class="top-bar">
-        <div class="logo">
-            <span class="material-symbols-outlined">account_tree</span> Veo Studio <span style="font-size:12px; color:var(--text-sub); font-weight:normal;">/ Lite</span>
+        <div class="top-brand">
+            <div class="logo">
+                <span class="material-symbols-outlined">account_tree</span>
+                <span>Veo Studio</span>
+                <span class="logo-edition">/ Lite</span>
+            </div>
         </div>
-       <div class="top-actions">
-            <button class="top-btn" onclick="createImageGenNode()" data-tip="新建 AI 生图节点"><span class="material-symbols-outlined" style="font-size: 16px; color: #0a84ff;">brush</span> 新建生图</button>
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-
-            <button class="top-btn" onclick="alignSelectedCards()" data-tip="将选中的卡片(或全盘)网格化自动对齐">
-                <span class="material-symbols-outlined" style="font-size: 16px; color: #ffca28;">grid_on</span> 排版
-            </button>
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-            <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
-                <span class="material-symbols-outlined">perm_media</span>
-            </button>
-            <label class="top-btn icon-only" style="cursor: pointer; margin: 0;" data-tip="导入 .veo 工程文件">
-                <span class="material-symbols-outlined">upload</span>
-                <input type="file" accept=".veo" style="display: none;" onchange="importWorkspace(this)">
-            </label>
-            <button class="top-btn icon-only" id="export-btn" onclick="exportWorkspace()" data-tip="导出当前工程">
-                <span class="material-symbols-outlined">download</span>
-            </button>
-            <button class="top-btn icon-only" onclick="openHelpModal()" data-tip="操作快捷键与教程">
-                <span class="material-symbols-outlined">help</span>
-            </button>
-            <button class="top-btn icon-only" id="theme-toggle-btn" onclick="toggleThemeMode()" data-tip="切换到日间模式">
-                <span class="material-symbols-outlined" id="theme-toggle-icon">dark_mode</span>
-            </button>
-
-            <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
-
-            <button class="top-btn" id="billing-top-btn" onclick="openBillingModal()" data-tip="查看 API 消耗与账单流水" style="border-color: rgba(50,215,75,0.3); background: rgba(50,215,75,0.05);">
-                <span class="material-symbols-outlined" style="font-size: 16px; color:var(--success);">account_balance_wallet</span>
-                <span id="top-bill-text" style="color:var(--success); font-weight: bold;">￥0.0000</span>
-            </button>
+        <div class="top-action-shell">
+            <div class="top-actions top-actions-primary">
+                <button class="top-btn top-btn-primary" onclick="createImageGenNode()" data-tip="新建 AI 生图节点">
+                    <span class="material-symbols-outlined">brush</span>
+                    新建生图
+                </button>
+                <button class="top-btn" onclick="alignSelectedCards()" data-tip="将选中的卡片(或全盘)网格化自动对齐">
+                    <span class="material-symbols-outlined">grid_on</span>
+                    排版
+                </button>
+                <button class="top-btn" id="billing-top-btn" onclick="openBillingModal()" data-tip="查看 API 消耗与账单流水">
+                    <span class="material-symbols-outlined">account_balance_wallet</span>
+                    <span id="top-bill-text">￥0.0000</span>
+                </button>
+            </div>
+            <div class="top-actions top-actions-tools">
+                <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
+                    <span class="material-symbols-outlined">perm_media</span>
+                </button>
+                <label class="top-btn icon-only top-file-btn" data-tip="导入 .veo 工程文件">
+                    <span class="material-symbols-outlined">upload</span>
+                    <input type="file" accept=".veo" onchange="importWorkspace(this)">
+                </label>
+                <button class="top-btn icon-only" id="export-btn" onclick="exportWorkspace()" data-tip="导出当前工程">
+                    <span class="material-symbols-outlined">download</span>
+                </button>
+                <button class="top-btn icon-only" onclick="openHelpModal()" data-tip="操作快捷键与教程">
+                    <span class="material-symbols-outlined">help</span>
+                </button>
+                <button class="top-btn icon-only" id="theme-toggle-btn" onclick="toggleThemeMode()" data-tip="切换到日间模式">
+                    <span class="material-symbols-outlined" id="theme-toggle-icon">dark_mode</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -338,6 +344,7 @@
     <script src="../js/store.js"></script>
     <script src="../js/api-client.js"></script>
     <script src="../js/media-utils.js"></script>
+    <script src="../js/image-core.js"></script>
     <script src="../js/material-library.js"></script>
     <script src="../js/video-models.js"></script>
     <script src="../js/billing.js"></script>

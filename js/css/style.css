@@ -237,6 +237,82 @@ body {
 .top-btn.icon-only { padding: 8px; border-radius: 50%; width: 34px; height: 34px; justify-content: center; }
 .top-btn.icon-only span { font-size: 18px; margin: 0; }
 
+/* Workbench layout v3: primary creation first, utilities grouped, no inline dividers. */
+.top-bar {
+    gap: 16px;
+    align-items: flex-start;
+}
+.top-brand {
+    pointer-events: auto;
+    min-width: 180px;
+    display: flex;
+    align-items: center;
+}
+.logo-edition {
+    font-size: 12px;
+    color: var(--text-sub);
+    font-weight: 400;
+}
+.top-action-shell {
+    pointer-events: auto;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    max-width: min(960px, calc(100vw - 236px));
+    flex-wrap: wrap;
+}
+.top-actions {
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+}
+.top-actions-primary,
+.top-actions-tools {
+    padding: 4px;
+    border: 1px solid var(--chrome-border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--chrome-bg-strong) 82%, transparent);
+    backdrop-filter: blur(14px);
+}
+.top-btn {
+    min-height: 34px;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    font-weight: 600;
+}
+.top-btn .material-symbols-outlined {
+    font-size: 17px;
+}
+.top-btn-primary {
+    background: rgba(94, 156, 255, 0.22);
+    border-color: rgba(147, 197, 255, 0.52);
+    color: #d8e8ff;
+}
+.top-btn-primary:hover {
+    background: rgba(94, 156, 255, 0.32);
+}
+.top-btn-primary .material-symbols-outlined {
+    color: #8dbbff;
+}
+#billing-top-btn {
+    border-color: rgba(63, 212, 122, 0.32);
+    background: rgba(63, 212, 122, 0.08);
+}
+#billing-top-btn .material-symbols-outlined,
+#top-bill-text {
+    color: var(--success);
+}
+#top-bill-text {
+    font-weight: 700;
+}
+.top-file-btn {
+    cursor: pointer;
+    margin: 0;
+}
+.top-file-btn input {
+    display: none;
+}
 
 
 .canvas-viewport {
@@ -3925,5 +4001,55 @@ body.app-shell-init .minimap-container{
 
     :root[data-theme='light'] .login-gate::after {
         width: 100vw;
+    }
+}
+
+@media (max-width: 900px) {
+    .top-bar {
+        padding: 12px;
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .top-brand {
+        min-width: 150px;
+    }
+
+    .logo {
+        max-width: 150px;
+        min-height: 34px;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .top-action-shell {
+        max-width: calc(100vw - 172px);
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding-bottom: 3px;
+        scrollbar-width: none;
+    }
+
+    .top-action-shell::-webkit-scrollbar {
+        display: none;
+    }
+
+    .top-actions {
+        flex-wrap: nowrap;
+    }
+
+    .top-btn {
+        padding: 7px 10px;
+    }
+
+    .floating-console:not(.minimized) {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        width: auto;
+        max-width: none;
+        transform: none;
+        border-radius: 14px;
     }
 }
