@@ -8,6 +8,7 @@
 ## Updated Files
 - js/store.js
 - js/db.js
+- js/api-client.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -44,12 +45,20 @@
 - Added defensive guards and unified transaction wrapper.
 
 ## App Layer Note
-- `js/app.js` has been restored to the source-equivalent version to ensure feature completeness and preserve original UI text behavior.
+- `js/app.js` now delegates webhook config, auth headers, endpoint checks, and n8n HTTP calls to `window.VeoApi`.
+- Existing constants and helper names remain as compatibility wrappers for inline handlers and older app code.
+
+## API Client Layer Changes (Compatible)
+- Added `window.VeoApi` as the shared frontend API layer.
+- Centralized video submit/poll and image submit/poll requests.
+- Centralized image webhook endpoint normalization and response parsing.
+- Entry pages now load `js/api-client.js` between `store.js` and `app.js`.
 
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
-- `node --check js/app.js`: pass (source-equivalent)
+- `node --check js/api-client.js`: pass
+- `node --check js/app.js`: pass
 - Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
 ## Compatibility Notes
@@ -57,6 +66,6 @@
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
-1. Refactor should proceed from source-equivalent `app.js` baseline to avoid feature drift.
-2. Split material library logic into a dedicated module shared by active app entrypoints.
-3. Keep launch and studio entrypoints free of removed node workflow dependencies.
+1. Split material library logic into a dedicated module shared by active app entrypoints.
+2. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
+3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.

@@ -310,14 +310,7 @@ async function handleLoginSubmit(e) {
     }, 600);
 }
 
-const APP_API_CONFIG = {
-    videoSubmit: 'https://api.wallyai.top/webhook/proxy-submit',
-    videoPoll: 'https://api.wallyai.top/webhook/proxy-poll',
-    imageUnified: (window.VEO_IMAGE_UNIFIED_WEBHOOK && String(window.VEO_IMAGE_UNIFIED_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-unified',
-    imageLegacy: (window.VEO_IMAGE_LEGACY_WEBHOOK && String(window.VEO_IMAGE_LEGACY_WEBHOOK).trim()) || 'https://api.wallyai.top/webhook/proxy-image-gen',
-    imagePoll: (window.VEO_IMAGE_POLL_WEBHOOK && String(window.VEO_IMAGE_POLL_WEBHOOK).trim()) || '',
-    imageAuth: (window.VEO_WEBHOOK_AUTH && String(window.VEO_WEBHOOK_AUTH).trim()) || ''
-};
+const APP_API_CONFIG = window.VeoApi.config;
 const API_SUBMIT = APP_API_CONFIG.videoSubmit;
 const API_POLL = APP_API_CONFIG.videoPoll;
 const API_IMAGE_GEN = APP_API_CONFIG.imageUnified;
@@ -341,49 +334,27 @@ const IMG_GEN_ROUTE_CONFIG = {
 };
 const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
 function normalizeWebhookEndpointForCompare(rawUrl) {
-    const raw = String(rawUrl || '').trim();
-    if (!raw) return '';
-    try {
-        const url = new URL(raw, window.location.href);
-        return `${url.origin}${url.pathname.replace(/\/+$/, '')}`.toLowerCase();
-    } catch (err) {
-        return raw.split('?')[0].replace(/\/+$/, '').toLowerCase();
-    }
+    return window.VeoApi.normalizeEndpoint(rawUrl);
 }
 
 function isSameWebhookEndpoint(a, b) {
-    const left = normalizeWebhookEndpointForCompare(a);
-    const right = normalizeWebhookEndpointForCompare(b);
-    return !!left && !!right && left === right;
+    return window.VeoApi.isSameEndpoint(a, b);
 }
 
 function isImageGenerationWebhookEndpoint(rawUrl) {
-    const endpoint = normalizeWebhookEndpointForCompare(rawUrl);
-    return endpoint.endsWith('/proxy-image-unified') || endpoint.endsWith('/proxy-image-gen');
+    return window.VeoApi.isImageGenerationEndpoint(rawUrl);
 }
 
 function isUnifiedImageWebhookEndpoint(rawUrl) {
-    return normalizeWebhookEndpointForCompare(rawUrl).endsWith('/proxy-image-unified');
+    return window.VeoApi.isUnifiedImageEndpoint(rawUrl);
 }
 
 function isLegacyImageWebhookEndpoint(rawUrl) {
-    return normalizeWebhookEndpointForCompare(rawUrl).endsWith('/proxy-image-gen');
+    return window.VeoApi.isLegacyImageEndpoint(rawUrl);
 }
 
 function resolveImgGenPollEndpoint() {
-    const url = String(API_IMAGE_POLL || '').trim();
-    if (!url) {
-        return isUnifiedImageWebhookEndpoint(API_IMAGE_GEN)
-            ? { url: API_IMAGE_GEN, reason: 'unified_fallback' }
-            : { url: '', reason: 'missing' };
-    }
-    if (isUnifiedImageWebhookEndpoint(url) || (isSameWebhookEndpoint(url, API_IMAGE_GEN) && isUnifiedImageWebhookEndpoint(API_IMAGE_GEN))) {
-        return { url, reason: 'unified_poll' };
-    }
-    if (isLegacyImageWebhookEndpoint(url) || isSameWebhookEndpoint(url, API_IMAGE_GEN_LEGACY)) {
-        return { url: '', reason: 'points_to_generation' };
-    }
-    return { url, reason: '' };
+    return window.VeoApi.resolveImagePollEndpoint();
 }
 
 const IMG_GEN_REF_INTENTS = [
@@ -4705,7 +4676,7 @@ async function executeSubmission(params, promptText, offsetIndex = 0) {
             lastFrame: await blobToBase64(params.lastFrame, { mode: 'network' }),
             references: await blobsToBase64Sequential(params.references, { mode: 'network' })
         };
-        const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
+        const response = await window.VeoApi.videoSubmit(apiPayload);
 
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) {
@@ -4745,7 +4716,7 @@ async function retryTask(taskId, btnElement) {
             lastFrame: await blobToBase64(task.rawImages.lastFrame, { mode: 'network' }),
             references: await blobsToBase64Sequential((task.rawImages.references || []), { mode: 'network' })
         };
-        const response = await fetch(API_SUBMIT, { method: 'POST', headers: { 'Content-Type': 'application/json', 'wally123': sessionStorage.getItem('veo_admin_pwd') }, body: JSON.stringify(apiPayload) });
+        const response = await window.VeoApi.videoSubmit(apiPayload);
         if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
         if (!response.ok) throw new Error("API 异常");
         const data = await response.json();
@@ -4787,12 +4758,7 @@ function startTaskPolling(taskId) {
 
             const controller = new AbortController();
             taskPollControllers.set(taskId, controller);
-            const response = await fetch(API_POLL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'wally123': currentPwd },
-                body: JSON.stringify({ taskId: taskId, model: task.modelVal }),
-                signal: controller.signal
-            });
+            const response = await window.VeoApi.videoPoll({ taskId: taskId, model: task.modelVal }, { signal: controller.signal });
             taskPollControllers.delete(taskId);
             if (response.status === 401 || response.status === 403) { clearTaskPolling(taskId); handleAuthError(); return; }
             if (!response.ok) throw new Error("API 异常");
@@ -6733,43 +6699,11 @@ async function sendImgGenPreviewToCropper(event, taskId, itemId) {
 }
 
 function buildImgGenHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
-    const pwd = sessionStorage.getItem('veo_admin_pwd');
-    if (pwd) headers['wally123'] = pwd;
-    if (API_IMAGE_AUTH) headers['Authorization'] = API_IMAGE_AUTH;
-    return headers;
+    return window.VeoApi.authHeaders({ includeImageAuth: true });
 }
 
 async function parseImgGenHttpResponse(response, fallbackStatus = 'accepted') {
-    if (!response) return { status: fallbackStatus, accepted: true, empty_response: true };
-    const httpStatus = response.status;
-    let rawText = '';
-    try {
-        rawText = await response.text();
-    } catch (err) {
-        return {
-            status: fallbackStatus,
-            accepted: response.ok,
-            empty_response: true,
-            http_status: httpStatus,
-            parse_warning: err && err.message ? err.message : String(err || '')
-        };
-    }
-    const text = String(rawText || '').trim();
-    if (!text) {
-        return {
-            status: fallbackStatus,
-            accepted: response.ok,
-            empty_response: true,
-            http_status: httpStatus
-        };
-    }
-    try {
-        return JSON.parse(text);
-    } catch (err) {
-        // Some n8n Respond nodes return plain text or an image URL with a JSON content-type.
-        return text;
-    }
+    return window.VeoApi.parseResponse(response, fallbackStatus);
 }
 
 function unwrapImgGenResponseData(rawData) {
@@ -7089,7 +7023,6 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
         }
 
         const pollPayload = buildImgGenPollPayload(task, remoteId);
-        const headers = buildImgGenHeaders();
         const attemptsList = [];
         const pollEndpoint = resolveImgGenPollEndpoint();
 
@@ -7140,12 +7073,7 @@ function startImgGenTaskPolling(taskId, remoteTaskId, previewItemId = '') {
             try {
                 const controller = new AbortController();
                 imgGenPollControllers.set(pollKey, controller);
-                const response = await fetch(target.url, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(target.body),
-                    signal: controller.signal
-                });
+                const response = await window.VeoApi.imagePoll(target.url, target.body, { signal: controller.signal });
                 imgGenPollControllers.delete(pollKey);
                 if (response.status === 401 || response.status === 403) {
                     clearImgGenPolling(taskId, itemId);
@@ -8019,36 +7947,19 @@ async function submitImgGen(taskId) {
     };
 
     const requestImgGenOnce = async (payloadForUnified, payloadForLegacy) => {
-        const headers = buildImgGenHeaders();
         const useTrialLegacyFirst = version !== 'pro';
         let response = null;
 
         if (useTrialLegacyFirst) {
             const legacyUrl = API_IMAGE_GEN_LEGACY || API_IMAGE_GEN;
-            response = await fetch(legacyUrl, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(payloadForLegacy)
-            });
+            response = await window.VeoApi.imageSubmit(legacyUrl, payloadForLegacy);
             if ((response.status === 404 || response.status === 405) && legacyUrl !== API_IMAGE_GEN) {
-                response = await fetch(API_IMAGE_GEN, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(payloadForUnified)
-                });
+                response = await window.VeoApi.imageSubmit(API_IMAGE_GEN, payloadForUnified);
             }
         } else {
-            response = await fetch(API_IMAGE_GEN, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(payloadForUnified)
-            });
+            response = await window.VeoApi.imageSubmit(API_IMAGE_GEN, payloadForUnified);
             if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
-                response = await fetch(API_IMAGE_GEN_LEGACY, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(payloadForLegacy)
-                });
+                response = await window.VeoApi.imageSubmit(API_IMAGE_GEN_LEGACY, payloadForLegacy);
             }
         }
 
