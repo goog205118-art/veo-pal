@@ -22,6 +22,7 @@
 - js/workspace-inputs.js
 - js/canvas-context-menu.js
 - js/canvas-cards.js
+- js/image-reference-ui.js
 - js/image-render.js
 - js/image-normalize.js
 - js/task-actions.js
@@ -140,6 +141,11 @@
 - Reduced `js/app.js` image preview DOM helpers to compatibility adapters used by image submit, polling, and preview actions.
 - Entry pages now load `js/image-render.js` after canvas cards and before task action/app orchestration scripts.
 
+## Image Reference UI Layer Changes (Compatible)
+- Added `window.VeoImageReferenceUI` for reference slot rendering, per-reference controls, prompt chips, mini tool dock, and ratio option rendering.
+- Reduced `js/image-ui.js` by moving the reusable reference/prompt control surface into its own UI module.
+- Entry pages now load `js/image-reference-ui.js` after mask editor helpers and before the main image card UI.
+
 ## Image Normalize Layer Changes (Compatible)
 - Added `window.VeoImageNormalize` for image route normalization, model mapping, route reference limits, and image-generation task state defaults.
 - Reduced `js/app.js` image state normalization helpers to compatibility adapters while keeping existing global callers stable.
@@ -233,6 +239,7 @@
 - `node --check js/workspace-inputs.js`: pass
 - `node --check js/canvas-context-menu.js`: pass
 - `node --check js/canvas-cards.js`: pass
+- `node --check js/image-reference-ui.js`: pass
 - `node --check js/image-render.js`: pass
 - `node --check js/image-normalize.js`: pass
 - `node --check js/task-actions.js`: pass
