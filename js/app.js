@@ -336,13 +336,23 @@ const canvasCamera = window.VeoCanvasCamera.configure({
 });
 const canvasSelection = window.VeoCanvasSelection.configure({ marquee });
 let transform = canvasCamera.transform, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
+const viewportCulling = window.VeoViewportCulling.configure({
+    viewport,
+    board,
+    transform,
+    hooks: {
+        clampScale: (value) => clampCanvasScale(value),
+        getDraggingCardInfo: () => draggingCardInfo,
+        getTaskFallbackSize: (task) => getTaskFallbackSize(task),
+        measureTaskAABB: (task) => measureTaskAABB(task),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
-const CANVAS_CULL_PADDING = 900;
-let cullTimer = null;
 let resizeRefreshTimer = null;
 
 function clientToBoard(clientX, clientY) {
@@ -614,52 +624,19 @@ function startCanvasInertia() {
 }
 
 function getCardWorldSize(cardEl, task) {
-    const fallback = getTaskFallbackSize(task);
-    const dataW = toFiniteNumber(cardEl && cardEl.dataset ? cardEl.dataset.aabbWidth : 0, 0);
-    const dataH = toFiniteNumber(cardEl && cardEl.dataset ? cardEl.dataset.aabbHeight : 0, 0);
-    return {
-        width: Math.max(1, dataW || fallback.width),
-        height: Math.max(1, dataH || fallback.height)
-    };
+    return window.VeoViewportCulling.getCardWorldSize(cardEl, task);
 }
 
 function syncCardViewportMetrics(cardEl, task) {
-    if (!cardEl || !task) return;
-    if (cardEl.classList.contains('is-viewport-culled')) return;
-    const size = measureTaskAABB(task);
-    cardEl.dataset.aabbWidth = String(size.width);
-    cardEl.dataset.aabbHeight = String(size.height);
-    cardEl.style.setProperty('--culled-width', `${size.width}px`);
-    cardEl.style.setProperty('--culled-height', `${size.height}px`);
+    return window.VeoViewportCulling.syncCardViewportMetrics(cardEl, task);
 }
 
 function updateViewportCulling() {
-    if (!viewport || !board) return;
-    const scaleSafe = clampCanvasScale(transform.scale);
-    const padding = CANVAS_CULL_PADDING / scaleSafe;
-    const view = {
-        left: -transform.x / scaleSafe - padding,
-        top: -transform.y / scaleSafe - padding,
-        right: (-transform.x + window.innerWidth) / scaleSafe + padding,
-        bottom: (-transform.y + window.innerHeight) / scaleSafe + padding
-    };
-    document.querySelectorAll('.canvas-board > .video-card').forEach((cardEl) => {
-        const task = cardEl.__veoTask;
-        if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('is-stage-docked') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
-            cardEl.classList.remove('is-viewport-culled');
-            return;
-        }
-        const size = getCardWorldSize(cardEl, task);
-        const left = toFiniteNumber(task.x, 0);
-        const top = toFiniteNumber(task.y, 0);
-        const outside = left + size.width < view.left || left > view.right || top + size.height < view.top || top > view.bottom;
-        cardEl.classList.toggle('is-viewport-culled', outside);
-    });
+    return window.VeoViewportCulling.updateViewportCulling();
 }
 
 function scheduleViewportCulling(delay = 120) {
-    clearTimeout(cullTimer);
-    cullTimer = setTimeout(updateViewportCulling, Math.max(0, delay));
+    return window.VeoViewportCulling.scheduleViewportCulling(delay);
 }
 
 function getSelectionToolbarContext() {

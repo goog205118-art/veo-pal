@@ -13,6 +13,7 @@
 - js/task-cache.js
 - js/canvas-camera.js
 - js/canvas-selection.js
+- js/viewport-culling.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -84,6 +85,11 @@
 - Reduced `js/app.js` selection state and marquee update logic while preserving `selectedTasks` as the shared Set used by existing business actions.
 - Entry pages now load `js/canvas-selection.js` after `js/canvas-camera.js` and before selection toolbar/app orchestration scripts.
 
+## Viewport Culling Layer Changes (Compatible)
+- Added `window.VeoViewportCulling` for card bounds cache, viewport culling checks, and delayed culling updates on large boards.
+- Reduced `js/app.js` culling functions to compatibility adapters while keeping task-size rules and business triggers in the app layer.
+- Entry pages now load `js/viewport-culling.js` after canvas selection and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -134,6 +140,7 @@
 - `node --check js/task-cache.js`: pass
 - `node --check js/canvas-camera.js`: pass
 - `node --check js/canvas-selection.js`: pass
+- `node --check js/viewport-culling.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
