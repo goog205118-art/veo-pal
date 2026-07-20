@@ -36,6 +36,20 @@
         return getVideoModelDisplayName(modelValue, inputMode);
     }
 
+    function getQualityModel(modelValue) {
+        if (window.VeoVideoModels && typeof window.VeoVideoModels.getVideoQualityModel === 'function') {
+            return window.VeoVideoModels.getVideoQualityModel(modelValue);
+        }
+        return getVideoQualityModel(modelValue);
+    }
+
+    function getInputModeFromTask(task) {
+        if (window.VeoVideoModels && typeof window.VeoVideoModels.getVideoInputModeFromTask === 'function') {
+            return window.VeoVideoModels.getVideoInputModeFromTask(task);
+        }
+        return getVideoInputModeFromTask(task);
+    }
+
     function toggleRefPopover(e) {
         if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const storeState = getStoreState();
@@ -249,6 +263,52 @@
         callHook('revokeBlobPrefix', `temp_${slotName}`);
     }
 
+    async function reuseTask(taskId) {
+        const task = await callHook('getTask', taskId);
+        if (!task) return false;
+
+        const promptInput = document.getElementById('prompt-input');
+        if (promptInput) promptInput.value = task.prompt || '';
+
+        const modelSelect = document.getElementById('model-select');
+        if (modelSelect) {
+            const qualityModel = getQualityModel(task.modelVal);
+            const option = modelSelect.querySelector(`option[value="${qualityModel}"]`);
+            if (option) {
+                modelSelect.value = qualityModel;
+                updateModel(modelSelect);
+            }
+        }
+
+        if (task.ratio) {
+            const ratioSelect = document.getElementById('ratio-select');
+            if (ratioSelect) {
+                ratioSelect.value = task.ratio;
+                updateRatio(ratioSelect);
+            }
+        }
+
+        const restoredMode = getInputModeFromTask(task);
+        const inputModeSelect = document.getElementById('input-mode-select');
+        if (inputModeSelect) inputModeSelect.value = restoredMode;
+        switchMode(restoredMode);
+
+        if (task.rawImages) {
+            const storeState = getStoreState();
+            storeState.references = [...(task.rawImages.references || [])];
+            if (task.rawImages.firstFrame) setFrameImage('firstFrame', task.rawImages.firstFrame, { switchMode: false });
+            else clearFrame(null, 'firstFrame');
+            if (task.rawImages.lastFrame) setFrameImage('lastFrame', task.rawImages.lastFrame, { switchMode: false });
+            else clearFrame(null, 'lastFrame');
+            renderReferences();
+        }
+
+        switchMode(restoredMode);
+        expand();
+        if (promptInput && typeof promptInput.focus === 'function') promptInput.focus();
+        return true;
+    }
+
     function bindBus() {
         if (state.isBound || typeof sysBus === 'undefined') return;
         sysBus.on('UI:SWITCH_MODE', (mode) => {
@@ -295,6 +355,7 @@
         handleSingleFrame,
         removeReference,
         renderReferences,
+        reuseTask,
         setFrameImage,
         switchMode,
         syncModeUI,

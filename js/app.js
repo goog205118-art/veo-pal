@@ -393,6 +393,7 @@ window.VeoVideoConsole.configure({
         alert: (message) => alert(message),
         compressImage: (file, maxEdge) => compressImageToBlob(file, maxEdge),
         getBlobUrl: (id, blob) => getBlobUrl(id, blob),
+        getTask: (taskId) => getTaskDB(taskId),
         revokeBlobPrefix: (prefix) => revokeBlobPrefixSafe(prefix),
         showToast: (message, type) => showToast(message, type),
         updateEstimatedCost: () => updateEstimatedCost()
@@ -1042,31 +1043,7 @@ async function executeSubmission(params, promptText, offsetIndex = 0) { return w
 async function retryTask(taskId, btnElement) { return window.VeoVideoTasks.retryTask(taskId, btnElement); }
 function startTaskPolling(taskId) { return window.VeoVideoTasks.startPolling(taskId); }
 
-async function reuseTask(taskId) {
-    const task = await getTaskDB(taskId); if(!task) return;
-    document.getElementById('prompt-input').value = task.prompt || '';
-    const modelSelect = document.getElementById('model-select');
-    if (modelSelect) {
-        const qualityModel = getVideoQualityModel(task.modelVal);
-        if(modelSelect.querySelector(`option[value="${qualityModel}"]`)) { modelSelect.value = qualityModel; updateModel(modelSelect); }
-    }
-    if (task.ratio) { document.getElementById('ratio-select').value = task.ratio; updateRatio(document.getElementById('ratio-select')); }
-    const restoredMode = getVideoInputModeFromTask(task);
-    const inputModeSelect = document.getElementById('input-mode-select');
-    if (inputModeSelect) inputModeSelect.value = restoredMode;
-    switchMode(restoredMode);
-    if (task.rawImages) {
-        const state = globalStore.getState();
-        state.references = [...(task.rawImages.references || [])];
-        if (task.rawImages.firstFrame) setConsoleFrameImage('firstFrame', task.rawImages.firstFrame, { switchMode: false });
-        else clearFrame(null, 'firstFrame');
-        if (task.rawImages.lastFrame) setConsoleFrameImage('lastFrame', task.rawImages.lastFrame, { switchMode: false });
-        else clearFrame(null, 'lastFrame');
-        renderReferences();
-    }
-    switchMode(restoredMode);
-    document.getElementById('floating-console').classList.remove('minimized'); document.getElementById('prompt-input').focus();
-}
+async function reuseTask(taskId) { return window.VeoVideoConsole.reuseTask(taskId); }
 
 function generateCardHTML(task) {
     return window.VeoCanvasRenderer.generateCardHTML(task);

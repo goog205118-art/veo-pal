@@ -154,7 +154,7 @@
 
 ## Video Console Layer Changes (Compatible)
 - Added `window.VeoVideoConsole` for video mode switching, frame/reference slot state, console minimize/advanced controls, and console UI event-bus synchronization.
-- Reduced `js/app.js` console upload, reference rendering, and video option handlers to compatibility adapters for existing inline HTML handlers.
+- Reduced `js/app.js` console upload, reference rendering, video option handlers, and video-task reuse backfill to compatibility adapters for existing inline HTML handlers.
 - Entry pages now load `js/video-console.js` after billing/model metadata and before video task orchestration.
 
 ## Media Utility Layer Changes (Compatible)
