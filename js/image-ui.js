@@ -187,3 +187,207 @@ function renderImgGenSlots(task) {
         </div>
     `;
 }
+
+function renderImgGenParams(task) {
+    ensureImgGenState(task);
+    const state = task.state;
+    const isPro = state.version === 'pro';
+    const paramsCollapsed = state.paramsCollapsed === true;
+    const resolvedSize = resolveImgGenSize(state);
+    const ratioKey = isPro ? 'proRatio' : 'trialRatio';
+    const ratioValue = isPro ? state.proRatio : state.trialRatio;
+    const showCustomRatio = ratioValue === 'custom';
+    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'stable');
+    const routeLabel = isPro ? `GPT Image 2 · ${route.label} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
+    const seedValue = String(state.seed || '');
+    const seedControlHtml = `
+        <label class="img-gen-field img-gen-seed-field">
+            <span>Seed</span>
+            <div class="img-gen-seed-row">
+                <button class="img-gen-seed-lock ${state.seedLocked ? 'is-locked' : ''}" type="button" onclick="updateImgGenState('${task.id}', 'seedLocked', ${state.seedLocked ? 'false' : 'true'})" data-tip="${state.seedLocked ? '解除种子锁定' : '锁定种子，便于复现与变体'}">
+                    <span class="material-symbols-outlined">${state.seedLocked ? 'lock' : 'lock_open'}</span>
+                </button>
+                <input class="img-gen-select img-gen-seed-input" type="number" placeholder="auto" value="${escapeAttr(seedValue)}" onchange="updateImgGenState('${task.id}', 'seed', this.value)">
+            </div>
+        </label>
+    `;
+
+    const customRatioHtml = showCustomRatio ? `
+        <div class="img-gen-custom-ratio">
+            <span class="material-symbols-outlined">aspect_ratio</span>
+            <span class="img-gen-custom-label">自定义比例</span>
+            <input type="number" class="img-gen-select img-gen-ratio-input" value="${escapeAttr(state.customW || 9)}" onchange="updateImgGenState('${task.id}', 'customW', this.value)">
+            <span class="img-gen-ratio-colon">:</span>
+            <input type="number" class="img-gen-select img-gen-ratio-input" value="${escapeAttr(state.customH || 16)}" onchange="updateImgGenState('${task.id}', 'customH', this.value)">
+            <span class="img-gen-size-hint">输出尺寸: ${escapeHtml(resolvedSize)}</span>
+        </div>
+    ` : '';
+
+    const advancedHtml = isPro ? `
+        <div class="img-gen-controls img-gen-controls-pro">
+            ${seedControlHtml}
+            <label class="img-gen-field">
+                <span>专业通道</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
+                    ${Object.values(IMG_GEN_ROUTE_CONFIG).map((item) => `<option value="${item.key}" ${route.key === item.key ? 'selected' : ''}>${item.label}</option>`).join('')}
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>分辨率</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：分辨率档位">
+                    <option value="1k" ${state.proResolution === '1k' ? 'selected' : ''}>1K</option>
+                    <option value="2k" ${state.proResolution === '2k' ? 'selected' : ''}>2K</option>
+                    <option value="4k" ${state.proResolution === '4k' ? 'selected' : ''}>4K</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>质量</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'quality', this.value)">
+                    <option value="auto" ${state.quality === 'auto' ? 'selected' : ''}>自动质量</option>
+                    <option value="high" ${state.quality === 'high' ? 'selected' : ''}>高质量</option>
+                    <option value="medium" ${state.quality === 'medium' ? 'selected' : ''}>中质量</option>
+                    <option value="low" ${state.quality === 'low' ? 'selected' : ''}>低质量</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>格式</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'format', this.value)">
+                    <option value="png" ${state.format === 'png' ? 'selected' : ''}>PNG</option>
+                    <option value="jpeg" ${state.format === 'jpeg' ? 'selected' : ''}>JPEG</option>
+                    <option value="webp" ${state.format === 'webp' ? 'selected' : ''}>WEBP</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>背景</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'background', this.value)">
+                    <option value="auto" ${state.background === 'auto' ? 'selected' : ''}>auto</option>
+                    <option value="transparent" ${state.background === 'transparent' ? 'selected' : ''}>transparent</option>
+                    <option value="opaque" ${state.background === 'opaque' ? 'selected' : ''}>opaque</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>审核</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'moderation', this.value)">
+                    <option value="auto" ${state.moderation === 'auto' ? 'selected' : ''}>auto</option>
+                    <option value="low" ${state.moderation === 'low' ? 'selected' : ''}>low</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>重试</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')">
+                    <option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option>
+                    <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
+                </select>
+            </label>
+            <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
+        </div>
+    ` : `
+        <div class="img-gen-controls">
+            ${seedControlHtml}
+            <label class="img-gen-field">
+                <span>试用通道</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" data-tip="试用版双通道切换">
+                    <option value="channel_1" ${state.channel === 'channel_1' || !state.channel ? 'selected' : ''}>通道 1 主</option>
+                    <option value="channel_2" ${state.channel === 'channel_2' ? 'selected' : ''}>通道 2 备</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>分辨率</span>
+                <select class="img-gen-select" disabled data-tip="试用版分辨率固定为 1K">
+                    <option selected>1K 锁定</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>重试</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')">
+                    <option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option>
+                    <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
+                </select>
+            </label>
+            <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
+        </div>
+    `;
+
+    return `
+        <div class="img-gen-primary-panel">
+            <label class="img-gen-field">
+                <span>模型</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
+                    <option value="trial" ${state.version === 'trial' ? 'selected' : ''} ${IMG_GEN_TRIAL_AVAILABLE ? '' : 'disabled'}>试用版 Legacy${IMG_GEN_TRIAL_AVAILABLE ? '' : '（服务关闭）'}</option>
+                    <option value="pro" ${state.version === 'pro' ? 'selected' : ''}>专业版 GPT Image 2</option>
+                </select>
+            </label>
+            <label class="img-gen-field">
+                <span>画幅</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', '${ratioKey}', this.value)" data-tip="${isPro ? '专业版画幅比例' : '试用版固定 1K，仅按比例构图'}">
+                    ${renderImgGenRatioOptions(ratioValue, isPro)}
+                </select>
+            </label>
+            <button class="img-gen-advanced-chip ${paramsCollapsed ? '' : 'is-open'}" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')" data-tip="${paramsCollapsed ? '展开高级参数' : '收起高级参数'}">
+                <span class="material-symbols-outlined">settings</span>
+                高级
+            </button>
+        </div>
+        ${customRatioHtml}
+        <div class="img-gen-param-panel img-gen-advanced-panel ${paramsCollapsed ? 'is-collapsed' : ''}">
+            <button class="img-gen-param-head" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')">
+                <span class="img-gen-param-title"><span class="material-symbols-outlined">tune</span> 高级参数</span>
+                <span class="img-gen-param-summary">${escapeHtml(routeLabel)}</span>
+                <span class="material-symbols-outlined">${paramsCollapsed ? 'expand_more' : 'expand_less'}</span>
+            </button>
+            ${paramsCollapsed ? '' : `<div class="img-gen-param-body">${advancedHtml}</div>`}
+        </div>
+    `;
+}
+
+function renderImgGenMaskPanel(task) {
+    ensureImgGenState(task);
+    if (task.state.version !== 'pro') return '';
+    const imageList = Array.isArray(task.state.images) ? task.state.images : [];
+    const baseImage = imageList[0] || null;
+    const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
+    const collapsed = task.state.maskPanelCollapsed === true;
+    if (collapsed) return '';
+
+    if (!baseImage) {
+        return `
+            <div class="img-gen-mask-block img-gen-mini-panel is-readonly is-empty">
+                <div class="img-gen-mini-panel-head">
+                    <span><span class="material-symbols-outlined">gesture</span> 蒙版工具</span>
+                    <button type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="收起蒙版工具">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张底图。</div>
+            </div>
+        `;
+    }
+
+    const baseUrl = getBlobUrl(`${task.id}_mask_preview_${task.timestamp || ''}`, baseImage);
+    return `
+        <div class="img-gen-mask-block img-gen-mini-panel is-readonly ${hasMaskReady ? 'has-mask' : ''}">
+            <div class="img-gen-mini-panel-head">
+                <span><span class="material-symbols-outlined">gesture</span> 蒙版工具</span>
+                <button type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="收起蒙版工具">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="img-gen-mask-toolbar">
+                <button class="img-gen-mask-btn is-primary" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="打开大画布蒙版编辑器">
+                    <span class="material-symbols-outlined">gesture</span>
+                    编辑蒙版
+                </button>
+                <button class="img-gen-mask-btn" type="button" onclick="removeImgGenMask(event, '${task.id}')" ${!hasMaskReady ? 'disabled' : ''} data-tip="移除已保存蒙版">
+                    <span class="material-symbols-outlined">layers_clear</span>
+                    移除
+                </button>
+                <span class="img-gen-mask-pill ${hasMaskReady ? 'is-ready' : ''}">${hasMaskReady ? '蒙版已保存' : '未绘制蒙版'}</span>
+            </div>
+            <button class="img-gen-mask-preview ${hasMaskReady ? 'has-mask' : ''}" type="button" onclick="openImgGenMaskStudio(event, '${task.id}')" ondblclick="openImgGenMaskStudio(event, '${task.id}')" data-tip="点击进入大画布蒙版编辑">
+                <img src="${escapeAttr(baseUrl)}" alt="mask-preview">
+                <span class="img-gen-mask-preview-label">底图 / 蒙版源</span>
+                ${hasMaskReady ? '<span class="img-gen-mask-preview-glow">局部重绘蒙版已就绪</span>' : '<span class="img-gen-mask-preview-glow is-muted">点击开始绘制蒙版</span>'}
+            </button>
+        </div>
+    `;
+}
