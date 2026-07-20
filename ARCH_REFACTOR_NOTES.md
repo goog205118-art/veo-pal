@@ -1,7 +1,7 @@
 ﻿# Veo Studio Frontend V2 - Refactor Notes
 
 ## Scope
-- Slimming pass includes removal of retired image route surfaces and old node-workflow actions.
+- Slimming pass includes removal of retired image route surfaces and old workflow actions.
 - Keep existing entry files and runtime behavior.
 - Refactor only foundation layers for future modularization.
 
@@ -14,6 +14,7 @@
 - js/task-cache.js
 - js/canvas-camera.js
 - js/canvas-selection.js
+- js/canvas-layout.js
 - js/viewport-culling.js
 - js/minimap.js
 - js/workspace-io.js
@@ -94,6 +95,12 @@
 - Added `window.VeoCanvasSelection` for selected task state, marquee lifecycle, marquee hit testing, task toggling, and visible-card select-all.
 - Reduced `js/app.js` selection state and marquee update logic while preserving `selectedTasks` as the shared Set used by existing business actions.
 - Entry pages now load `js/canvas-selection.js` after `js/canvas-camera.js` and before selection toolbar/app orchestration scripts.
+
+## Canvas Layout Layer Changes (Compatible)
+- Added `window.VeoCanvasLayout` for task position normalization, card measurement, selected-card auto layout, linked-node placement, and focus-to-selection camera targeting.
+- Reduced `js/app.js` layout and focus helpers to compatibility adapters for existing toolbar, shortcut, and card-action callers.
+- Retired frame/group behavior now lives behind the same layout layer, keeping old workspace data harmless while avoiding heavy workflow UI paths.
+- Entry pages now load `js/canvas-layout.js` after `js/canvas-selection.js` and before viewport culling/app orchestration scripts.
 
 ## Viewport Culling Layer Changes (Compatible)
 - Added `window.VeoViewportCulling` for card bounds cache, viewport culling checks, and delayed culling updates on large boards.
@@ -199,6 +206,7 @@
 - `node --check js/task-cache.js`: pass
 - `node --check js/canvas-camera.js`: pass
 - `node --check js/canvas-selection.js`: pass
+- `node --check js/canvas-layout.js`: pass
 - `node --check js/viewport-culling.js`: pass
 - `node --check js/minimap.js`: pass
 - `node --check js/workspace-io.js`: pass

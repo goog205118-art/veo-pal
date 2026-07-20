@@ -143,109 +143,15 @@ function closeBillingModal() { return window.VeoBilling.closeModal(); }
 function updateEstimatedCost() { return window.VeoBilling.updateEstimatedCost(); }
 function updateBatchCount(select) { return window.VeoBilling.updateBatchCount(select); }
 
-async function alignSelectedCards() {
-    const tasks = await getAllTasksDB();
-    if (tasks.length === 0) return showToast("画布上目前没有任何卡片", "info");
-    let targetIds = selectedTasks.size > 0 ? Array.from(selectedTasks) : tasks.map(t => t.id);
-    let cardsToAlign = tasks.filter(t => targetIds.includes(t.id) && t.type !== 'local_image' && t.type !== 'frame' && !t.parentId);
-
-    if(cardsToAlign.length === 0) return showToast("没有可排版的散落卡片", "info");
-
-    cardsToAlign.forEach(normalizeTaskPosition);
-    cardsToAlign.sort((a, b) => (Math.abs(a.y) + Math.abs(a.x)) - (Math.abs(b.y) + Math.abs(b.x)));
-
-    // 先确保 DOM 已挂载，再使用真实包围盒做排版，避免固定宽高引发重叠与穿模
-    await renderBoard();
-
-    const minX = Math.min(...cardsToAlign.map(c => toFiniteNumber(c.x, 0)));
-    const minY = Math.min(...cardsToAlign.map(c => toFiniteNumber(c.y, 0)));
-    const gapX = 28;
-    const gapY = 30;
-    const viewportWidthBoard = Math.max(600, Math.floor(window.innerWidth / Math.max(0.1, toFiniteNumber(transform.scale, 1))));
-
-    const sizeCache = new Map();
-    cardsToAlign.forEach((task) => sizeCache.set(task.id, measureTaskAABB(task)));
-    const widest = Math.max(...cardsToAlign.map(task => (sizeCache.get(task.id) || { width: 340 }).width), 340);
-    const usableWidth = Math.max(widest + gapX, viewportWidthBoard - 120);
-
-    let cursorX = minX;
-    let cursorY = minY;
-    let rowMaxHeight = 0;
-
-    for (const task of cardsToAlign) {
-        const size = sizeCache.get(task.id) || { width: 340, height: 400 };
-        const nextRight = (cursorX - minX) + size.width;
-        const shouldWrap = (cursorX !== minX) && (nextRight > usableWidth);
-        if (shouldWrap) {
-            cursorX = minX;
-            cursorY += rowMaxHeight + gapY;
-            rowMaxHeight = 0;
-        }
-
-        task.x = cursorX;
-        task.y = cursorY;
-        cursorX += size.width + gapX;
-        rowMaxHeight = Math.max(rowMaxHeight, size.height);
-    }
-
-    if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(cardsToAlign);
-    else await Promise.all(cardsToAlign.map(saveTaskDB));
-    await renderBoard();
-    showToast(`🪄 空间清理完成：已按真实尺寸自动排版`, "success");
-}
+async function alignSelectedCards() { return window.VeoCanvasLayout.alignSelectedCards(); }
 
 function showToast(message, type = 'info') { return window.VeoAppShell.showToast(message, type); }
 function openHelpModal() { return window.VeoAppShell.openHelpModal(); }
 function closeHelpModal() { return window.VeoAppShell.closeHelpModal(); }
 
-const FRAME_SAFE_PADDING = 36;
-
-function fitTaskInsideFrameBounds(task, frame, padding = FRAME_SAFE_PADDING) {
-    if (!task || !frame || task.type === 'frame') return { taskChanged: false, frameChanged: false };
-    normalizeTaskPosition(task);
-    normalizeTaskPosition(frame);
-    const safePad = Math.max(20, toFiniteNumber(padding, FRAME_SAFE_PADDING));
-    const size = measureTaskAABB(task);
-    let taskChanged = false;
-    let frameChanged = false;
-    const minFrameW = Math.max(340, size.width + safePad * 2);
-    const minFrameH = Math.max(160, size.height + safePad * 2);
-    if (toFiniteNumber(frame.width, 0) < minFrameW) {
-        frame.width = minFrameW;
-        frameChanged = true;
-    }
-    if (toFiniteNumber(frame.height, 0) < minFrameH) {
-        frame.height = minFrameH;
-        frameChanged = true;
-    }
-    const minX = frame.x + safePad;
-    const minY = frame.y + safePad;
-    const maxX = Math.max(minX, frame.x + frame.width - safePad - size.width);
-    const maxY = Math.max(minY, frame.y + frame.height - safePad - size.height);
-    const nextX = clampWorldValue(toFiniteNumber(task.x, 0), minX, maxX);
-    const nextY = clampWorldValue(toFiniteNumber(task.y, 0), minY, maxY);
-    if (Math.abs(nextX - task.x) > 0.1) {
-        task.x = nextX;
-        taskChanged = true;
-    }
-    if (Math.abs(nextY - task.y) > 0.1) {
-        task.y = nextY;
-        taskChanged = true;
-    }
-    return { taskChanged, frameChanged };
-}
-
-async function createFrame() {
-    if (typeof showToast === 'function') showToast('Frame nodes are retired. Use AI image nodes instead.', 'info');
-}
-
-async function checkGroupDrop(draggedInfo) {
-    if (!draggedInfo || !draggedInfo.task) return;
-    if (draggedInfo.task.parentId) {
-        draggedInfo.task.parentId = null;
-        await saveTaskDB(draggedInfo.task);
-    }
-}
+function fitTaskInsideFrameBounds(task, frame, padding) { return window.VeoCanvasLayout.fitTaskInsideFrameBounds(task, frame, padding); }
+async function createFrame() { return window.VeoCanvasLayout.createFrame(); }
+async function checkGroupDrop(draggedInfo) { return window.VeoCanvasLayout.checkGroupDrop(draggedInfo); }
 
 const viewport = document.getElementById('canvas-viewport'), board = document.getElementById('canvas-board'), marquee = document.getElementById('selection-marquee');
 const canvasCamera = window.VeoCanvasCamera.configure({
@@ -260,6 +166,36 @@ const canvasCamera = window.VeoCanvasCamera.configure({
 });
 const canvasSelection = window.VeoCanvasSelection.configure({ marquee });
 let transform = canvasCamera.transform;
+window.VeoCanvasLayout.configure({
+    hooks: {
+        addSelectedTask: (taskId) => selectedTasks.add(taskId),
+        animateCameraTo: (target, options) => animateCameraTo(target, options),
+        clampCanvasScale: (value) => clampCanvasScale(value),
+        clearSelection: () => clearSelection(),
+        ensureImageState: (task) => ensureImgGenState(task),
+        getAllTasks: () => getAllTasksDB(),
+        getCanvasScale: () => transform.scale,
+        getCardWorldSize: (el, task) => getCardWorldSize(el, task),
+        getSelectedCanvasElements: () => getSelectedCanvasElements(),
+        getSelectedTaskIds: () => Array.from(selectedTasks),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        getVisibleWorldRect: (padding) => getVisibleWorldRect(padding),
+        nextZIndex: () => {
+            highestZIndex++;
+            return highestZIndex;
+        },
+        renderBoard: () => renderBoard(),
+        saveTask: (task) => saveTaskDB(task),
+        saveTasks: async (tasks) => {
+            if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(tasks);
+            else await Promise.all(tasks.map((task) => saveTaskDB(task)));
+        },
+        selectTask: (taskId, el) => canvasSelection.selectTask(taskId, el),
+        showToast: (message, type) => showToast(message, type),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
+        updateSelectionToolbar: () => updateSelectionToolbar()
+    }
+});
 const viewportCulling = window.VeoViewportCulling.configure({
     viewport,
     board,
@@ -501,27 +437,11 @@ function getEventClientPoint(e) {
 }
 
 function normalizeTaskPosition(task) {
-    if (!task || typeof task !== 'object') return;
-    task.x = toFiniteNumber(task.x, 0);
-    task.y = toFiniteNumber(task.y, 0);
+    return window.VeoCanvasLayout.normalizeTaskPosition(task);
 }
 
 function getTaskFallbackSize(task) {
-    if (!task || typeof task !== 'object') return { width: 340, height: 400 };
-    if (task.type === 'tool_image_gen') {
-        ensureImgGenState(task);
-        const isCollapsed = task.state.previewCollapsed === true;
-        return {
-            width: isCollapsed
-                ? Math.max(320, Math.min(760, toFiniteNumber(task.state.cardWidthCollapsed, 360)))
-                : Math.max(560, Math.min(1200, toFiniteNumber(task.state.cardWidthOpen, 680))),
-            height: Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)))
-        };
-    }
-    return {
-        width: Math.max(280, toFiniteNumber(task.width, 340)),
-        height: Math.max(220, toFiniteNumber(task.height, 400))
-    };
+    return window.VeoCanvasLayout.getTaskFallbackSize(task);
 }
 
 function createDefaultImageGenTask(spawnX, spawnY) {
@@ -533,15 +453,7 @@ async function createImageGenNode(x = NaN, y = NaN) {
 }
 
 function measureTaskAABB(task) {
-    const fallback = getTaskFallbackSize(task);
-    const cardEl = task && task.id ? document.getElementById('card-' + task.id) : null;
-    if (!cardEl) return fallback;
-    const w = Math.round(toFiniteNumber(cardEl.offsetWidth, 0) || toFiniteNumber(cardEl.getBoundingClientRect && cardEl.getBoundingClientRect().width, 0));
-    const h = Math.round(toFiniteNumber(cardEl.offsetHeight, 0) || toFiniteNumber(cardEl.getBoundingClientRect && cardEl.getBoundingClientRect().height, 0));
-    return {
-        width: Math.max(1, w || fallback.width),
-        height: Math.max(1, h || fallback.height)
-    };
+    return window.VeoCanvasLayout.measureTaskAABB(task);
 }
 
 function getVisibleWorldRect(screenPadding = 80) {
@@ -549,85 +461,19 @@ function getVisibleWorldRect(screenPadding = 80) {
 }
 
 function clampWorldValue(value, min, max) {
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) return value;
-    return Math.max(min, Math.min(max, value));
+    return window.VeoCanvasLayout.clampWorldValue(value, min, max);
 }
 
 function resolveLinkedNodePosition(sourceTask, targetSize = {}, options = {}) {
-    const sourceSize = measureTaskAABB(sourceTask);
-    const targetW = Math.max(240, toFiniteNumber(targetSize.width, 340));
-    const targetH = Math.max(180, toFiniteNumber(targetSize.height, 420));
-    const gap = Math.max(20, toFiniteNumber(options.gap, 36));
-    const sourceX = toFiniteNumber(sourceTask && sourceTask.x, 0);
-    const sourceY = toFiniteNumber(sourceTask && sourceTask.y, 0);
-    const sourceBounds = {
-        left: sourceX,
-        top: sourceY,
-        right: sourceX + sourceSize.width,
-        bottom: sourceY + sourceSize.height
-    };
-    const visible = getVisibleWorldRect(96);
-    const yBase = sourceY + toFiniteNumber(options.yOffset, 0);
-    const xBase = sourceX + toFiniteNumber(options.xOffset, 0);
-    const visibleCenterX = (visible.left + visible.right) / 2;
-    const preferLeft = sourceX + sourceSize.width / 2 > visibleCenterX;
-    const rightX = sourceBounds.right + gap;
-    const leftX = sourceBounds.left - targetW - gap;
-    const belowY = sourceBounds.bottom + gap;
-    const aboveY = sourceBounds.top - targetH - gap;
-    const clampY = (value) => clampWorldValue(value, visible.top, visible.bottom - targetH);
-    const clampX = (value) => clampWorldValue(value, visible.left, visible.right - targetW);
-    const candidates = [
-        { x: rightX, y: clampY(yBase), side: 'right' },
-        { x: leftX, y: clampY(yBase), side: 'left' },
-        { x: clampX(xBase), y: belowY, side: 'below' },
-        { x: clampX(xBase), y: aboveY, side: 'above' }
-    ];
-    if (preferLeft) candidates.splice(0, 2, candidates[1], candidates[0]);
-
-    const fitsVisible = (pos) => (
-        pos.x >= visible.left &&
-        pos.y >= visible.top &&
-        pos.x + targetW <= visible.right &&
-        pos.y + targetH <= visible.bottom
-    );
-    const isOutsideSource = (pos) => (
-        pos.x + targetW <= sourceBounds.left ||
-        pos.x >= sourceBounds.right ||
-        pos.y + targetH <= sourceBounds.top ||
-        pos.y >= sourceBounds.bottom
-    );
-    const visibleHit = candidates.find((pos) => fitsVisible(pos) && isOutsideSource(pos));
-    if (visibleHit) return { x: visibleHit.x, y: visibleHit.y };
-
-    // If the source card fills the screen, still spawn outside its real bounds,
-    // then camera focus will track the new linked node into view.
-    const fallback = preferLeft && leftX >= visible.left - targetW * 1.4
-        ? { x: leftX, y: clampY(yBase) }
-        : { x: rightX, y: clampY(yBase) };
-    return fallback;
+    return window.VeoCanvasLayout.resolveLinkedNodePosition(sourceTask, targetSize, options);
 }
 
 function selectAndFocusTaskIds(taskIds) {
-    const ids = Array.isArray(taskIds) ? taskIds.filter(Boolean) : [];
-    if (!ids.length) return;
-    clearSelection();
-    ids.forEach((id) => {
-        selectedTasks.add(id);
-        const el = document.getElementById('card-' + id);
-        if (el) {
-            el.classList.add('selected');
-            el.classList.remove('is-viewport-culled');
-            highestZIndex++;
-            el.style.zIndex = highestZIndex;
-        }
-    });
-    updateSelectionToolbar();
-    focusSelectedTasks();
+    return window.VeoCanvasLayout.selectAndFocusTaskIds(taskIds);
 }
 
 function detectToolPluginType(el) {
-    return '';
+    return window.VeoCanvasLayout.detectToolPluginType(el);
 }
 
 function clampCanvasScale(value) {
@@ -769,51 +615,15 @@ async function duplicateSelectedTasks() {
 }
 
 function getSelectedWorldBounds() {
-    const elements = getSelectedCanvasElements();
-    if (elements.length === 0) return null;
-    return elements.reduce((acc, el) => {
-        const task = el.__veoTask;
-        if (!task) return acc;
-        const size = getCardWorldSize(el, task);
-        const left = toFiniteNumber(task.x, 0);
-        const top = toFiniteNumber(task.y, 0);
-        return {
-            left: Math.min(acc.left, left),
-            top: Math.min(acc.top, top),
-            right: Math.max(acc.right, left + size.width),
-            bottom: Math.max(acc.bottom, top + size.height)
-        };
-    }, { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
+    return window.VeoCanvasLayout.getSelectedWorldBounds();
 }
 
 function focusSelectedTasks() {
-    const bounds = getSelectedWorldBounds();
-    if (!bounds || !Number.isFinite(bounds.left) || !Number.isFinite(bounds.right)) return;
-    const width = Math.max(1, bounds.right - bounds.left);
-    const height = Math.max(1, bounds.bottom - bounds.top);
-    const marginX = Math.min(260, Math.max(120, window.innerWidth * 0.18));
-    const marginY = Math.min(220, Math.max(110, window.innerHeight * 0.18));
-    const nextScale = clampCanvasScale(Math.min((window.innerWidth - marginX) / width, (window.innerHeight - marginY) / height, 1.55));
-    const centerX = bounds.left + width / 2;
-    const centerY = bounds.top + height / 2;
-    animateCameraTo({
-        x: window.innerWidth / 2 - centerX * nextScale,
-        y: window.innerHeight / 2 - centerY * nextScale,
-        scale: nextScale
-    }, { duration: 430 });
+    return window.VeoCanvasLayout.focusSelectedTasks();
 }
 
 function focusTaskById(taskId) {
-    const el = document.getElementById('card-' + taskId);
-    const task = el && el.__veoTask;
-    if (!el || !task) return;
-    clearSelection();
-    canvasSelection.selectTask(taskId, el);
-    el.classList.remove('is-viewport-culled');
-    highestZIndex++;
-    el.style.zIndex = highestZIndex;
-    updateSelectionToolbar();
-    focusSelectedTasks();
+    return window.VeoCanvasLayout.focusTaskById(taskId);
 }
 
 async function deleteSelectedTasks() {
