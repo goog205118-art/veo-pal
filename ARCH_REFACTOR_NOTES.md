@@ -24,6 +24,7 @@
 - js/canvas-renderer.js
 - js/canvas-interactions.js
 - js/selection-toolbar.js
+- js/video-console.js
 - js/media-utils.js
 - js/image-core.js
 - js/image-request.js
@@ -151,6 +152,11 @@
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
 - Entry pages now load `js/selection-toolbar.js` immediately before `js/app.js`.
 
+## Video Console Layer Changes (Compatible)
+- Added `window.VeoVideoConsole` for video mode switching, frame/reference slot state, console minimize/advanced controls, and console UI event-bus synchronization.
+- Reduced `js/app.js` console upload, reference rendering, and video option handlers to compatibility adapters for existing inline HTML handlers.
+- Entry pages now load `js/video-console.js` after billing/model metadata and before video task orchestration.
+
 ## Media Utility Layer Changes (Compatible)
 - Added `window.VeoMedia` for image generation route config, reference intent metadata, media encoding helpers, and image metadata reads.
 - `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
@@ -195,6 +201,7 @@
 - `node --check js/task-lifecycle.js`: pass
 - `node --check js/canvas-renderer.js`: pass
 - `node --check js/selection-toolbar.js`: pass
+- `node --check js/video-console.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
 - `node --check js/image-request.js`: pass
