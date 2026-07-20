@@ -334,10 +334,10 @@ const canvasCamera = window.VeoCanvasCamera.configure({
         renderMinimap: () => renderMinimap()
     }
 });
+const canvasSelection = window.VeoCanvasSelection.configure({ marquee });
 let transform = canvasCamera.transform, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
-let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
-let selectionCandidates = [];
+const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
@@ -666,7 +666,7 @@ function getSelectionToolbarContext() {
     return {
         selectedTaskIds: Array.from(selectedTasks),
         isPanning,
-        isSelecting,
+        isSelecting: canvasSelection.isSelecting,
         actions: {
             focus: focusSelectedTasks,
             duplicate: duplicateSelectedTasks,
@@ -693,14 +693,7 @@ function requestSelectionToolbarUpdate() {
 }
 
 function buildSelectionCandidates() {
-    return Array.from(document.querySelectorAll('.canvas-board > .video-card'))
-        .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-stage-docked') && !card.classList.contains('is-viewport-culled'))
-        .map((card) => ({
-            el: card,
-            id: card.id ? card.id.replace('card-', '') : '',
-            rect: card.getBoundingClientRect()
-        }))
-        .filter((item) => item.id && item.rect && item.rect.width > 0 && item.rect.height > 0);
+    return canvasSelection.buildSelectionCandidates();
 }
 
 window.addEventListener('mousedown', (e) => {
@@ -710,9 +703,7 @@ window.addEventListener('mousedown', (e) => {
 }, true);
 
 function clearSelection() {
-    selectionCandidates = [];
-    selectedTasks.clear();
-    document.querySelectorAll('.video-card.selected').forEach(c => c.classList.remove('selected'));
+    canvasSelection.clearSelection();
     updateSelectionToolbar();
     scheduleViewportCulling(40);
 }
@@ -728,28 +719,8 @@ window.addEventListener('mousemove', (e) => {
                 recordPanSample(e.clientX, e.clientY);
                 applyCanvasTransform({ cull: false, minimapDuration: 900 });
             }
-            else if (isSelecting) {
-                const currentX = e.clientX, currentY = e.clientY, left = Math.min(startSelX, currentX), top = Math.min(startSelY, currentY), width = Math.abs(currentX - startSelX), height = Math.abs(currentY - startSelY);
-                const isCrossing = currentX < startSelX;
-                if(marquee) {
-                    marquee.style.left = left + 'px';
-                    marquee.style.top = top + 'px';
-                    marquee.style.width = width + 'px';
-                    marquee.style.height = height + 'px';
-                    marquee.classList.toggle('is-crossing', isCrossing);
-                    marquee.classList.toggle('is-window', !isCrossing);
-                }
-                const selRect = { left, top, right: left + width, bottom: top + height };
-                const candidates = selectionCandidates.length ? selectionCandidates : buildSelectionCandidates();
-                candidates.forEach((candidate) => {
-                    const card = candidate.el;
-                    const rect = candidate.rect;
-                    const intersects = rect.left < selRect.right && rect.right > selRect.left && rect.top < selRect.bottom && rect.bottom > selRect.top;
-                    const contains = rect.left >= selRect.left && rect.right <= selRect.right && rect.top >= selRect.top && rect.bottom <= selRect.bottom;
-                    const hit = isCrossing ? intersects : contains;
-                    if (hit) { card.classList.add('selected'); selectedTasks.add(candidate.id); }
-                    else { card.classList.remove('selected'); selectedTasks.delete(candidate.id); }
-                });
+            else if (canvasSelection.isSelecting) {
+                canvasSelection.updateMarqueeSelection(e.clientX, e.clientY);
                 requestSelectionToolbarUpdate();
             }
             else if (draggingCardInfo) {
@@ -792,19 +763,7 @@ viewport.addEventListener('mousedown', (e) => {
         cancelCameraAnimation();
         cancelCanvasInertia();
         if (e.shiftKey) {
-            isSelecting = true;
-            startSelX = e.clientX;
-            startSelY = e.clientY;
-            selectionCandidates = buildSelectionCandidates();
-            if(marquee) {
-                marquee.style.left = startSelX + 'px';
-                marquee.style.top = startSelY + 'px';
-                marquee.style.width = '0';
-                marquee.style.height = '0';
-                marquee.style.display = 'block';
-                marquee.classList.add('is-window');
-                marquee.classList.remove('is-crossing');
-            }
+            canvasSelection.startMarqueeSelection(e.clientX, e.clientY, buildSelectionCandidates());
             updateSelectionToolbar();
         }
         else {
@@ -819,13 +778,7 @@ window.addEventListener('mouseup', async () => {
     isPanning = false;
     setCanvasMoving(false);
     if (wasPanning) startCanvasInertia();
-    if (isSelecting) {
-        isSelecting = false;
-        selectionCandidates = [];
-        if(marquee) {
-            marquee.style.display = 'none';
-            marquee.classList.remove('is-crossing', 'is-window');
-        }
+    if (canvasSelection.finishMarqueeSelection()) {
         scheduleViewportCulling(40);
         updateSelectionToolbar();
     }
@@ -961,9 +914,9 @@ function bindCardDrag(cardEl, task) {
                 if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
             }
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                if (selectedTasks.has(task.id)) { selectedTasks.delete(task.id); cardEl.classList.remove('selected'); } else { selectedTasks.add(task.id); cardEl.classList.add('selected'); }
+                canvasSelection.toggleTask(task.id, cardEl);
             } else {
-                if (!selectedTasks.has(task.id)) { clearSelection(); selectedTasks.add(task.id); cardEl.classList.add('selected'); }
+                if (!selectedTasks.has(task.id)) { clearSelection(); canvasSelection.selectTask(task.id, cardEl); }
             }
             draggingCardInfo = {
                 el: cardEl,
@@ -1052,10 +1005,9 @@ async function duplicateSelectedTasks() {
     await renderBoard();
     clearSelection();
     clones.forEach((clone) => {
-        selectedTasks.add(clone.id);
         const el = document.getElementById('card-' + clone.id);
+        canvasSelection.selectTask(clone.id, el);
         if (el) {
-            el.classList.add('selected');
             el.classList.remove('is-viewport-culled');
             highestZIndex++;
             el.style.zIndex = highestZIndex;
@@ -1106,8 +1058,7 @@ function focusTaskById(taskId) {
     const task = el && el.__veoTask;
     if (!el || !task) return;
     clearSelection();
-    selectedTasks.add(taskId);
-    el.classList.add('selected');
+    canvasSelection.selectTask(taskId, el);
     el.classList.remove('is-viewport-culled');
     highestZIndex++;
     el.style.zIndex = highestZIndex;
@@ -1161,7 +1112,7 @@ window.addEventListener('keydown', async (e) => {
         return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); document.querySelectorAll('.video-card').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
+        e.preventDefault(); canvasSelection.selectVisibleCards(); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();

@@ -12,6 +12,7 @@
 - js/dom-utils.js
 - js/task-cache.js
 - js/canvas-camera.js
+- js/canvas-selection.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/image-core.js
@@ -77,6 +78,11 @@
 - Reduced `js/app.js` camera functions to compatibility adapters while keeping pointer-selection and card-drag orchestration in the app layer for the next extraction pass.
 - Entry pages now load `js/canvas-camera.js` before selection toolbar and app orchestration scripts.
 
+## Canvas Selection Layer Changes (Compatible)
+- Added `window.VeoCanvasSelection` for selected task state, marquee lifecycle, marquee hit testing, task toggling, and visible-card select-all.
+- Reduced `js/app.js` selection state and marquee update logic while preserving `selectedTasks` as the shared Set used by existing business actions.
+- Entry pages now load `js/canvas-selection.js` after `js/canvas-camera.js` and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -115,6 +121,7 @@
 - `node --check js/dom-utils.js`: pass
 - `node --check js/task-cache.js`: pass
 - `node --check js/canvas-camera.js`: pass
+- `node --check js/canvas-selection.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
