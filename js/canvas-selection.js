@@ -24,7 +24,7 @@
 
     function buildSelectionCandidates() {
         return Array.from(document.querySelectorAll(state.cardSelector))
-            .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-stage-docked') && !card.classList.contains('is-viewport-culled'))
+            .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-viewport-culled'))
             .map((card) => ({
                 el: card,
                 id: getCardId(card),

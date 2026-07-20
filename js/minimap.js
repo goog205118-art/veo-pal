@@ -26,8 +26,7 @@
     }
 
     function isBoardTask(task) {
-        if (!task || task.type === 'local_image' || isRetiredTask(task)) return false;
-        return callHook('isStageDocked', task) !== true;
+        return !!(task && task.type !== 'local_image' && !isRetiredTask(task));
     }
 
     function getTaskWidth(task) {

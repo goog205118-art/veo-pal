@@ -71,18 +71,11 @@
     }
 
     function finalizeCard(cardEl, task, syncSnapshot = null) {
-        const isStageDocked = callHook('isStageDocked', task) === true;
         cardEl.classList.toggle('hidden-in-frame', false);
-        cardEl.classList.toggle('is-stage-docked', isStageDocked);
-        if (isStageDocked) {
-            callHook('deselectTask', task.id);
-            cardEl.classList.remove('selected');
-        }
         cardEl.classList.toggle('is-auto-retrying', task.status === 'processing' && callHook('toFiniteNumber', task.retryCount, 0) > 0);
         callHook('bindCardDrag', cardEl, task);
         callHook('syncCardViewportMetrics', cardEl, task);
         callHook('applySyncAttributes', cardEl, task, syncSnapshot);
-        return isStageDocked;
     }
 
     function renderCardShell(cardEl, task, options = {}) {
@@ -106,10 +99,9 @@
         if (!cardEl) return;
 
         renderCardShell(cardEl, task, { force: true });
-        const isStageDocked = finalizeCard(cardEl, task);
+        finalizeCard(cardEl, task);
         callHook('scheduleViewportCulling', 40);
         callHook('updateSelectionToolbar');
-        if (task.type === 'tool_image_gen' && isStageDocked) callHook('scheduleStageRailRender', 40);
     }
 
     async function renderBoard() {
@@ -120,11 +112,9 @@
         const boardTaskIds = new Set(boardTasks.map((task) => 'card-' + task.id));
         removeStaleCards(board, boardTaskIds);
 
-        const renderedTasks = [];
         boardTasks.forEach((rawTask) => {
             const task = normalizeTaskForRender(rawTask);
             if (!task) return;
-            renderedTasks.push(task);
 
             let cardEl = callHook('getTaskElement', task.id);
             const syncSnapshot = callHook('getSyncSnapshot', task);
@@ -146,8 +136,6 @@
         callHook('renderMinimap');
         callHook('scheduleViewportCulling', 40);
         callHook('updateSelectionToolbar');
-        const stageRender = callHook('renderStageRail', renderedTasks);
-        if (stageRender && typeof stageRender.catch === 'function') stageRender.catch(() => {});
     }
 
     const api = {

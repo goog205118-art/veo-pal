@@ -56,9 +56,6 @@
         await callHook('deleteTask', taskId);
         callHook('removeCard', taskId);
         callHook('deselectTask', taskId);
-        if (callHook('isActiveStageTask', taskId)) {
-            callHook('clearActiveStageTask');
-        }
     }
 
     function refreshAfterDelete(options = {}) {
@@ -66,7 +63,6 @@
         callHook('updateSelectionToolbar');
         callHook('scheduleViewportCulling', 40);
         callHook('renderMinimap');
-        callHook('scheduleStageRailRender', 40);
     }
 
     async function deleteSelectedTasks() {

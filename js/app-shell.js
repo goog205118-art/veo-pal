@@ -59,6 +59,9 @@ const THEME_MODE_KEY = 'veo_theme_mode';
 const THEME_DARK = 'dark';
 const THEME_LIGHT = 'light';
 const ROUTE_TRANSITION_MS = 460;
+let tooltipTimer = null;
+let tooltipsBound = false;
+let lightboxEl = null;
 
 function isReducedMotion() {
     try {
@@ -87,6 +90,109 @@ function startRouteTransition(labelText) {
     const label = layer.querySelector('.route-transition-label');
     if (label && labelText) label.textContent = labelText;
     layer.classList.add('is-active');
+}
+
+function showToast(message, type = 'info') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const safeType = ['error', 'success', 'warning', 'info'].includes(type) ? type : 'info';
+    const toast = document.createElement('div');
+    toast.className = `veo-toast toast-${safeType}`;
+    const icon = safeType === 'error' ? 'error' : (safeType === 'success' ? 'check_circle' : (safeType === 'warning' ? 'warning' : 'info'));
+    toast.innerHTML = `<span class="material-symbols-outlined icon" style="font-size: 16px;">${icon}</span> <span class="toast-message">${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function bindGlobalTooltips() {
+    if (tooltipsBound) return;
+    tooltipsBound = true;
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target.closest('[data-tip]');
+        if (!target) return;
+        tooltipTimer = setTimeout(() => {
+            const tipText = target.getAttribute('data-tip');
+            const globalTooltip = document.getElementById('global-tooltip');
+            if (!tipText || !globalTooltip) return;
+            globalTooltip.innerText = tipText;
+            const rect = target.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            let y = rect.top;
+            if (y < 60) {
+                y = rect.bottom;
+                globalTooltip.classList.add('tooltip-bottom');
+            } else {
+                globalTooltip.classList.remove('tooltip-bottom');
+            }
+            globalTooltip.style.left = `${x}px`;
+            globalTooltip.style.top = `${y}px`;
+            globalTooltip.classList.add('show');
+        }, 500);
+    });
+    document.addEventListener('mouseout', (e) => {
+        const target = e.target.closest('[data-tip]');
+        if (!target) return;
+        clearTimeout(tooltipTimer);
+        const globalTooltip = document.getElementById('global-tooltip');
+        if (globalTooltip) globalTooltip.classList.remove('show');
+    });
+}
+
+function openHelpModal() {
+    const modal = document.getElementById('help-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.offsetHeight;
+    modal.classList.add('show');
+}
+
+function closeHelpModal() {
+    const modal = document.getElementById('help-modal');
+    if (!modal) return;
+    modal.classList.remove('show');
+    setTimeout(() => {
+        modal.style.display = 'none';
+    }, 300);
+}
+
+function handleAuthError() {
+    if (!sessionStorage.getItem('veo_admin_pwd')) return;
+    sessionStorage.removeItem('veo_admin_pwd');
+    showToast("密钥验证失败或已过期，即将退回登录舱", "error");
+    setTimeout(() => {
+        if (isReducedMotion()) {
+            location.reload();
+            return;
+        }
+        startRouteTransition('SESSION EXPIRED');
+        setTimeout(() => location.reload(), ROUTE_TRANSITION_MS);
+    }, 1500);
+}
+
+function openLightbox(src) {
+    if (!lightboxEl) {
+        lightboxEl = document.createElement('div');
+        lightboxEl.className = 'image-lightbox';
+        lightboxEl.innerHTML = `<img>`;
+        lightboxEl.onclick = () => {
+            lightboxEl.classList.remove('show');
+            setTimeout(() => {
+                lightboxEl.style.display = 'none';
+            }, 200);
+        };
+        document.body.appendChild(lightboxEl);
+    }
+    lightboxEl.querySelector('img').src = src;
+    lightboxEl.style.display = 'flex';
+    lightboxEl.offsetHeight;
+    lightboxEl.classList.add('show');
 }
 
 function markAppShellReady() {
@@ -160,6 +266,7 @@ window.toggleThemeMode = function() {
 
 document.addEventListener('DOMContentLoaded', () => {
     ensureRouteTransitionLayer();
+    bindGlobalTooltips();
     initThemeMode();
     const gate = document.getElementById('login-gate');
     const savedSessionPwd = sessionStorage.getItem('veo_admin_pwd');
@@ -302,3 +409,26 @@ async function handleLoginSubmit(e) {
         }, 400);
     }, 600);
 }
+
+window.VeoAppShell = {
+    bindGlobalTooltips,
+    closeAnnouncement,
+    closeErrorModal,
+    closeHelpModal,
+    handleAuthError,
+    isReducedMotion,
+    openHelpModal,
+    openLightbox,
+    showAnnouncement,
+    showErrorModal,
+    showToast,
+    startLoginTransition,
+    startRouteTransition
+};
+
+window.showToast = showToast;
+window.alert = (msg) => showToast(msg, 'error');
+window.handleAuthError = handleAuthError;
+window.openHelpModal = openHelpModal;
+window.closeHelpModal = closeHelpModal;
+window.openLightbox = openLightbox;

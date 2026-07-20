@@ -191,8 +191,7 @@ function renderImgGenParams(task) {
     const resolvedSize = resolveImgGenSize(state);
     const ratioValue = state.proRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'ai666');
-    const routeLabel = `GPT Image 2 · ${route.label} · ${resolvedSize}`;
+    const routeLabel = `GPT Image 2 · ${resolvedSize}`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
         <label class="img-gen-field img-gen-seed-field">
@@ -220,12 +219,6 @@ function renderImgGenParams(task) {
     const advancedHtml = `
         <div class="img-gen-controls img-gen-controls-pro">
             ${seedControlHtml}
-            <label class="img-gen-field">
-                <span>模型通道</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="GPT Image 2 模型中转通道">
-                    ${Object.values(IMG_GEN_ROUTE_CONFIG).map((item) => `<option value="${item.key}" ${route.key === item.key ? 'selected' : ''}>${item.label}</option>`).join('')}
-                </select>
-            </label>
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="GPT Image 2 分辨率档位">

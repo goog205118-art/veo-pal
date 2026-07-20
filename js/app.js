@@ -7,9 +7,7 @@ const IMG_GEN_PROXY_RECHARGE_FACTOR = window.VeoImageCore.constants.PROXY_RECHAR
 const IMG_GEN_PRO_FALLBACK_COST = window.VeoImageCore.constants.PRO_FALLBACK_COST;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
-const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
 const RETIRED_NODE_TYPES = new Set(['frame', 'note', 'tool_generator', 'tool_cropper']);
-const IMG_GEN_ROUTE_CONFIG = window.VeoMedia.routeConfig;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     return window.VeoApi.normalizeEndpoint(rawUrl);
 }
@@ -41,18 +39,6 @@ const IMG_GEN_PROMPT_TAGS = [
     { group: '材质', label: '硬核工业材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
     { group: '社媒', label: '海报留白', text: 'clean negative space for headline, premium e-commerce hero composition' }
 ];
-let imgGenStageRailCollapsed = false;
-let imgGenStageRailTimer = null;
-let activeImgGenStageTaskId = '';
-let imgGenStageRailFingerprint = '';
-let activeImgGenStageReleasedTaskId = '';
-
-try {
-    imgGenStageRailCollapsed = localStorage.getItem('veo_img_gen_stage_collapsed') === '1';
-} catch (err) {
-    imgGenStageRailCollapsed = false;
-}
-
 async function blobsToBase64Sequential(blobs, options = {}) {
     return window.VeoMedia.blobsToBase64Sequential(blobs, options);
 }
@@ -118,34 +104,6 @@ function hasImgGenPolling(taskId, previewItemId = null) {
     return window.VeoImageTasks.hasPolling(taskId, previewItemId);
 }
 
-function isImgGenTaskStageDocked(task) { return false; }
-function isPointInImgGenStageRail(clientX, clientY) { return false; }
-function isPointNearImgGenStageRail(clientX, clientY) { return false; }
-function setImgGenStageDragOver(isOver) {}
-function canDragInfoDockToImgGenStage(dragInfo, clientX, clientY) { return false; }
-function restoreMountedImgGenStageCards(exceptTaskId = '') { return []; }
-async function restoreVisibleImgGenStageCards(exceptTaskId = '') { return []; }
-async function renderImgGenStageRail(tasksArg = null) {}
-function scheduleImgGenStageRailRender(delay = 80) {}
-function toggleImgGenStageRail(event) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-}
-async function focusImgGenStageCard(event, taskId) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-}
-async function dockImgGenCardToStage(dragInfo) { return false; }
-async function dockImgGenTaskById(event, taskId) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-}
 function resolveTaskIdFromCardElement(cardEl) {
     if (!cardEl || !cardEl.id || !String(cardEl.id).startsWith('card-')) return '';
     return String(cardEl.id).slice(5);
@@ -157,17 +115,7 @@ function toggleDrawer() {
 function toggleMaterialDrawer() { window.VeoMaterials.toggleDrawer(); }
 
 function handleAuthError() {
-    if (!sessionStorage.getItem('veo_admin_pwd')) return;
-    sessionStorage.removeItem('veo_admin_pwd');
-    showToast("密钥验证失败或已过期，即将退回登录舱", "error");
-    setTimeout(() => {
-        if (isReducedMotion()) {
-            location.reload();
-            return;
-        }
-        startRouteTransition('SESSION EXPIRED');
-        setTimeout(() => location.reload(), ROUTE_TRANSITION_MS);
-    }, 1500);
+    return window.VeoAppShell.handleAuthError();
 }
 
 // ==========================================
@@ -246,32 +194,9 @@ async function alignSelectedCards() {
     showToast(`🪄 空间清理完成：已按真实尺寸自动排版`, "success");
 }
 
-function showToast(message, type = 'info') {
-    let container = document.getElementById('toast-container');
-    if (!container) { container = document.createElement('div'); container.id = 'toast-container'; document.body.appendChild(container); }
-    const safeType = ['error', 'success', 'warning', 'info'].includes(type) ? type : 'info';
-    const toast = document.createElement('div'); toast.className = `veo-toast toast-${safeType}`;
-    let icon = safeType === 'error' ? 'error' : (safeType === 'success' ? 'check_circle' : (safeType === 'warning' ? 'warning' : 'info'));
-    toast.innerHTML = `<span class="material-symbols-outlined icon" style="font-size: 16px;">${icon}</span> <span class="toast-message">${escapeHtml(message)}</span>`;
-    container.appendChild(toast); setTimeout(() => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 300); }, 3000);
-}
-window.alert = (msg) => showToast(msg, 'error');
-
-let tooltipTimer = null;
-document.addEventListener('mouseover', (e) => {
-    const target = e.target.closest('[data-tip]'); if (!target) return;
-    tooltipTimer = setTimeout(() => {
-        const tipText = target.getAttribute('data-tip'); if (!tipText) return;
-        const globalTooltip = document.getElementById('global-tooltip'); globalTooltip.innerText = tipText;
-        const rect = target.getBoundingClientRect(); let x = rect.left + rect.width / 2, y = rect.top;
-        if (y < 60) { y = rect.bottom; globalTooltip.classList.add('tooltip-bottom'); } else { globalTooltip.classList.remove('tooltip-bottom'); }
-        globalTooltip.style.left = `${x}px`; globalTooltip.style.top = `${y}px`; globalTooltip.classList.add('show');
-    }, 500);
-});
-document.addEventListener('mouseout', (e) => { const target = e.target.closest('[data-tip]'); if (!target) return; clearTimeout(tooltipTimer); document.getElementById('global-tooltip').classList.remove('show'); });
-
-function openHelpModal() { const modal = document.getElementById('help-modal'); modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show'); }
-function closeHelpModal() { const modal = document.getElementById('help-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
+function showToast(message, type = 'info') { return window.VeoAppShell.showToast(message, type); }
+function openHelpModal() { return window.VeoAppShell.openHelpModal(); }
+function closeHelpModal() { return window.VeoAppShell.closeHelpModal(); }
 
 const FRAME_SAFE_PADDING = 36;
 
@@ -352,8 +277,7 @@ const minimap = window.VeoMinimap.configure({
     hooks: {
         animateCameraTo: (target, options) => animateCameraTo(target, options),
         getAllTasks: () => getAllTasksDB(),
-        getRetiredNodeTypes: () => RETIRED_NODE_TYPES,
-        isStageDocked: (task) => isImgGenTaskStageDocked(task)
+        getRetiredNodeTypes: () => RETIRED_NODE_TYPES
     }
 });
 window.VeoWorkspaceIO.configure({
@@ -464,7 +388,6 @@ window.VeoTaskActions.configure({
 });
 window.VeoTaskLifecycle.configure({
     hooks: {
-        clearActiveStageTask: () => { activeImgGenStageTaskId = ''; },
         clearImagePolling: (taskId) => clearImgGenPolling(taskId),
         clearImageRuntime: (taskId) => clearImgGenStateRuntime(taskId),
         clearPromptDraft: (taskId) => clearImgGenPromptDraftTimer(taskId),
@@ -477,13 +400,11 @@ window.VeoTaskLifecycle.configure({
         destroyMaskStudio: (taskId) => destroyImgMaskStudio(taskId),
         getAllTasks: () => getAllTasksDB(),
         getSelectedTaskIds: () => Array.from(selectedTasks),
-        isActiveStageTask: (taskId) => taskId === activeImgGenStageTaskId,
         removeCard: (taskId) => {
             const card = document.getElementById('card-' + taskId);
             if (card) card.remove();
         },
         renderMinimap: () => renderMinimap(),
-        scheduleStageRailRender: (delay) => scheduleImgGenStageRailRender(delay),
         scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
         showToast: (message, type) => showToast(message, type),
         updateSelectionToolbar: () => updateSelectionToolbar()
@@ -506,16 +427,13 @@ window.VeoCanvasRenderer.configure({
         getTaskElement: (taskId) => document.getElementById('card-' + taskId),
         hasImagePolling: (taskId, previewItemId) => hasImgGenPolling(taskId, previewItemId),
         isRetiredTaskType: (taskType) => RETIRED_NODE_TYPES.has(taskType),
-        isStageDocked: (task) => isImgGenTaskStageDocked(task),
         mergeImageTaskWithShadow: (task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }),
         morphCardDOM: (cardEl, html) => morphCardDOM(cardEl, html),
         normalizeTaskPosition: (task) => normalizeTaskPosition(task),
         renderImageCardHTML: (task) => renderImgGenCardHTML(task),
         renderMinimap: () => renderMinimap(),
-        renderStageRail: (tasks) => renderImgGenStageRail(tasks),
         renderVideoCardHTML: (task) => renderVideoTaskCardHTML(task),
         resolveTaskIdFromCardElement: (cardEl) => resolveTaskIdFromCardElement(cardEl),
-        scheduleStageRailRender: (delay) => scheduleImgGenStageRailRender(delay),
         scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
         setTaskShadow: (task) => setTaskShadow(task),
         shouldRefreshCard: (cardEl, task, syncSnapshot) => window.VeoCanvasCards.shouldRefresh(cardEl, task, syncSnapshot),
@@ -532,24 +450,15 @@ window.VeoCanvasInteractions.configure({
     transform,
     selection: canvasSelection,
     hooks: {
-        activateImageStageTask: (task) => {
-            if (!task || task.type !== 'tool_image_gen') return;
-            activeImgGenStageTaskId = task.id;
-            if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
-        },
         applyCanvasTransform: (options) => applyCanvasTransform(options),
         buildSelectionCandidates: () => buildSelectionCandidates(),
-        canDockToStage: (dragInfo, clientX, clientY) => canDragInfoDockToImgGenStage(dragInfo, clientX, clientY),
         cancelCameraAnimation: () => cancelCameraAnimation(),
         cancelCanvasInertia: () => cancelCanvasInertia(),
         checkGroupDrop: (dragInfo) => checkGroupDrop(dragInfo),
         clearSelection: () => clearSelection(),
         deleteSelectedTasks: () => deleteSelectedTasks(),
-        dockToStage: (dragInfo) => dockImgGenCardToStage(dragInfo),
         duplicateSelectedTasks: () => duplicateSelectedTasks(),
         duplicateTask: (task, event) => duplicateTask(task, event),
-        isPointInStageRail: (clientX, clientY) => isPointInImgGenStageRail(clientX, clientY),
-        isPointNearStageRail: (clientX, clientY) => isPointNearImgGenStageRail(clientX, clientY),
         isTaskSelected: (taskId) => selectedTasks.has(taskId),
         nextZIndex: () => {
             highestZIndex++;
@@ -563,7 +472,6 @@ window.VeoCanvasInteractions.configure({
         saveTask: (task) => saveTaskDB(task),
         scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
         setCanvasMoving: (active) => setCanvasMoving(active),
-        setStageDragOver: (isOver) => setImgGenStageDragOver(isOver),
         showToast: (message, type) => showToast(message, type),
         startCanvasInertia: () => startCanvasInertia(),
         syncCardViewportMetrics: (cardEl, task) => syncCardViewportMetrics(cardEl, task),
@@ -906,10 +814,6 @@ function focusTaskById(taskId) {
     el.style.zIndex = highestZIndex;
     updateSelectionToolbar();
     focusSelectedTasks();
-    if (task.type === 'tool_image_gen') {
-        activeImgGenStageTaskId = taskId;
-        scheduleImgGenStageRailRender(40);
-    }
 }
 
 async function deleteSelectedTasks() {
@@ -928,10 +832,8 @@ function handleMinimapClick(e) {
     return window.VeoMinimap.handleClick(e);
 }
 
-let lightboxEl = null;
 function openLightbox(src) {
-    if (!lightboxEl) { lightboxEl = document.createElement('div'); lightboxEl.className = 'image-lightbox'; lightboxEl.innerHTML = `<img>`; lightboxEl.onclick = () => { lightboxEl.classList.remove('show'); setTimeout(() => lightboxEl.style.display = 'none', 200); }; document.body.appendChild(lightboxEl); }
-    lightboxEl.querySelector('img').src = src; lightboxEl.style.display = 'flex'; lightboxEl.offsetHeight; lightboxEl.classList.add('show');
+    return window.VeoAppShell.openLightbox(src);
 }
 
 window.VeoWorkspaceInputs.bindClipboardIngest();
@@ -1126,8 +1028,6 @@ async function duplicateTask(originalTask, mouseEvent) {
             initialX: toFiniteNumber(newCardEl.__veoTask.x, clone.x),
             initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y),
             fromCanvasCard: true,
-            startedInsideStageRail: isPointInImgGenStageRail(dragStartX, dragStartY),
-            startedNearStageRail: isPointNearImgGenStageRail(dragStartX, dragStartY),
             justCreated: true
         });
     } else {
@@ -1194,8 +1094,6 @@ function ensureImgGenState(task) {
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
     if (!task.state.moderation) task.state.moderation = 'auto';
-    task.state.stageDocked = false;
-    task.state.stageReleased = false;
     task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.proRatio) task.state.proRatio = '1:1';

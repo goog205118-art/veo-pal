@@ -8,7 +8,7 @@
     function getSelectedCanvasElements(selectedTaskIds) {
         return Array.from(selectedTaskIds || [])
             .map((id) => document.getElementById('card-' + id))
-            .filter((el) => el && !el.classList.contains('hidden-in-frame') && !el.classList.contains('is-stage-docked'));
+            .filter((el) => el && !el.classList.contains('hidden-in-frame'));
     }
 
     function normalizeActions(actions) {

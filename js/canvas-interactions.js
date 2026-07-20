@@ -89,7 +89,6 @@
         dragInfo.task.x = dragBaseX + dx;
         dragInfo.task.y = dragBaseY + dy;
         dragInfo.el.style.transform = `translate3d(${dragInfo.task.x}px, ${dragInfo.task.y}px, 0)`;
-        callHook('setStageDragOver', callHook('canDockToStage', dragInfo, e.clientX, e.clientY));
         dragSelectedChildren(dx, dy);
         callHook('requestSelectionToolbarUpdate');
     }
@@ -157,12 +156,6 @@
         if (!state.draggingCardInfo) return;
         const dragInfo = state.draggingCardInfo;
         dragInfo.el.style.willChange = 'auto';
-        const dockedToStage = await callHook('dockToStage', dragInfo);
-        if (dockedToStage) {
-            state.draggingCardInfo = null;
-            return;
-        }
-        callHook('setStageDragOver', false);
         callHook('syncCardViewportMetrics', dragInfo.el, dragInfo.task);
         await callHook('saveTask', dragInfo.task);
 
@@ -286,7 +279,6 @@
         cardEl.onmousedown = (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             cardEl.style.zIndex = callHook('nextZIndex');
-            if (task.type === 'tool_image_gen') callHook('activateImageStageTask', task);
         };
 
         const header = cardEl.querySelector('.card-header');
@@ -307,7 +299,6 @@
 
             cardEl.style.zIndex = callHook('nextZIndex');
             cardEl.style.willChange = 'transform';
-            if (task.type === 'tool_image_gen') callHook('activateImageStageTask', task);
             if (e.shiftKey || e.ctrlKey || e.metaKey) {
                 if (state.selection) state.selection.toggleTask(task.id, cardEl);
             } else if (!callHook('isTaskSelected', task.id)) {
@@ -322,8 +313,6 @@
                 initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
                 initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0),
                 fromCanvasCard: true,
-                startedInsideStageRail: callHook('isPointInStageRail', e.clientX, e.clientY),
-                startedNearStageRail: callHook('isPointNearStageRail', e.clientX, e.clientY),
                 justCreated: false
             };
 

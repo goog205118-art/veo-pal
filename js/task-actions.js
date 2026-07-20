@@ -65,9 +65,7 @@
                 cardWidthOpen: 680,
                 cardWidthCollapsed: 360,
                 cardHeight: 520,
-                autoRetry: false,
-                stageDocked: false,
-                stageReleased: false
+                autoRetry: false
             },
             retryCount: 0
         };
@@ -145,8 +143,6 @@
         clone.state.maskImage = null;
         clone.state.maskBlob = null;
         clone.state.maskEditMode = false;
-        clone.state.stageDocked = false;
-        clone.state.stageReleased = false;
         clone.genTaskId = null;
         clone.retryCount = 0;
         clone.isBilled = false;

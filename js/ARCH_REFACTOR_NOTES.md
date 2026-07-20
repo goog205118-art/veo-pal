@@ -10,6 +10,7 @@
 - js/db.js
 - js/api-client.js
 - js/dom-utils.js
+- js/app-shell.js
 - js/task-cache.js
 - js/canvas-camera.js
 - js/canvas-selection.js
@@ -189,10 +190,16 @@
 - `js/image-submit.js` now focuses more on submit orchestration and preview persistence.
 - Entry pages now load `js/image-request.js` before `js/image-submit.js`.
 
+## App Shell Layer Changes (Compatible)
+- Added `window.VeoAppShell` for toast, tooltip, help modal, auth-error, alert, and lightbox helpers.
+- `js/app.js` keeps existing global names as compatibility wrappers for inline handlers.
+- Entry pages load `js/app-shell.js` before `js/app.js`.
+
 ## Image Route Slimming
 - Removed the retired image channel from UI labels, task defaults, request payloads, polling payloads, and billing metadata.
 - Image generation now normalizes to the GPT Image 2 unified route only.
 - Removed V1-4 variant node creation and preview-to-cropper actions to avoid spawning retired frame/cropper workflow nodes.
+- Removed the retired image stage rail/docking workflow branch from app orchestration, canvas rendering, drag interactions, minimap filtering, selection filtering, task lifecycle cleanup, and CSS.
 - Kept `RETIRED_NODE_TYPES` as a migration guard so existing old node data stays filtered.
 
 ## Runtime Validation
@@ -200,6 +207,7 @@
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
 - `node --check js/dom-utils.js`: pass
+- `node --check js/app-shell.js`: pass
 - `node --check js/task-cache.js`: pass
 - `node --check js/canvas-camera.js`: pass
 - `node --check js/canvas-selection.js`: pass

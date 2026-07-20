@@ -70,7 +70,7 @@
         const draggingCardInfo = callHook('getDraggingCardInfo');
         document.querySelectorAll('.canvas-board > .video-card').forEach((cardEl) => {
             const task = cardEl.__veoTask;
-            if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('is-stage-docked') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
+            if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
                 cardEl.classList.remove('is-viewport-culled');
                 return;
             }
