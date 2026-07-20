@@ -2207,31 +2207,11 @@ async function deleteMaterial(e, id) {
     return window.VeoMaterials.deleteOne(e, id);
 }
 
-async function updateBillingUI() { const stats = await getBillingStats(); const txtEl = document.getElementById('top-bill-text'); if(txtEl) txtEl.innerText = `￥${stats.totalCost}`; }
-async function openBillingModal() {
-    const stats = await getBillingStats(); document.getElementById('bill-total').innerText = '￥' + stats.totalCost; document.getElementById('bill-video-count').innerText = stats.videoCount; document.getElementById('bill-image-count').innerText = stats.imageCount;
-    const modal = document.getElementById('billing-modal'); modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show');
-}
-function closeBillingModal() { const modal = document.getElementById('billing-modal'); modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300); }
-
-function updateEstimatedCost() {
-    const state = globalStore.getState();
-    const modelValue = String(state.model || '');
-    let cost = 0.35;
-    if (modelValue.toLowerCase().includes('4k')) {
-        cost = 0.50;
-    } else if (modelValue.toLowerCase().includes('lite')) { // 🌟 兼容特惠模型 fast-lite-1.0
-        cost = 0.20;
-    }
-
-    const batchSelect = document.getElementById('batch-select');
-    const batch = batchSelect ? parseInt(batchSelect.value) : 1;
-    const total = (cost * batch).toFixed(2);
-
-    const btn = document.getElementById('generate-btn');
-    if (btn) btn.setAttribute('data-tip', `发送至服务器生成 | 预估消耗: ￥${total}`);
-}
-function updateBatchCount(select) { document.getElementById('batch-text').innerText = select.options[select.selectedIndex].text; updateEstimatedCost(); }
+async function updateBillingUI() { return window.VeoBilling.updateTopBar(); }
+async function openBillingModal() { return window.VeoBilling.openModal(); }
+function closeBillingModal() { return window.VeoBilling.closeModal(); }
+function updateEstimatedCost() { return window.VeoBilling.updateEstimatedCost(); }
+function updateBatchCount(select) { return window.VeoBilling.updateBatchCount(select); }
 
 async function alignSelectedCards() {
     const tasks = await getAllTasksDB();

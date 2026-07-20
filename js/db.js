@@ -12,8 +12,8 @@ let taskSaveFlushTimer = null;
 
 function initDB() {
     return new Promise((resolve, reject) => {
-        // 🌟 数据库无损升级至版本 4，接入 Flow 工作区表
-        const request = indexedDB.open(DB_NAME, 4);
+        // 数据库升级至版本 5，移除已下线的旧工作区仓库。
+        const request = indexedDB.open(DB_NAME, 5);
 
         request.onupgradeneeded = (e) => {
             let database = e.target.result;
@@ -26,11 +26,10 @@ function initDB() {
             if (!database.objectStoreNames.contains('billing')) {
                 database.createObjectStore('billing', { keyPath: 'id' });
             }
-            // 3. 🚀 新增：节点工作区数据表 (保存整个画布的拓扑结构)
-            if (!database.objectStoreNames.contains('flow_workspaces')) {
-                database.createObjectStore('flow_workspaces', { keyPath: 'id' });
+            if (database.objectStoreNames.contains('flow_workspaces')) {
+                database.deleteObjectStore('flow_workspaces');
             }
-            // 4. 🚀 新增：全局素材共享库 (打通双工作区的核心)
+            // 3. 全局素材共享库
             if (!database.objectStoreNames.contains('material_store')) {
                 const materialStore = database.createObjectStore('material_store', { keyPath: 'id' });
                 materialStore.createIndex('timestamp', 'timestamp', { unique: false });

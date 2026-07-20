@@ -11,6 +11,7 @@
 - js/api-client.js
 - js/media-utils.js
 - js/material-library.js
+- js/billing.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -66,12 +67,19 @@
 - `js/app.js` keeps the previous inline handler names while delegating material-library behavior to `js/material-library.js`.
 - Entry pages now load `js/material-library.js` before `js/app.js`.
 
+## Billing UI Layer Changes (Compatible)
+- Added `window.VeoBilling` for the billing top bar, billing modal, video cost estimate, and batch-count UI.
+- `js/app.js` keeps the previous inline handler names while delegating billing UI behavior to `js/billing.js`.
+- Entry pages now load `js/billing.js` before `js/app.js`.
+- IndexedDB upgraded to version 5 and deletes the retired `flow_workspaces` object store during upgrade.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/material-library.js`: pass
+- `node --check js/billing.js`: pass
 - `node --check js/app.js`: pass
 - Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
@@ -81,5 +89,5 @@
 
 ## Next Suggested Refactor Steps
 1. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
-2. Extract billing/task polling modules so model routing and usage tracking can evolve independently.
+2. Extract task polling modules so model routing and usage tracking can evolve independently.
 3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.
