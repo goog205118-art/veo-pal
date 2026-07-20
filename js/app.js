@@ -328,7 +328,6 @@ let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = fals
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let selectionCandidates = [];
-let selectionToolbarFrame = 0;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
@@ -798,70 +797,34 @@ function scheduleViewportCulling(delay = 120) {
     cullTimer = setTimeout(updateViewportCulling, Math.max(0, delay));
 }
 
+function getSelectionToolbarContext() {
+    return {
+        selectedTaskIds: Array.from(selectedTasks),
+        isPanning,
+        isSelecting,
+        actions: {
+            focus: focusSelectedTasks,
+            duplicate: duplicateSelectedTasks,
+            delete: deleteSelectedTasks,
+            clear: clearSelection
+        }
+    };
+}
+
 function getSelectedCanvasElements() {
-    return Array.from(selectedTasks)
-        .map((id) => document.getElementById('card-' + id))
-        .filter((el) => el && !el.classList.contains('hidden-in-frame') && !el.classList.contains('is-stage-docked'));
+    return window.VeoSelectionToolbar.getSelectedCanvasElements(Array.from(selectedTasks));
 }
 
 function ensureSelectionToolbar() {
-    let toolbar = document.getElementById('canvas-selection-toolbar');
-    if (toolbar) return toolbar;
-    toolbar = document.createElement('div');
-    toolbar.id = 'canvas-selection-toolbar';
-    toolbar.className = 'canvas-selection-toolbar';
-    toolbar.innerHTML = `
-        <button type="button" data-action="focus" data-tip="聚焦选中节点"><span class="material-symbols-outlined">center_focus_strong</span></button>
-        <button type="button" data-action="duplicate" data-tip="复制选中节点"><span class="material-symbols-outlined">content_copy</span></button>
-        <button type="button" data-action="delete" data-tip="删除选中节点"><span class="material-symbols-outlined">delete</span></button>
-        <button type="button" data-action="clear" data-tip="取消选择"><span class="material-symbols-outlined">close</span></button>
-    `;
-    toolbar.addEventListener('mousedown', (event) => event.stopPropagation());
-    toolbar.addEventListener('click', async (event) => {
-        const button = event.target.closest('button[data-action]');
-        if (!button) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const action = button.dataset.action;
-        if (action === 'focus') focusSelectedTasks();
-        if (action === 'duplicate') await duplicateSelectedTasks();
-        if (action === 'delete') await deleteSelectedTasks();
-        if (action === 'clear') clearSelection();
-    });
-    document.body.appendChild(toolbar);
-    return toolbar;
+    return window.VeoSelectionToolbar.ensureSelectionToolbar(getSelectionToolbarContext().actions);
 }
 
 function updateSelectionToolbar() {
-    const toolbar = ensureSelectionToolbar();
-    const elements = getSelectedCanvasElements().filter((el) => !el.classList.contains('is-viewport-culled'));
-    if (elements.length === 0 || isPanning || isSelecting) {
-        toolbar.classList.remove('show');
-        return;
-    }
-    const rects = elements.map((el) => el.getBoundingClientRect()).filter((rect) => rect.width > 0 && rect.height > 0);
-    if (rects.length === 0) {
-        toolbar.classList.remove('show');
-        return;
-    }
-    const bounds = rects.reduce((acc, rect) => ({
-        left: Math.min(acc.left, rect.left),
-        top: Math.min(acc.top, rect.top),
-        right: Math.max(acc.right, rect.right),
-        bottom: Math.max(acc.bottom, rect.bottom)
-    }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
-    const x = Math.max(86, Math.min(window.innerWidth - 86, (bounds.left + bounds.right) / 2));
-    const y = Math.max(14, bounds.top - 48);
-    toolbar.style.transform = `translate(${x}px, ${y}px) translateX(-50%)`;
-    toolbar.classList.add('show');
+    return window.VeoSelectionToolbar.updateSelectionToolbar(getSelectionToolbarContext());
 }
 
 function requestSelectionToolbarUpdate() {
-    if (selectionToolbarFrame) return;
-    selectionToolbarFrame = requestAnimationFrame(() => {
-        selectionToolbarFrame = 0;
-        updateSelectionToolbar();
-    });
+    return window.VeoSelectionToolbar.requestSelectionToolbarUpdate(getSelectionToolbarContext());
 }
 
 function buildSelectionCandidates() {

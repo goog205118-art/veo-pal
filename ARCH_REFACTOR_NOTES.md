@@ -11,6 +11,7 @@
 - js/api-client.js
 - js/dom-utils.js
 - js/task-cache.js
+- js/selection-toolbar.js
 - js/media-utils.js
 - js/image-core.js
 - js/image-request.js
@@ -70,6 +71,11 @@
 - Removed task shadow maps and prompt draft timers from `js/app.js` while preserving `setTaskShadow`, `getTaskShadow`, `updateImgGenPromptDraft`, and related global handler names.
 - Entry pages now load `js/task-cache.js` before image, video, and app orchestration scripts.
 
+## Selection Toolbar Layer Changes (Compatible)
+- Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
+- Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
+- Entry pages now load `js/selection-toolbar.js` immediately before `js/app.js`.
+
 ## Media Utility Layer Changes (Compatible)
 - Added `window.VeoMedia` for image generation route config, reference intent metadata, media encoding helpers, and image metadata reads.
 - `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
@@ -102,6 +108,7 @@
 - `node --check js/api-client.js`: pass
 - `node --check js/dom-utils.js`: pass
 - `node --check js/task-cache.js`: pass
+- `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
 - `node --check js/image-request.js`: pass
