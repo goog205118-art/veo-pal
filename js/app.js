@@ -478,6 +478,43 @@ window.VeoTaskLifecycle.configure({
         updateSelectionToolbar: () => updateSelectionToolbar()
     }
 });
+window.VeoCanvasRenderer.configure({
+    hooks: {
+        applyImageCardFrame: (cardEl, task) => applyImgGenCardFrame(cardEl, task),
+        applySyncAttributes: (cardEl, task, syncSnapshot) => window.VeoCanvasCards.applySyncAttributes(cardEl, task, syncSnapshot),
+        bindCardDrag: (cardEl, task) => bindCardDrag(cardEl, task),
+        bindImageCardResizeSave: (cardEl, task) => bindImgGenCardResizeSave(cardEl, task),
+        deselectTask: (taskId) => selectedTasks.delete(taskId),
+        destroyMaskEditor: (taskId) => destroyImgMaskEditor(taskId),
+        destroyMaskStudio: (taskId) => destroyImgMaskStudio(taskId),
+        ensureVideoPollingTask: (task) => window.VeoVideoTasks.ensurePollingTask(task),
+        getAllTasks: () => getAllTasksDB(),
+        getBoardElement: () => board,
+        getSyncSnapshot: (task) => window.VeoCanvasCards.getSyncSnapshot(task),
+        getTask: (taskId) => getTaskDB(taskId),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        hasImagePolling: (taskId, previewItemId) => hasImgGenPolling(taskId, previewItemId),
+        isRetiredTaskType: (taskType) => RETIRED_NODE_TYPES.has(taskType),
+        isStageDocked: (task) => isImgGenTaskStageDocked(task),
+        mergeImageTaskWithShadow: (task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }),
+        morphCardDOM: (cardEl, html) => morphCardDOM(cardEl, html),
+        normalizeTaskPosition: (task) => normalizeTaskPosition(task),
+        renderImageCardHTML: (task) => renderImgGenCardHTML(task),
+        renderMinimap: () => renderMinimap(),
+        renderStageRail: (tasks) => renderImgGenStageRail(tasks),
+        renderVideoCardHTML: (task) => renderVideoTaskCardHTML(task),
+        resolveTaskIdFromCardElement: (cardEl) => resolveTaskIdFromCardElement(cardEl),
+        scheduleStageRailRender: (delay) => scheduleImgGenStageRailRender(delay),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        setTaskShadow: (task) => setTaskShadow(task),
+        shouldRefreshCard: (cardEl, task, syncSnapshot) => window.VeoCanvasCards.shouldRefresh(cardEl, task, syncSnapshot),
+        startImagePolling: (taskId, remoteTaskId, previewItemId) => startImgGenTaskPolling(taskId, remoteTaskId, previewItemId),
+        syncCardViewportMetrics: (cardEl, task) => syncCardViewportMetrics(cardEl, task),
+        syncMaskEditor: (cardEl, task) => syncImgMaskEditor(cardEl, task),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
+        updateSelectionToolbar: () => updateSelectionToolbar()
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1159,32 +1196,7 @@ function bindImgGenCardResizeSave(cardEl, task) {
 }
 
 async function renderCard(taskId, taskOverride = null) {
-    let task = taskOverride || await getTaskDB(taskId); if (!task) return;
-    if (task.type === 'tool_image_gen') {
-        const shadowTask = getTaskShadow(taskId);
-        task = mergeImgGenTaskWithShadow(task, shadowTask, { protectedIds: getImgGenProtectedPreviewIds(taskId) });
-    }
-    setTaskShadow(task);
-    const cardEl = document.getElementById('card-' + taskId); if (!cardEl) return;
-
-    // 仅重绘当前的这一张卡片
-    morphCardDOM(cardEl, generateCardHTML(task));
-    applyImgGenCardFrame(cardEl, task);
-    const isStageDocked = isImgGenTaskStageDocked(task);
-    cardEl.classList.toggle('is-stage-docked', isStageDocked);
-    if (isStageDocked) {
-        selectedTasks.delete(task.id);
-        cardEl.classList.remove('selected');
-    }
-    syncImgMaskEditor(cardEl, task).catch(() => {});
-    bindImgGenCardResizeSave(cardEl, task);
-    bindCardDrag(cardEl, task);
-    syncCardViewportMetrics(cardEl, task);
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-
-    window.VeoCanvasCards.applySyncAttributes(cardEl, task);
-    if (task.type === 'tool_image_gen' && isStageDocked) scheduleImgGenStageRailRender(40);
+    return window.VeoCanvasRenderer.renderCard(taskId, taskOverride);
 }
 
 function bindMainConsoleDrop(slotId, stateKey) {
@@ -1383,93 +1395,12 @@ async function reuseTask(taskId) {
 }
 
 function generateCardHTML(task) {
-    if (RETIRED_NODE_TYPES.has(task.type)) return '';
-
-    if (task.type === 'tool_image_gen') return renderImgGenCardHTML(task);
-
-    return renderVideoTaskCardHTML(task);
+    return window.VeoCanvasRenderer.generateCardHTML(task);
 }
 
 // 🌟 初次挂载与排版专用的全局刷新函数
 async function renderBoard() {
-    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !RETIRED_NODE_TYPES.has(t.type)), boardTaskIds = new Set(boardTasks.map(t => 'card-' + t.id));
-    const existingCards = Array.from(board.children); existingCards.forEach(card => {
-        if (!boardTaskIds.has(card.id)) {
-            const removedTaskId = resolveTaskIdFromCardElement(card);
-            if (removedTaskId) {
-                destroyImgMaskStudio(removedTaskId);
-                destroyImgMaskEditor(removedTaskId);
-            }
-            card.remove();
-        }
-    });
-
-    boardTasks.forEach(task => {
-        if (task && task.type === 'tool_image_gen') {
-            task = mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) });
-        }
-        normalizeTaskPosition(task);
-        setTaskShadow(task);
-        let cardEl = document.getElementById('card-' + task.id);
-        const syncSnapshot = window.VeoCanvasCards.getSyncSnapshot(task);
-
-        let isHiddenInFrame = false;
-        const isStageDocked = isImgGenTaskStageDocked(task);
-
-        if (!cardEl) {
-            cardEl = document.createElement('div'); cardEl.id = 'card-' + task.id;
-
-            cardEl.className = task.type === 'tool_image_gen' ? 'video-card tool-image-gen' : 'video-card';
-
-            cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl);
-            applyImgGenCardFrame(cardEl, task);
-            syncImgMaskEditor(cardEl, task).catch(() => {});
-            bindImgGenCardResizeSave(cardEl, task);
-            window.VeoVideoTasks.ensurePollingTask(task);
-        } else {
-            cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
-
-            if (window.VeoCanvasCards.shouldRefresh(cardEl, task, syncSnapshot)) {
-                morphCardDOM(cardEl, generateCardHTML(task));
-            }
-            applyImgGenCardFrame(cardEl, task);
-            syncImgMaskEditor(cardEl, task).catch(() => {});
-            bindImgGenCardResizeSave(cardEl, task);
-        }
-
-        if (task.type === 'tool_image_gen' && task.status === 'processing') {
-            const pendingItems = Array.isArray(task.state && task.state.previewHistory)
-                ? task.state.previewHistory.filter((entry) => entry && entry.status === 'pending' && entry.remoteTaskId)
-                : [];
-            if (pendingItems.length > 0) {
-                pendingItems.forEach((entry) => {
-                    if (!hasImgGenPolling(task.id, entry.id)) {
-                        startImgGenTaskPolling(task.id, entry.remoteTaskId, entry.id);
-                    }
-                });
-            } else if (task.genTaskId && !hasImgGenPolling(task.id)) {
-                startImgGenTaskPolling(task.id, task.genTaskId, task.genTaskId);
-            }
-        }
-
-        if (isHiddenInFrame) cardEl.classList.add('hidden-in-frame'); else cardEl.classList.remove('hidden-in-frame');
-        cardEl.classList.toggle('is-stage-docked', isStageDocked);
-        if (isStageDocked) {
-            selectedTasks.delete(task.id);
-            cardEl.classList.remove('selected');
-        }
-        cardEl.classList.toggle('is-auto-retrying', task.status === 'processing' && toFiniteNumber(task.retryCount, 0) > 0);
-
-        bindCardDrag(cardEl, task);
-        syncCardViewportMetrics(cardEl, task);
-
-        window.VeoCanvasCards.applySyncAttributes(cardEl, task, syncSnapshot);
-    });
-
-    renderMinimap();
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-    renderImgGenStageRail(boardTasks).catch(() => {});
+    return window.VeoCanvasRenderer.renderBoard();
 }
 
 async function removeTask(id) {

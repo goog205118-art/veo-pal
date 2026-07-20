@@ -21,6 +21,7 @@
 - js/canvas-cards.js
 - js/task-actions.js
 - js/task-lifecycle.js
+- js/canvas-renderer.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/image-core.js
@@ -133,6 +134,12 @@
 - Batch delete now fetches all tasks once before removing direct children, avoiding repeated IndexedDB scans on large workspaces.
 - Entry pages now load `js/task-lifecycle.js` after task actions and before selection toolbar/app orchestration scripts.
 
+## Canvas Renderer Layer Changes (Compatible)
+- Added `window.VeoCanvasRenderer` for card HTML dispatch, single-card refresh, board reconciliation, polling resume, and post-render canvas refresh.
+- Reduced `js/app.js` `renderCard`, `generateCardHTML`, and `renderBoard` to compatibility adapters while preserving global callers from image/video modules.
+- Canvas rendering is now a replaceable layer for the upcoming workspace UI redesign.
+- Entry pages now load `js/canvas-renderer.js` after task lifecycle and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -180,6 +187,7 @@
 - `node --check js/canvas-cards.js`: pass
 - `node --check js/task-actions.js`: pass
 - `node --check js/task-lifecycle.js`: pass
+- `node --check js/canvas-renderer.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
