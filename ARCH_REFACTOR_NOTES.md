@@ -23,6 +23,7 @@
 - js/canvas-context-menu.js
 - js/canvas-cards.js
 - js/image-reference-ui.js
+- js/image-preview-ui.js
 - js/image-render.js
 - js/image-normalize.js
 - js/task-actions.js
@@ -146,6 +147,11 @@
 - Reduced `js/image-ui.js` by moving the reusable reference/prompt control surface into its own UI module.
 - Entry pages now load `js/image-reference-ui.js` after mask editor helpers and before the main image card UI.
 
+## Image Preview UI Layer Changes (Compatible)
+- Added `window.VeoImagePreviewUI` for pending, failed, and successful preview feed item rendering.
+- Reduced `js/image-ui.js` by moving preview feed markup and sorting into a dedicated preview UI module.
+- Entry pages now load `js/image-preview-ui.js` after reference UI helpers and before the main image card UI.
+
 ## Image Normalize Layer Changes (Compatible)
 - Added `window.VeoImageNormalize` for image route normalization, model mapping, route reference limits, and image-generation task state defaults.
 - Reduced `js/app.js` image state normalization helpers to compatibility adapters while keeping existing global callers stable.
@@ -240,6 +246,7 @@
 - `node --check js/canvas-context-menu.js`: pass
 - `node --check js/canvas-cards.js`: pass
 - `node --check js/image-reference-ui.js`: pass
+- `node --check js/image-preview-ui.js`: pass
 - `node --check js/image-render.js`: pass
 - `node --check js/image-normalize.js`: pass
 - `node --check js/task-actions.js`: pass
