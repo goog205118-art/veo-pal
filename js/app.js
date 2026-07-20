@@ -422,6 +422,35 @@ window.VeoCanvasCards.configure({
         toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
     }
 });
+window.VeoTaskActions.configure({
+    hooks: {
+        clearSelection: () => clearSelection(),
+        clientToBoard: (clientX, clientY) => clientToBoard(clientX, clientY),
+        cloneTask: (task) => cloneTaskDeep(task),
+        createImagePreviewId: () => createImgGenPreviewId(),
+        ensureImageState: (task) => ensureImgGenState(task),
+        getImagePreviewLimit: () => IMG_GEN_PREVIEW_LIMIT,
+        getSelectedTaskIds: () => Array.from(selectedTasks),
+        getTask: (taskId) => getTaskDB(taskId),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        getTaskShadow: (taskId) => getTaskShadow(taskId),
+        getViewportRect: () => viewport && typeof viewport.getBoundingClientRect === 'function'
+            ? viewport.getBoundingClientRect()
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+        nextZIndex: () => {
+            highestZIndex++;
+            return highestZIndex;
+        },
+        recalcImageTaskStatus: (task) => recalcImgGenTaskStatus(task),
+        renderBoard: () => renderBoard(),
+        saveTask: (task) => saveTaskDB(task),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        selectTask: (taskId, el) => canvasSelection.selectTask(taskId, el),
+        showToast: (message, type) => showToast(message, type),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
+        updateSelectionToolbar: () => updateSelectionToolbar()
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -471,73 +500,11 @@ function getTaskFallbackSize(task) {
 }
 
 function createDefaultImageGenTask(spawnX, spawnY) {
-    return {
-        id: 'tool_img_' + Date.now(),
-        type: 'tool_image_gen',
-        x: toFiniteNumber(spawnX, 0),
-        y: toFiniteNumber(spawnY, 0),
-        timestamp: Date.now(),
-        status: 'idle',
-        state: {
-            version: 'pro',
-            providerSort: 'ai666',
-            modelSuffix: '',
-            routeMode: 'ai666',
-            imageModel: 'gpt-image-2',
-            quality: 'auto',
-            format: 'png',
-            n: 1,
-            size: '1024x1024',
-            proRatio: '1:1',
-            proResolution: '1k',
-            customW: 9,
-            customH: 16,
-            background: 'auto',
-            moderation: 'auto',
-            prompt: '',
-            images: [],
-            refControls: [],
-            seedLocked: false,
-            seed: '',
-            maskImage: null,
-            maskBlob: null,
-            maskEditMode: false,
-            maskBrushSize: 20,
-            maskStageHeight: 220,
-            resultUrl: null,
-            resultBlob: null,
-            resultBlobs: [],
-            previewCollapsed: false,
-            paramsCollapsed: true,
-            imgGenUiV2: true,
-            cardWidthOpen: 680,
-            cardWidthCollapsed: 360,
-            cardHeight: 520,
-            autoRetry: false,
-            stageDocked: false,
-            stageReleased: false
-        },
-        retryCount: 0
-    };
+    return window.VeoTaskActions.createDefaultImageGenTask(spawnX, spawnY);
 }
 
 async function createImageGenNode(x = NaN, y = NaN) {
-    let spawnX = toFiniteNumber(x, NaN);
-    let spawnY = toFiniteNumber(y, NaN);
-    if (!Number.isFinite(spawnX) || !Number.isFinite(spawnY)) {
-        const rect = viewport && typeof viewport.getBoundingClientRect === 'function'
-            ? viewport.getBoundingClientRect()
-            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-        const center = clientToBoard(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        spawnX = center.x - 340;
-        spawnY = center.y - 260;
-    }
-    const task = createDefaultImageGenTask(spawnX, spawnY);
-    ensureImgGenState(task);
-    await saveTaskDB(task);
-    await renderBoard();
-    showToast('已新建 AI 生图节点', 'success');
-    return task;
+    return window.VeoTaskActions.createImageGenNode(x, y);
 }
 
 function measureTaskAABB(task) {
@@ -989,84 +956,15 @@ function bindCardDrag(cardEl, task) {
 }
 
 function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
-    if (!originalTask || typeof originalTask !== 'object') return null;
-    const baseType = originalTask.type ? originalTask.type : 'task';
-    const clone = cloneTaskDeep(originalTask) || { ...originalTask };
-    clone.id = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    clone.timestamp = Date.now();
-    delete clone.parentId;
-
-    if (clone.type === 'tool_image_gen') {
-        sanitizeImgGenCloneState(clone);
-    }
-    normalizeTaskPosition(clone);
-    clone.x += offsetX;
-    clone.y += offsetY;
-    return clone;
+    return window.VeoTaskActions.buildDuplicateTaskPayload(originalTask, offsetX, offsetY);
 }
 
 function sanitizeImgGenCloneState(clone) {
-    if (!clone || clone.type !== 'tool_image_gen') return clone;
-    ensureImgGenState(clone);
-    const successHistory = Array.isArray(clone.state.previewHistory)
-        ? clone.state.previewHistory
-            .filter((item) => item && item.status === 'success' && item.image)
-            .slice(-IMG_GEN_PREVIEW_LIMIT)
-            .map((item) => ({
-                ...item,
-                id: createImgGenPreviewId(),
-                status: 'success',
-                remoteTaskId: '',
-                errorReason: ''
-            }))
-        : [];
-    clone.state.previewHistory = successHistory;
-    clone.state.resultBlobs = successHistory.map((item) => item.image).filter(Boolean);
-    clone.state.resultBlob = clone.state.resultBlobs.length ? clone.state.resultBlobs[clone.state.resultBlobs.length - 1] : null;
-    clone.state.resultUrl = null;
-    clone.state.startTime = null;
-    clone.state.nextSubmitAt = 0;
-    clone.state.maskImage = null;
-    clone.state.maskBlob = null;
-    clone.state.maskEditMode = false;
-    clone.state.stageDocked = false;
-    clone.state.stageReleased = false;
-    clone.genTaskId = null;
-    clone.retryCount = 0;
-    clone.isBilled = false;
-    recalcImgGenTaskStatus(clone);
-    if (clone.status === 'processing') clone.status = 'idle';
-    return clone;
+    return window.VeoTaskActions.sanitizeImgGenCloneState(clone);
 }
 
 async function duplicateSelectedTasks() {
-    const ids = Array.from(selectedTasks);
-    if (ids.length === 0) return;
-    const clones = [];
-    for (let i = 0; i < ids.length; i++) {
-        const original = getTaskShadow(ids[i]) || await getTaskDB(ids[i]);
-        if (!original) continue;
-        const offset = 44 + i * 14;
-        const clone = buildDuplicateTaskPayload(original, offset, offset);
-        if (!clone) continue;
-        clones.push(clone);
-        await saveTaskDB(clone);
-    }
-    if (clones.length === 0) return;
-    await renderBoard();
-    clearSelection();
-    clones.forEach((clone) => {
-        const el = document.getElementById('card-' + clone.id);
-        canvasSelection.selectTask(clone.id, el);
-        if (el) {
-            el.classList.remove('is-viewport-culled');
-            highestZIndex++;
-            el.style.zIndex = highestZIndex;
-        }
-    });
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-    showToast(`已复制 ${clones.length} 个节点`, 'success');
+    return window.VeoTaskActions.duplicateSelectedTasks();
 }
 
 function getSelectedWorldBounds() {

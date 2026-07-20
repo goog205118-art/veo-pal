@@ -1,0 +1,197 @@
+// Canvas task creation, cloning, and selection-level actions.
+(function (window) {
+    'use strict';
+
+    const state = { hooks: {} };
+
+    function configure(options = {}) {
+        state.hooks = { ...state.hooks, ...(options.hooks || {}) };
+        return api;
+    }
+
+    function callHook(name, ...args) {
+        const fn = state.hooks && state.hooks[name];
+        if (typeof fn !== 'function') return undefined;
+        return fn(...args);
+    }
+
+    function toFiniteNumber(value, fallback = 0) {
+        const converter = state.hooks && state.hooks.toFiniteNumber;
+        if (typeof converter === 'function') return converter(value, fallback);
+        const number = Number(value);
+        return Number.isFinite(number) ? number : fallback;
+    }
+
+    function createDefaultImageGenTask(spawnX, spawnY) {
+        return {
+            id: 'tool_img_' + Date.now(),
+            type: 'tool_image_gen',
+            x: toFiniteNumber(spawnX, 0),
+            y: toFiniteNumber(spawnY, 0),
+            timestamp: Date.now(),
+            status: 'idle',
+            state: {
+                version: 'pro',
+                providerSort: 'ai666',
+                modelSuffix: '',
+                routeMode: 'ai666',
+                imageModel: 'gpt-image-2',
+                quality: 'auto',
+                format: 'png',
+                n: 1,
+                size: '1024x1024',
+                proRatio: '1:1',
+                proResolution: '1k',
+                customW: 9,
+                customH: 16,
+                background: 'auto',
+                moderation: 'auto',
+                prompt: '',
+                images: [],
+                refControls: [],
+                seedLocked: false,
+                seed: '',
+                maskImage: null,
+                maskBlob: null,
+                maskEditMode: false,
+                maskBrushSize: 20,
+                maskStageHeight: 220,
+                resultUrl: null,
+                resultBlob: null,
+                resultBlobs: [],
+                previewCollapsed: false,
+                paramsCollapsed: true,
+                imgGenUiV2: true,
+                cardWidthOpen: 680,
+                cardWidthCollapsed: 360,
+                cardHeight: 520,
+                autoRetry: false,
+                stageDocked: false,
+                stageReleased: false
+            },
+            retryCount: 0
+        };
+    }
+
+    function getDefaultViewportRect() {
+        const viewportRect = callHook('getViewportRect');
+        if (viewportRect) return viewportRect;
+        return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    }
+
+    async function createImageGenNode(x = NaN, y = NaN) {
+        let spawnX = toFiniteNumber(x, NaN);
+        let spawnY = toFiniteNumber(y, NaN);
+        if (!Number.isFinite(spawnX) || !Number.isFinite(spawnY)) {
+            const rect = getDefaultViewportRect();
+            const center = callHook('clientToBoard', rect.left + rect.width / 2, rect.top + rect.height / 2) || { x: 0, y: 0 };
+            spawnX = center.x - 340;
+            spawnY = center.y - 260;
+        }
+        const task = createDefaultImageGenTask(spawnX, spawnY);
+        callHook('ensureImageState', task);
+        await callHook('saveTask', task);
+        await callHook('renderBoard');
+        callHook('showToast', '已新建 AI 生图节点', 'success');
+        return task;
+    }
+
+    function normalizeTaskPosition(task) {
+        if (!task || typeof task !== 'object') return;
+        task.x = toFiniteNumber(task.x, 0);
+        task.y = toFiniteNumber(task.y, 0);
+    }
+
+    function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
+        if (!originalTask || typeof originalTask !== 'object') return null;
+        const baseType = originalTask.type ? originalTask.type : 'task';
+        const cloneTask = callHook('cloneTask', originalTask);
+        const clone = cloneTask || { ...originalTask };
+        clone.id = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        clone.timestamp = Date.now();
+        delete clone.parentId;
+
+        if (clone.type === 'tool_image_gen') {
+            sanitizeImgGenCloneState(clone);
+        }
+        normalizeTaskPosition(clone);
+        clone.x += offsetX;
+        clone.y += offsetY;
+        return clone;
+    }
+
+    function sanitizeImgGenCloneState(clone) {
+        if (!clone || clone.type !== 'tool_image_gen') return clone;
+        callHook('ensureImageState', clone);
+        const previewLimit = toFiniteNumber(callHook('getImagePreviewLimit'), 12);
+        const successHistory = Array.isArray(clone.state.previewHistory)
+            ? clone.state.previewHistory
+                .filter((item) => item && item.status === 'success' && item.image)
+                .slice(-previewLimit)
+                .map((item) => ({
+                    ...item,
+                    id: callHook('createImagePreviewId') || ('preview_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+                    status: 'success',
+                    remoteTaskId: '',
+                    errorReason: ''
+                }))
+            : [];
+        clone.state.previewHistory = successHistory;
+        clone.state.resultBlobs = successHistory.map((item) => item.image).filter(Boolean);
+        clone.state.resultBlob = clone.state.resultBlobs.length ? clone.state.resultBlobs[clone.state.resultBlobs.length - 1] : null;
+        clone.state.resultUrl = null;
+        clone.state.startTime = null;
+        clone.state.nextSubmitAt = 0;
+        clone.state.maskImage = null;
+        clone.state.maskBlob = null;
+        clone.state.maskEditMode = false;
+        clone.state.stageDocked = false;
+        clone.state.stageReleased = false;
+        clone.genTaskId = null;
+        clone.retryCount = 0;
+        clone.isBilled = false;
+        callHook('recalcImageTaskStatus', clone);
+        if (clone.status === 'processing') clone.status = 'idle';
+        return clone;
+    }
+
+    async function duplicateSelectedTasks() {
+        const ids = callHook('getSelectedTaskIds') || [];
+        if (ids.length === 0) return;
+        const clones = [];
+        for (let i = 0; i < ids.length; i++) {
+            const original = callHook('getTaskShadow', ids[i]) || await callHook('getTask', ids[i]);
+            if (!original) continue;
+            const offset = 44 + i * 14;
+            const clone = buildDuplicateTaskPayload(original, offset, offset);
+            if (!clone) continue;
+            clones.push(clone);
+            await callHook('saveTask', clone);
+        }
+        if (clones.length === 0) return;
+        await callHook('renderBoard');
+        callHook('clearSelection');
+        clones.forEach((clone) => {
+            const el = callHook('getTaskElement', clone.id);
+            callHook('selectTask', clone.id, el);
+            if (el) {
+                el.classList.remove('is-viewport-culled');
+                el.style.zIndex = callHook('nextZIndex');
+            }
+        });
+        callHook('scheduleViewportCulling', 40);
+        callHook('updateSelectionToolbar');
+        callHook('showToast', `已复制 ${clones.length} 个节点`, 'success');
+    }
+
+    const api = {
+        buildDuplicateTaskPayload,
+        configure,
+        createDefaultImageGenTask,
+        createImageGenNode,
+        duplicateSelectedTasks,
+        sanitizeImgGenCloneState
+    };
+
+    window.VeoTaskActions = api;
+})(window);

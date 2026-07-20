@@ -19,6 +19,7 @@
 - js/workspace-inputs.js
 - js/canvas-context-menu.js
 - js/canvas-cards.js
+- js/task-actions.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -120,6 +121,11 @@
 - Removed duplicate card refresh fingerprint logic from `renderCard` and `renderBoard` while preserving the existing compatibility helper names.
 - Entry pages now load `js/canvas-cards.js` after the context menu module and before selection toolbar/app orchestration scripts.
 
+## Task Action Layer Changes (Compatible)
+- Added `window.VeoTaskActions` for default image-node creation, selected-card duplication, and image-generation clone cleanup.
+- Reduced `js/app.js` task action helpers to compatibility adapters while keeping existing button, menu, and shortcut callers intact.
+- Entry pages now load `js/task-actions.js` after canvas cards and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -176,6 +182,7 @@
 - `node --check js/workspace-inputs.js`: pass
 - `node --check js/canvas-context-menu.js`: pass
 - `node --check js/canvas-cards.js`: pass
+- `node --check js/task-actions.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
