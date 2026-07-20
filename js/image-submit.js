@@ -168,70 +168,10 @@ async function submitImgGen(taskId) {
         ...unifiedPayloadCore
     };
 
-    const legacyPayload = {
-        prompt: finalPrompt,
-        size: sizeToSend,
-        channel: task.state.channel || 'channel_1',
-        model: imageModel,
-        imageModel: imageModel,
-        modelSuffix: route.suffix,
-        routeMode: route.mode,
-        ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
-        aspect_ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
-        resolution: version === 'pro' ? (task.state.proResolution || '1k') : '1k',
-        proRatio: task.state.proRatio || '1:1',
-        proResolution: task.state.proResolution || '1k',
-        n: nValue,
-        quality: task.state.quality || 'auto',
-        format: task.state.format || 'png',
-        output_format: task.state.format || 'png',
-        outputCompression,
-        output_compression: outputCompression,
-        background: task.state.background || 'auto',
-        moderation: task.state.moderation || 'auto',
-        providerSort: route.key,
-        providerKey: route.key,
-        provider_key: route.key,
-        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
-        clientRequestId,
-        client_request_id: clientRequestId,
-        previewItemId: previewItemId,
-        preview_item_id: previewItemId,
-        requestId: clientRequestId,
-        request_id: clientRequestId,
-        seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
-        seedLocked: task.state.seedLocked === true,
-        seed_locked: task.state.seedLocked === true,
-        referenceControls,
-        reference_controls: referenceControls,
-        imageControls: referenceControls,
-        image_controls: referenceControls,
-        imageWeights: referenceControls.map((item) => item.weight),
-        image_weights: referenceControls.map((item) => item.weight),
-        imageIntents: referenceControls.map((item) => item.intent),
-        image_intents: referenceControls.map((item) => item.intent),
-        ...imagePayloadFields,
-        custom_ratio: trialCustomRatio || undefined,
-        custom_w: trialCustomRatio ? trialCustomW : undefined,
-        custom_h: trialCustomRatio ? trialCustomH : undefined
-    };
-
-    const requestImgGenOnce = async (payloadForUnified, payloadForLegacy) => {
-        const useTrialLegacyFirst = version !== 'pro';
-        let response = null;
-
-        if (useTrialLegacyFirst) {
-            const legacyUrl = API_IMAGE_GEN_LEGACY || API_IMAGE_GEN;
-            response = await window.VeoApi.imageSubmit(legacyUrl, payloadForLegacy);
-            if ((response.status === 404 || response.status === 405) && legacyUrl !== API_IMAGE_GEN) {
-                response = await window.VeoApi.imageSubmit(API_IMAGE_GEN, payloadForUnified);
-            }
-        } else {
-            response = await window.VeoApi.imageSubmit(API_IMAGE_GEN, payloadForUnified);
-            if ((response.status === 404 || response.status === 405) && API_IMAGE_GEN_LEGACY && API_IMAGE_GEN_LEGACY !== API_IMAGE_GEN) {
-                response = await window.VeoApi.imageSubmit(API_IMAGE_GEN_LEGACY, payloadForLegacy);
-            }
-        }
+    const requestImgGenOnce = async (payloadForUnified) => {
+        const apiConfig = window.VeoApi.config;
+        const imageUnified = apiConfig.imageUnified;
+        const response = await window.VeoApi.imageSubmit(imageUnified, payloadForUnified);
 
         if (response.status === 401 || response.status === 403) {
             handleAuthError();
@@ -254,7 +194,7 @@ async function submitImgGen(taskId) {
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const resultPack = await requestImgGenOnce(unifiedPayload, legacyPayload);
+            const resultPack = await requestImgGenOnce(unifiedPayload);
             const resData = resultPack.resData;
             const returnedUrls = resultPack.returnedUrls;
 

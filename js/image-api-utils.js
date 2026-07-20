@@ -253,14 +253,6 @@ function buildImgGenPollPayload(task, remoteTaskId) {
     };
     return {
         unified: { body: { ...core }, ...core },
-        legacy: {
-            action: 'poll',
-            poll: true,
-            channel,
-            taskId: remoteTaskId,
-            task_id: remoteTaskId,
-            request_id: remoteTaskId
-        },
         fallback: {
             taskId: remoteTaskId,
             task_id: remoteTaskId,

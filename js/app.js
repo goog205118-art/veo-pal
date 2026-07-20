@@ -1,322 +1,6 @@
-﻿// ==========================================
-// 🟢 核心应用逻辑与安全拦截 (Veo Studio)
 // ==========================================
-let loginAnimationId = null;
-
-// 🌟 自动注入核心缺失样式 (包含弹窗、小地图、扫描线、拉伸把手)
-const styleInj = document.createElement('style');
-styleInj.innerHTML = `
-    .minimap-container { bottom: 160px !important; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden !important; }
-    .minimap-container.is-minimized { width: 44px !important; height: 44px !important; border-radius: 22px !important; display: flex; align-items: center; justify-content: center; cursor: pointer; border-color: rgba(255,255,255,0.2); }
-    .minimap-container.is-minimized #minimap-canvas, .minimap-container.is-minimized #minimap-viewport-box { opacity: 0; pointer-events: none; }
-    .minimap-toggle { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; background: rgba(0,0,0,0.6); color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; z-index: 10; opacity: 0; transition: 0.2s; border: 1px solid rgba(255,255,255,0.1); }
-    .minimap-container:hover .minimap-toggle { opacity: 1; }
-    .minimap-container.is-minimized .minimap-toggle { display: none; }
-    .minimap-icon { display: none; font-size: 24px; color: var(--accent); }
-    .minimap-container.is-minimized .minimap-icon { display: block; }
-
-    .sys-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px); z-index: 9999; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.3s ease; }
-    .sys-modal-overlay.show { opacity: 1; }
-    .sys-modal-content { background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; width: 420px; max-width: 90%; transform: scale(0.95); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: 0 20px 40px rgba(0,0,0,0.5); overflow: hidden; }
-    .sys-modal-overlay.show .sys-modal-content { transform: scale(1); }
-
-    .cyber-scanner-box { width: 80%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 16px; overflow: hidden; position: relative; }
-    .cyber-scanner-line { height: 100%; width: 30%; background: var(--accent); box-shadow: 0 0 10px var(--accent); border-radius: 2px; animation: scanAnim 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
-    @keyframes scanAnim { 0% { transform: translateX(0); } 100% { transform: translateX(233%); } }
-
-    .frame-resize-handle {
-        position: absolute; bottom: 0; right: 0; width: 28px; height: 28px;
-        cursor: nwse-resize; z-index: 20; pointer-events: auto;
-        background: linear-gradient(135deg, transparent 50%, rgba(167, 139, 250, 0.4) 50%);
-        border-bottom-right-radius: 14px; transition: 0.2s;
-    }
-    .frame-resize-handle:hover { background: linear-gradient(135deg, transparent 50%, rgba(167, 139, 250, 0.8) 50%); }
-`;
-document.head.appendChild(styleInj);
-
-function showErrorModal() {
-    const modal = document.getElementById('error-modal'); if (!modal) return;
-    modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show');
-    const content = document.getElementById('error-modal-content');
-    if (content) { content.classList.remove('error-shake'); void content.offsetWidth; content.classList.add('error-shake'); }
-}
-function closeErrorModal() {
-    const modal = document.getElementById('error-modal'); if (!modal) return;
-    modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300);
-    const input = document.getElementById('studio-pwd-input'); if (input) input.focus();
-}
-
-function showAnnouncement() {
-    const modal = document.getElementById('announcement-modal'); if (!modal) return;
-    modal.style.display = 'flex'; modal.offsetHeight; modal.classList.add('show');
-}
-function closeAnnouncement() {
-    const modal = document.getElementById('announcement-modal'); if (!modal) return;
-    modal.classList.remove('show'); setTimeout(() => modal.style.display = 'none', 300);
-}
-
-async function hashPassword(password) {
-    const msgBuffer = new TextEncoder().encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-const THEME_MODE_KEY = 'veo_theme_mode';
-const THEME_DARK = 'dark';
-const THEME_LIGHT = 'light';
-const ROUTE_TRANSITION_MS = 460;
-
-function isReducedMotion() {
-    try {
-        return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    } catch (err) {
-        console.error(err);
-        return false;
-    }
-}
-
-function ensureRouteTransitionLayer() {
-    let layer = document.getElementById('route-transition');
-    if (layer) return layer;
-    layer = document.createElement('div');
-    layer.id = 'route-transition';
-    layer.className = 'route-transition';
-    layer.setAttribute('aria-hidden', 'true');
-    layer.innerHTML = '<div class="route-transition-ring"></div><div class="route-transition-label">ROUTE HANDSHAKE</div>';
-    document.body.appendChild(layer);
-    return layer;
-}
-
-function startRouteTransition(labelText) {
-    const layer = ensureRouteTransitionLayer();
-    if (!layer) return;
-    const label = layer.querySelector('.route-transition-label');
-    if (label && labelText) label.textContent = labelText;
-    layer.classList.add('is-active');
-}
-
-function markAppShellReady() {
-    document.body.classList.remove('app-shell-init');
-    document.body.classList.add('app-shell-ready');
-}
-
-window.navigateWithTransition = function(url, options = {}) {
-    if (!url || typeof url !== 'string') return;
-    const replace = !!options.replace;
-    const label = options.label || 'ROUTE HANDSHAKE';
-    if (isReducedMotion()) {
-        if (replace) window.location.replace(url);
-        else window.location.href = url;
-        return;
-    }
-    startRouteTransition(label);
-    window.setTimeout(() => {
-        if (replace) window.location.replace(url);
-        else window.location.href = url;
-    }, ROUTE_TRANSITION_MS);
-};
-
-function normalizeThemeMode(rawMode) {
-    if (rawMode === THEME_DARK) return THEME_DARK;
-    if (rawMode === THEME_LIGHT || rawMode === 'mono') return THEME_LIGHT;
-    return THEME_LIGHT;
-}
-
-function applyThemeMode(mode) {
-    const nextMode = normalizeThemeMode(mode);
-    const isLight = nextMode === THEME_LIGHT;
-    document.documentElement.setAttribute('data-theme', nextMode);
-
-    const iconEl = document.getElementById('theme-toggle-icon');
-    const btnEl = document.getElementById('theme-toggle-btn');
-    if (iconEl) iconEl.innerText = isLight ? 'light_mode' : 'dark_mode';
-    if (btnEl) btnEl.setAttribute('data-tip', isLight ? '切换到夜间模式' : '切换到日间模式');
-}
-
-function initThemeMode() {
-    const saved = localStorage.getItem(THEME_MODE_KEY);
-    const nextMode = normalizeThemeMode(saved);
-    localStorage.setItem(THEME_MODE_KEY, nextMode);
-    applyThemeMode(nextMode);
-}
-
-function activateLoginPanel(focusDelay = 360) {
-    const panel = document.getElementById('gate-step-2');
-    if (!panel) return;
-    panel.classList.remove('step-passed');
-    panel.classList.remove('step-active');
-    requestAnimationFrame(() => {
-        panel.classList.add('step-active');
-    });
-    setTimeout(() => {
-        const input = document.getElementById('studio-pwd-input');
-        if (input) input.focus();
-    }, focusDelay);
-}
-
-window.toggleThemeMode = function() {
-    const current = normalizeThemeMode(localStorage.getItem(THEME_MODE_KEY));
-    const next = current === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
-    localStorage.setItem(THEME_MODE_KEY, next);
-    applyThemeMode(next);
-    if (typeof showToast === 'function') {
-        showToast(next === THEME_LIGHT ? '已切换至日间模式' : '已切换至夜间模式', 'info');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-    ensureRouteTransitionLayer();
-    initThemeMode();
-    const gate = document.getElementById('login-gate');
-    const savedSessionPwd = sessionStorage.getItem('veo_admin_pwd');
-    if (savedSessionPwd) {
-        if (gate) gate.style.display = 'none';
-        window.requestAnimationFrame(() => markAppShellReady());
-    } else if (gate) {
-        activateLoginPanel(420);
-    }
-
-    const rememberedPwd = localStorage.getItem('veo_admin_pwd_saved');
-    if (rememberedPwd) {
-        const pwdInput = document.getElementById('studio-pwd-input'), rememberCheckbox = document.getElementById('remember-pwd');
-        if (pwdInput) pwdInput.value = rememberedPwd; if (rememberCheckbox) rememberCheckbox.checked = true;
-    }
-
-    const loginScene = document.getElementById('login-scene');
-    const loginFormCard = loginScene ? loginScene.querySelector('.login-form-box') : null;
-    const loginIntroCard = loginScene ? loginScene.querySelector('.login-intro') : null;
-    const resetLoginTilt = () => {
-        if (!loginScene) return;
-        loginScene.style.setProperty('--login-tilt-x', '0deg');
-        loginScene.style.setProperty('--login-tilt-y', '0deg');
-        if (loginFormCard) loginFormCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
-        if (loginIntroCard) loginIntroCard.style.transform = 'translateZ(0) rotateX(0deg) rotateY(0deg)';
-    };
-
-    const canvas = document.getElementById('login-canvas');
-    if (canvas && gate && gate.style.display !== 'none') {
-        const ctx = canvas.getContext('2d');
-        let width, height, particles = [], mouse = { x: null, y: null };
-        function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
-        window.addEventListener('resize', resize); resize();
-        gate.addEventListener('mousemove', (e) => {
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
-            if (!loginScene || isReducedMotion()) return;
-            try {
-                const rect = loginScene.getBoundingClientRect();
-                if (!rect || rect.width <= 0 || rect.height <= 0) return;
-                const px = (e.clientX - rect.left) / rect.width;
-                const py = (e.clientY - rect.top) / rect.height;
-                const tiltY = ((px - 0.5) * 3.2).toFixed(2);
-                const tiltX = ((0.5 - py) * 2.8).toFixed(2);
-                loginScene.style.setProperty('--login-tilt-x', `${tiltX}deg`);
-                loginScene.style.setProperty('--login-tilt-y', `${tiltY}deg`);
-                if (loginFormCard) loginFormCard.style.transform = `translateZ(0) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
-                if (loginIntroCard) loginIntroCard.style.transform = `translateZ(0) rotateX(${(tiltX * 0.35).toFixed(2)}deg) rotateY(${(tiltY * 0.35).toFixed(2)}deg)`;
-            } catch (err) {
-                console.warn('[login-tilt] update failed:', err);
-            }
-        });
-        gate.addEventListener('mouseleave', () => {
-            mouse.x = null;
-            mouse.y = null;
-            resetLoginTilt();
-        });
-        resetLoginTilt();
-
-        class Particle {
-            constructor() {
-                this.x = Math.random() * width; this.y = Math.random() * height;
-                this.size = Math.random() * 1.5 + 0.5; this.speedX = Math.random() * 0.5 - 0.25; this.speedY = Math.random() * 0.5 - 0.25;
-                this.baseOpacity = Math.random() * 0.3 + 0.1; this.opacity = this.baseOpacity;
-            }
-            update() {
-                this.x += this.speedX; this.y += this.speedY;
-                if (this.x < 0 || this.x > width) this.speedX *= -1; if (this.y < 0 || this.y > height) this.speedY *= -1;
-                if (mouse.x && mouse.y) {
-                    let dx = mouse.x - this.x, dy = mouse.y - this.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < 80) { this.x -= dx * 0.015; this.y -= dy * 0.015; this.opacity = 0.9; }
-                    else { this.opacity = Math.max(this.baseOpacity, this.opacity - 0.02); }
-                }
-            }
-            draw() { ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); }
-        }
-        for (let i = 0; i < 120; i++) particles.push(new Particle());
-        function animate() {
-            ctx.clearRect(0, 0, width, height);
-            if (mouse.x && mouse.y) {
-                let gradient = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 120);
-                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.08)'); gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.02)'); gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-                ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
-            }
-            particles.forEach(p => { p.update(); p.draw(); }); loginAnimationId = requestAnimationFrame(animate);
-        }
-        animate();
-    }
-
-    const minimapEl = document.getElementById('minimap-container');
-    if (minimapEl) {
-        minimapEl.innerHTML += `
-            <div class="minimap-toggle" onclick="toggleMinimap(event)" data-tip="收起小地图"><span class="material-symbols-outlined" style="font-size:14px;">close</span></div>
-            <span class="material-symbols-outlined minimap-icon" onclick="toggleMinimap(event)" data-tip="展开小地图">map</span>
-        `;
-    }
-});
-
-window.toggleMinimap = function(e) {
-    if(e) e.stopPropagation();
-    const container = document.getElementById('minimap-container');
-    if (container) {
-        container.classList.toggle('is-minimized');
-        if (!container.classList.contains('is-minimized')) { renderMinimap(); }
-    }
-};
-
-function startLoginTransition() {
-    activateLoginPanel(180);
-}
-
-async function handleLoginSubmit(e) {
-    e.preventDefault();
-    const pwdInput = document.getElementById('studio-pwd-input').value.trim(), btn = document.getElementById('login-submit-btn');
-    if (!pwdInput) return showToast("请输入密钥", "error");
-    btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:20px;height:20px;stroke:currentColor;margin:0 auto;"><circle cx="25" cy="25" r="20"></circle></svg>`; btn.style.pointerEvents = 'none';
-
-    const inputHash = await hashPassword(pwdInput);
-    const TARGET_HASH = "acc8ca2c94bcfaf05736fe29176ad5ec6f766a47ae3597a4186507ece27e5f0f";
-
-    setTimeout(() => {
-        if (inputHash !== TARGET_HASH) {
-            showErrorModal(); btn.innerHTML = `验证身份 / LOGIN`; btn.style.pointerEvents = 'auto';
-            document.getElementById('studio-pwd-input').value = ''; localStorage.removeItem('veo_admin_pwd_saved'); return;
-        }
-        sessionStorage.setItem('veo_admin_pwd', pwdInput);
-        const rememberCheckbox = document.getElementById('remember-pwd');
-        if (rememberCheckbox && rememberCheckbox.checked) localStorage.setItem('veo_admin_pwd_saved', pwdInput); else localStorage.removeItem('veo_admin_pwd_saved');
-        btn.innerHTML = `<span class="material-symbols-outlined">check_circle</span> 验证通过`; btn.style.background = 'var(--success)';
-
-        setTimeout(() => {
-            document.getElementById('gate-step-2').classList.remove('step-active'); document.getElementById('gate-step-2').classList.add('step-passed');
-            const gate = document.getElementById('login-gate'); gate.classList.add('unlocked');
-            setTimeout(() => {
-                if (typeof loginAnimationId !== 'undefined' && loginAnimationId) cancelAnimationFrame(loginAnimationId);
-                gate.remove(); showToast("欢迎回来", "success");
-                markAppShellReady();
-                setTimeout(showAnnouncement, 500);
-            }, 800);
-        }, 400);
-    }, 600);
-}
-
-const APP_API_CONFIG = window.VeoApi.config;
-const API_SUBMIT = APP_API_CONFIG.videoSubmit;
-const API_POLL = APP_API_CONFIG.videoPoll;
-const API_IMAGE_GEN = APP_API_CONFIG.imageUnified;
-const API_IMAGE_GEN_LEGACY = APP_API_CONFIG.imageLegacy;
-const API_IMAGE_POLL = APP_API_CONFIG.imagePoll;
-const API_IMAGE_AUTH = APP_API_CONFIG.imageAuth;
+// Task board orchestration and legacy global adapters (Veo Studio)
+// ==========================================
 const IMG_GEN_PRO_INPUT_PRICE_PER_1M = 5;
 const IMG_GEN_PRO_OUTPUT_PRICE_PER_1M = 30;
 const IMG_GEN_PROXY_RECHARGE_FACTOR = 0.5;
@@ -325,6 +9,7 @@ const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
 const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
+const RETIRED_NODE_TYPES = new Set(['frame', 'note', 'tool_generator', 'tool_cropper']);
 const IMG_GEN_FEATURES = window.VeoMedia.features;
 const IMG_GEN_ROUTE_CONFIG = window.VeoMedia.routeConfig;
 const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
@@ -345,7 +30,7 @@ function isUnifiedImageWebhookEndpoint(rawUrl) {
 }
 
 function isLegacyImageWebhookEndpoint(rawUrl) {
-    return window.VeoApi.isLegacyImageEndpoint(rawUrl);
+    return false;
 }
 
 function resolveImgGenPollEndpoint() {
@@ -657,543 +342,34 @@ function getTaskShadow(taskId) {
     return taskShadowCache.get(taskId) || null;
 }
 
-function getImgGenStageStatus(task) {
-    if (!task || task.type !== 'tool_image_gen') return 'idle';
-    ensureImgGenState(task);
-    if (getImgGenPendingCount(task) > 0 || task.status === 'processing') return 'pending';
-    if (task.status === 'failed') return 'failed';
-    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
-    if (history.some((item) => item && item.status === 'success')) return 'success';
-    return task.status === 'success' ? 'success' : 'idle';
-}
-
-function getImgGenStageThumb(task) {
-    if (!task || task.type !== 'tool_image_gen') return null;
-    ensureImgGenState(task);
-    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
-    const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
-    if (latest && latest.image) return latest.image;
-    if (task.state.resultBlob) return task.state.resultBlob;
-    if (Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length) {
-        return task.state.resultBlobs[task.state.resultBlobs.length - 1];
-    }
-    if (Array.isArray(task.state.images) && task.state.images[0]) return task.state.images[0];
-    return null;
-}
-
-function getImgGenStageThumbVersion(task) {
-    if (!task || !task.state) return '0';
-    const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
-    const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
-    if (latest) return latest.id || latest.createdAt || task.timestamp || 'result';
-    if (task.state.resultBlob) return `result_${task.timestamp || 0}`;
-    if (Array.isArray(task.state.resultBlobs) && task.state.resultBlobs.length) return `results_${task.state.resultBlobs.length}_${task.timestamp || 0}`;
-    if (Array.isArray(task.state.images) && task.state.images[0]) return `base_${task.state.images.length}_${task.timestamp || 0}`;
-    return 'empty';
-}
-
-function getImgGenStageLabel(task, index) {
-    const identity = getImgGenStageIdentity(task, index);
-    if (identity) return identity.length > 18 ? `${identity.slice(0, 18)}...` : identity;
-    const fallback = `生图 ${index + 1}`;
-    if (!task || !task.state) return fallback;
-    const prompt = String(task.state.prompt || '').replace(/\s+/g, ' ').trim();
-    if (!prompt) return fallback;
-    return prompt.length > 18 ? `${prompt.slice(0, 18)}...` : prompt;
-}
-
-function getImgGenStageMeta(task) {
-    if (!task || task.type !== 'tool_image_gen') return 'IMAGE';
-    ensureImgGenState(task);
-    const mode = task.state.version === 'pro' ? 'PRO' : 'TRIAL';
-    const status = getImgGenStageStatus(task).toUpperCase();
-    const ratio = task.state.version === 'pro'
-        ? (task.state.proRatio === 'custom' ? `${task.state.customW || 1}:${task.state.customH || 1}` : (task.state.proRatio || '1:1'))
-        : (task.state.trialRatio === 'custom' ? `${task.state.customW || 1}:${task.state.customH || 1}` : (task.state.trialRatio || '1:1'));
-    return `${mode} · ${ratio} · ${status}`;
-}
-
-function renderImgGenStageItem(task, index, activeId) {
-    const status = getImgGenStageStatus(task);
-    const thumb = getImgGenStageThumb(task);
-    const thumbKey = `img_stage_${task.id}_${getImgGenStageThumbVersion(task)}`;
-    const thumbUrl = thumb ? getBlobUrl(thumbKey, thumb) : '';
-    const isActive = activeId === task.id || selectedTasks.has(task.id);
-    const title = getImgGenStageLabel(task, index);
-    const meta = getImgGenStageMeta(task);
-    const safeId = escapeAttr(task.id);
-    const safeTitle = escapeAttr(title);
-    const identity = getImgGenStageIdentity(task, index);
-    const thumbHtml = thumbUrl
-        ? `<img src="${escapeAttr(thumbUrl)}" alt="${safeTitle}" loading="lazy">`
-        : `<span class="material-symbols-outlined">auto_awesome</span>`;
-
-    return `
-        <button class="img-gen-stage-item is-${status} ${isActive ? 'is-active' : ''}" type="button" onclick="focusImgGenStageCard(event, '${safeId}')" onmousedown="event.stopPropagation()" data-tip="释放到画布：${safeTitle}">
-            <span class="img-gen-stage-dot"></span>
-            <span class="img-gen-stage-thumb">${thumbHtml}</span>
-            <span class="img-gen-stage-meta">
-                <strong>${escapeHtml(identity)}</strong>
-                <em>${escapeHtml(meta)}</em>
-            </span>
-            <span class="img-gen-stage-edit" onclick="renameImgGenStageLabel(event, '${safeId}')" data-tip="编辑识别符">
-                <span class="material-symbols-outlined">edit</span>
-            </span>
-        </button>
-    `;
-}
-
-function isImgGenTaskStageDocked(task) {
-    return !!(task && task.type === 'tool_image_gen' && task.state && task.state.stageDocked === true);
-}
-
-function isPointInImgGenStageRail(clientX, clientY) {
-    const rail = document.getElementById('img-gen-stage-rail');
-    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
-    const rect = rail.getBoundingClientRect();
-    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
-}
-
-function isPointInImgGenStageDockZone(clientX, clientY) {
-    const rail = document.getElementById('img-gen-stage-rail');
-    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
-    const rect = rail.getBoundingClientRect();
-    const expandedLeft = Math.max(0, rect.left - 24);
-    const expandedRight = rect.right + 16;
-    const expandedTop = Math.max(0, rect.top + 16);
-    const expandedBottom = rect.bottom - 16;
-    return clientX >= expandedLeft && clientX <= expandedRight && clientY >= expandedTop && clientY <= expandedBottom;
-}
-
-function isPointNearImgGenStageRail(clientX, clientY) {
-    const rail = document.getElementById('img-gen-stage-rail');
-    if (!rail || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
-    const rect = rail.getBoundingClientRect();
-    return clientX >= rect.left - 96 && clientX <= rect.right + 8 && clientY >= rect.top - 24 && clientY <= rect.bottom + 24;
-}
-
-function buildImgGenStageDefaultLabel(task, index = 0) {
-    const rawTitle = String(task && (task.title || task.prompt || task.state?.prompt) || '').replace(/\s+/g, ' ').trim();
-    if (rawTitle) {
-        const short = rawTitle.length > 14 ? rawTitle.slice(0, 14) : rawTitle;
-        return short;
-    }
-    const suffix = String(task && task.id ? task.id : '').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase();
-    if (suffix) return `STG-${suffix}`;
-    return `STG-${String(index + 1).padStart(2, '0')}`;
-}
-
-function getImgGenStageIdentity(task, index = 0) {
-    ensureImgGenState(task);
-    const custom = String(task && task.state && task.state.stageLabel ? task.state.stageLabel : '').replace(/\s+/g, ' ').trim();
-    if (custom) return custom;
-    return buildImgGenStageDefaultLabel(task, index);
-}
-
-async function renameImgGenStageLabel(event, taskId) {
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-    }
-    if (!taskId) return;
-    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
-    if (!task || task.type !== 'tool_image_gen') return;
-    ensureImgGenState(task);
-    const current = getImgGenStageIdentity(task, 0);
-    const nextRaw = window.prompt('输入调度识别符', current);
-    if (nextRaw === null) return;
-    const next = String(nextRaw).replace(/\s+/g, ' ').trim().slice(0, 24);
-    task.state.stageLabel = next || buildImgGenStageDefaultLabel(task, 0);
-    task.state.stageLabelCustom = !!next;
-    task.timestamp = Date.now();
-    setTaskShadow(task);
-    imgGenStageRailFingerprint = '';
-    await saveTaskDB(task);
-    await renderImgGenStageRail();
-    showToast('识别符已更新', 'success');
-}
-
-function setImgGenStageDragOver(isOver) {
-    const rail = document.getElementById('img-gen-stage-rail');
-    if (!rail) return;
-    rail.classList.toggle('is-drag-over', !!isOver);
-}
-
-function canDragInfoDockToImgGenStage(dragInfo, clientX, clientY) {
-    const drawer = document.getElementById('tool-drawer');
-    const travel = dragInfo
-        ? Math.hypot(toFiniteNumber(clientX, dragInfo.startMouseX) - toFiniteNumber(dragInfo.startMouseX, clientX), toFiniteNumber(clientY, dragInfo.startMouseY) - toFiniteNumber(dragInfo.startMouseY, clientY))
-        : 0;
-    return !!(
-        dragInfo &&
-        dragInfo.fromCanvasCard === true &&
-        dragInfo.startedInsideStageRail !== true &&
-        dragInfo.justCreated !== true &&
-        dragInfo.startedNearStageRail !== true &&
-        (!drawer || !drawer.classList.contains('open')) &&
-        travel >= IMG_GEN_STAGE_DOCK_MIN_TRAVEL &&
-        !dragInfo.children &&
-        dragInfo.task &&
-        dragInfo.task.type === 'tool_image_gen' &&
-        isImgGenTaskStageDocked(dragInfo.task) !== true &&
-        isPointInImgGenStageDockZone(clientX, clientY)
-    );
-}
-
-function getImgGenStageRailFingerprint(tasks, activeId) {
-    return [
-        imgGenStageRailCollapsed ? '1' : '0',
-        activeId || '',
-        activeImgGenStageReleasedTaskId || '',
-        tasks.map((task) => {
-            const state = task && task.state ? task.state : {};
-            return [
-                task.id,
-                task.status || 'static',
-                task.timestamp || 0,
-                getImgGenPendingCount(task),
-                Array.isArray(state.previewHistory) ? state.previewHistory.length : 0,
-                state.version || '',
-                state.proRatio || '',
-                state.trialRatio || ''
-            ].join(':');
-        }).join('|')
-    ].join('::');
-}
-
-function collectVisibleImgGenStageTasks(exceptTaskId = '') {
-    const ids = new Set();
-    if (activeImgGenStageReleasedTaskId && activeImgGenStageReleasedTaskId !== exceptTaskId) {
-        ids.add(activeImgGenStageReleasedTaskId);
-    }
-    document.querySelectorAll('.canvas-board > .video-card.tool-image-gen.is-stage-released:not(.is-stage-docked)').forEach((cardEl) => {
-        const taskId = resolveTaskIdFromCardElement(cardEl);
-        if (taskId && taskId !== exceptTaskId) ids.add(taskId);
-    });
-    return Array.from(ids);
-}
-
-function restoreMountedImgGenStageCards(exceptTaskId = '') {
-    const restored = [];
-    collectVisibleImgGenStageTasks(exceptTaskId).forEach((id) => {
-        const cardEl = document.getElementById('card-' + id);
-        const existing = (cardEl && cardEl.__veoTask) || getTaskShadow(id);
-        if (!existing || existing.type !== 'tool_image_gen') return;
-        const task = cloneTaskDeep(existing) || { ...existing };
-        ensureImgGenState(task);
-        if (task.state.stageDocked === true) return;
-        task.state.stageDocked = true;
-        task.state.stageReleased = false;
-        task.timestamp = Date.now();
-        setTaskShadow(task);
-        selectedTasks.delete(id);
-        if (cardEl) {
-            cardEl.classList.remove('selected', 'is-stage-focused', 'is-stage-released', 'is-stage-spawning');
-            cardEl.classList.add('is-stage-docked');
-            cardEl.style.willChange = 'auto';
-        }
-        restored.push(task);
-    });
-    return restored;
-}
-
-async function restoreVisibleImgGenStageCards(exceptTaskId = '') {
-    const ids = new Set(collectVisibleImgGenStageTasks(exceptTaskId));
-    const allTasks = await getAllTasksDB().catch(() => []);
-    if (Array.isArray(allTasks)) {
-        allTasks.forEach((item) => {
-            if (
-                item &&
-                item.id &&
-                item.id !== exceptTaskId &&
-                item.type === 'tool_image_gen' &&
-                item.state &&
-                item.state.stageReleased === true &&
-                item.state.stageDocked !== true
-            ) {
-                ids.add(item.id);
-            }
-        });
-    }
-    const restored = [];
-    for (const id of Array.from(ids)) {
-        const existing = getTaskShadow(id) || await getTaskDB(id);
-        if (!existing || existing.type !== 'tool_image_gen') continue;
-        const task = cloneTaskDeep(existing) || { ...existing };
-        ensureImgGenState(task);
-        if (task.state.stageDocked === true) continue;
-        task.state.stageDocked = true;
-        task.state.stageReleased = false;
-        task.timestamp = Date.now();
-        setTaskShadow(task);
-        selectedTasks.delete(id);
-        const cardEl = document.getElementById('card-' + id);
-        if (cardEl) {
-            cardEl.classList.remove('selected', 'is-stage-focused', 'is-stage-released');
-            cardEl.classList.add('is-stage-docked');
-            cardEl.style.willChange = 'auto';
-        }
-        restored.push(task);
-    }
-    if (restored.length > 0) {
-        await Promise.all(restored.map((task) => saveTaskDB(task)));
-    }
-    return restored;
-}
-
-function ensureCardElementForTask(task) {
-    if (!task || !task.id || !board) return null;
-    let cardEl = document.getElementById('card-' + task.id);
-    if (!cardEl) {
-        cardEl = document.createElement('div');
-        cardEl.id = 'card-' + task.id;
-        if (task.type === 'frame') {
-            cardEl.className = 'frame-box';
-        } else if (task.type === 'note') {
-            cardEl.className = 'video-card sticky-note';
-        } else if (task.type === 'tool_generator') {
-            cardEl.className = 'video-card tool-generator';
-        } else if (task.type === 'tool_image_gen') {
-            cardEl.className = 'video-card tool-image-gen';
-        } else if (task.type === 'tool_cropper') {
-            cardEl.className = 'video-card tool-cropper';
-        } else {
-            cardEl.className = 'video-card';
-        }
-        cardEl.style.transform = `translate3d(${toFiniteNumber(task.x, 0)}px, ${toFiniteNumber(task.y, 0)}px, 0)`;
-        cardEl.__veoTask = task;
-        board.appendChild(cardEl);
-    }
-    return cardEl;
-}
-
-function centerImgGenStageTaskInViewport(task, cardEl = null) {
-    if (!task || task.type !== 'tool_image_gen') return;
-    ensureImgGenState(task);
-    const viewportRect = (viewport && typeof viewport.getBoundingClientRect === 'function')
-        ? viewport.getBoundingClientRect()
-        : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-    const centerClientX = viewportRect.left + Math.max(1, toFiniteNumber(viewportRect.width, window.innerWidth)) / 2;
-    const centerClientY = viewportRect.top + Math.max(1, toFiniteNumber(viewportRect.height, window.innerHeight)) / 2;
-    const center = clientToBoard(centerClientX, centerClientY);
-    const fallbackSize = getTaskFallbackSize(task);
-    const measuredSize = cardEl ? getCardWorldSize(cardEl, task) : fallbackSize;
-    const width = Math.max(1, toFiniteNumber(measuredSize && measuredSize.width, fallbackSize.width));
-    const height = Math.max(1, toFiniteNumber(measuredSize && measuredSize.height, fallbackSize.height));
-    task.x = Math.round(center.x - width / 2);
-    task.y = Math.round(center.y - height / 2);
-}
-
-function selectStageReleasedCard(taskId, cardEl) {
-    if (!taskId || !cardEl) return;
-    clearSelection();
-    selectedTasks.add(taskId);
-    cardEl.classList.add('selected');
-    cardEl.classList.remove('is-viewport-culled', 'is-stage-docked');
-    highestZIndex += 8;
-    cardEl.style.zIndex = highestZIndex;
-    updateSelectionToolbar();
-}
-
-function scheduleStageReleaseAfterpaint(callback, delay = 280) {
-    const run = () => {
-        const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 0));
-        idle(() => {
-            try { callback(); } catch (err) { console.warn('Stage release afterpaint failed', err); }
-        }, { timeout: 900 });
-    };
-    setTimeout(run, Math.max(0, delay));
-}
-
-async function renderImgGenStageRail(tasksArg = null) {
-    const rail = document.getElementById('img-gen-stage-rail');
-    const listEl = document.getElementById('img-gen-stage-list');
-    const countEl = document.getElementById('img-gen-stage-count');
-    if (!rail || !listEl) return;
-
-    const rawTasks = Array.isArray(tasksArg) ? tasksArg : await getAllTasksDB();
-    const imgTasks = rawTasks
-        .filter((task) => task && task.type === 'tool_image_gen')
-        .map((task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }))
-        .filter((task) => {
-            ensureImgGenState(task);
-            return isImgGenTaskStageDocked(task);
-        })
-        .filter(Boolean)
-        .sort((a, b) => {
-            if (a.id === activeImgGenStageTaskId) return -1;
-            if (b.id === activeImgGenStageTaskId) return 1;
-            return toFiniteNumber(b.timestamp, 0) - toFiniteNumber(a.timestamp, 0);
-        });
-
-    const selectedImgId = Array.from(selectedTasks).find((id) => {
-        const task = getTaskShadow(id) || imgTasks.find((item) => item && item.id === id);
-        return isImgGenTaskStageDocked(task);
-    });
-    const activeId = activeImgGenStageTaskId || selectedImgId || '';
-    const nextFingerprint = getImgGenStageRailFingerprint(imgTasks, activeId);
-    if (nextFingerprint === imgGenStageRailFingerprint) {
-        rail.classList.toggle('is-collapsed', imgGenStageRailCollapsed);
-        rail.classList.toggle('is-empty', imgTasks.length === 0);
-        return;
-    }
-    imgGenStageRailFingerprint = nextFingerprint;
-
-    if (countEl) countEl.textContent = String(imgTasks.length);
-    rail.classList.toggle('is-collapsed', imgGenStageRailCollapsed);
-    rail.classList.toggle('is-empty', imgTasks.length === 0);
-
-    if (imgTasks.length === 0) {
-        listEl.innerHTML = `
-            <div class="img-gen-stage-empty">
-                <span class="material-symbols-outlined">add_photo_alternate</span>
-                <span>把生图卡片拖到这里，即可收纳进台前调度</span>
-            </div>
-        `;
-        return;
-    }
-
-    listEl.innerHTML = imgTasks.map((task, index) => renderImgGenStageItem(task, index, activeId)).join('');
-}
-
-function scheduleImgGenStageRailRender(delay = 80) {
-    clearTimeout(imgGenStageRailTimer);
-    imgGenStageRailTimer = setTimeout(() => {
-        renderImgGenStageRail().catch((err) => console.warn('Image stage rail render failed', err));
-    }, Math.max(0, delay));
-}
-
+function isImgGenTaskStageDocked(task) { return false; }
+function isPointInImgGenStageRail(clientX, clientY) { return false; }
+function isPointNearImgGenStageRail(clientX, clientY) { return false; }
+function setImgGenStageDragOver(isOver) {}
+function canDragInfoDockToImgGenStage(dragInfo, clientX, clientY) { return false; }
+function restoreMountedImgGenStageCards(exceptTaskId = '') { return []; }
+async function restoreVisibleImgGenStageCards(exceptTaskId = '') { return []; }
+async function renderImgGenStageRail(tasksArg = null) {}
+function scheduleImgGenStageRailRender(delay = 80) {}
 function toggleImgGenStageRail(event) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
     }
-    imgGenStageRailCollapsed = !imgGenStageRailCollapsed;
-    try { localStorage.setItem('veo_img_gen_stage_collapsed', imgGenStageRailCollapsed ? '1' : '0'); } catch (err) {}
-    renderImgGenStageRail().catch(() => {});
 }
-
 async function focusImgGenStageCard(event, taskId) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
     }
-    if (!taskId) return;
-    const sourceTask = getTaskShadow(taskId) || await getTaskDB(taskId);
-    if (!sourceTask || sourceTask.type !== 'tool_image_gen') return;
-    const task = cloneTaskDeep(sourceTask) || { ...sourceTask };
-    ensureImgGenState(task);
-
-    activeImgGenStageTaskId = taskId;
-    const restored = restoreMountedImgGenStageCards(taskId);
-    const existingCardEl = document.getElementById('card-' + taskId);
-    task.state.stageDocked = false;
-    task.state.stageReleased = true;
-    centerImgGenStageTaskInViewport(task, existingCardEl);
-    task.timestamp = Date.now();
-    setTaskShadow(task);
-    activeImgGenStageReleasedTaskId = taskId;
-    imgGenStageRailFingerprint = '';
-
-    const wasMounted = !!existingCardEl;
-    const cardEl = ensureCardElementForTask(task);
-    if (!cardEl) return;
-    cardEl.style.transform = `translate3d(${toFiniteNumber(task.x, 0)}px, ${toFiniteNumber(task.y, 0)}px, 0)`;
-    if (!wasMounted) {
-        await renderCard(taskId, task);
-    } else {
-        cardEl.__veoTask = task;
-        cardEl.classList.remove('is-stage-docked', 'is-viewport-culled');
-        syncCardViewportMetrics(cardEl, task);
-    }
-    selectStageReleasedCard(taskId, cardEl);
-    await waitNextPaint();
-    if (cardEl) {
-        cardEl.classList.remove('is-stage-docked');
-        cardEl.classList.remove('is-stage-spawning');
-        cardEl.classList.add('is-stage-focused', 'is-stage-released');
-        void cardEl.offsetWidth;
-        cardEl.classList.add('is-stage-spawning');
-        setTimeout(() => cardEl.classList.remove('is-stage-focused', 'is-stage-spawning'), 260);
-    }
-    scheduleStageReleaseAfterpaint(() => {
-        if (restored.length > 0) {
-            const writeRestored = typeof saveTaskBatchDB === 'function'
-                ? saveTaskBatchDB(restored)
-                : Promise.all(restored.map((item) => saveTaskDB(item)));
-            writeRestored.catch(() => {});
-        }
-        setTimeout(() => restoreVisibleImgGenStageCards(taskId).catch(() => {}), 360);
-        saveTaskDB(task).catch(() => {});
-        scheduleViewportCulling(120);
-        renderMinimap();
-        renderImgGenStageRail().catch(() => {});
-    });
-    showToast(restored.length > 0 ? '已切换台前卡片，上一张已自动收纳' : '已从台前调度释放到画布', 'success');
 }
-
-async function dockImgGenCardToStage(dragInfo) {
-    if (!canDragInfoDockToImgGenStage(dragInfo, lastPointerClientX, lastPointerClientY)) return false;
-    const task = dragInfo.el && dragInfo.el.__veoTask ? dragInfo.el.__veoTask : dragInfo.task;
-    ensureImgGenState(task);
-    task.x = toFiniteNumber(dragInfo.initialX, task.x);
-    task.y = toFiniteNumber(dragInfo.initialY, task.y);
-    task.state.stageDocked = true;
-    task.state.stageReleased = false;
-    task.timestamp = Date.now();
-    setTaskShadow(task);
-    activeImgGenStageTaskId = task.id;
-    if (activeImgGenStageReleasedTaskId === task.id) activeImgGenStageReleasedTaskId = '';
-    selectedTasks.delete(task.id);
-    dragInfo.el.classList.remove('selected');
-    dragInfo.el.classList.remove('is-stage-released');
-    dragInfo.el.classList.add('is-stage-docked');
-    dragInfo.el.style.willChange = 'auto';
-    syncCardViewportMetrics(dragInfo.el, task);
-    imgGenStageRailFingerprint = '';
-    await saveTaskDB(task);
-    setImgGenStageDragOver(false);
-    scheduleImgGenStageRailRender(0);
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-    renderMinimap();
-    showToast('已收纳至台前调度', 'success');
-    return true;
-}
-
+async function dockImgGenCardToStage(dragInfo) { return false; }
 async function dockImgGenTaskById(event, taskId) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
-        if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
     }
-    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
-    if (!task || task.type !== 'tool_image_gen') return;
-    ensureImgGenState(task);
-    if (task.state.stageDocked === true) return;
-    task.state.stageDocked = true;
-    task.state.stageReleased = false;
-    if (!String(task.state.stageLabel || '').trim()) task.state.stageLabel = buildImgGenStageDefaultLabel(task, 0);
-    task.timestamp = Date.now();
-    setTaskShadow(task);
-    activeImgGenStageTaskId = task.id;
-    if (activeImgGenStageReleasedTaskId === task.id) activeImgGenStageReleasedTaskId = '';
-    selectedTasks.delete(task.id);
-    const cardEl = document.getElementById('card-' + task.id);
-    if (cardEl) {
-        cardEl.classList.remove('selected', 'is-stage-released');
-        cardEl.classList.add('is-stage-docked');
-    }
-    imgGenStageRailFingerprint = '';
-    await saveTaskDB(task);
-    scheduleImgGenStageRailRender(0);
-    scheduleViewportCulling(40);
-    updateSelectionToolbar();
-    renderMinimap();
-    showToast('已收纳至台前调度', 'success');
 }
-
 function resolveTaskIdFromCardElement(cardEl) {
     if (!cardEl || !cardEl.id || !String(cardEl.id).startsWith('card-')) return '';
     return String(cardEl.id).slice(5);
@@ -1239,7 +415,8 @@ function clearImgGenPromptDraftTimer(taskId) {
 }
 
 function removeActiveTask(id) { return window.VeoVideoTasks.removeActive(id); }
-function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
+function toggleDrawer() {
+}
 function toggleMaterialDrawer() { window.VeoMaterials.toggleDrawer(); }
 
 function handleAuthError() {
@@ -1397,81 +574,16 @@ function fitTaskInsideFrameBounds(task, frame, padding = FRAME_SAFE_PADDING) {
 }
 
 async function createFrame() {
-    if (selectedTasks.size === 0) return showToast("请先按住 Shift 框选需要打组的卡片", "error");
-    const tasks = await getAllTasksDB();
-    const selected = tasks.filter(t => selectedTasks.has(t.id) && t.type !== 'frame' && t.type !== 'local_image' && !t.parentId);
-    if (selected.length === 0) return showToast("选中的卡片已被打组或无效", "error");
-    await renderBoard();
-    const selectedBounds = selected.map((t) => {
-        normalizeTaskPosition(t);
-        const size = measureTaskAABB(t);
-        return { x: t.x, y: t.y, width: size.width, height: size.height };
-    });
-    let minX = Math.min(...selectedBounds.map(t => t.x));
-    let minY = Math.min(...selectedBounds.map(t => t.y));
-    let maxX = Math.max(...selectedBounds.map(t => t.x + t.width));
-    let maxY = Math.max(...selectedBounds.map(t => t.y + t.height));
-    const frameId = 'frame_' + Date.now(), padding = 60;
-    const newFrame = { id: frameId, type: 'frame', x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2, title: '未命名项目组', isCollapsed: false, timestamp: Date.now() };
-
-    selected.forEach((t) => {
-        t.parentId = frameId;
-        fitTaskInsideFrameBounds(t, newFrame, FRAME_SAFE_PADDING);
-    });
-    if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB([newFrame].concat(selected));
-    else {
-        await saveTaskDB(newFrame);
-        for (let t of selected) await saveTaskDB(t);
-    }
-    clearSelection(); await renderBoard(); showToast(`✅ 已将 ${selected.length} 个卡片收纳为项目组`, "success");
+    if (typeof showToast === 'function') showToast('Frame nodes are retired. Use AI image nodes instead.', 'info');
 }
 
 async function checkGroupDrop(draggedInfo) {
-    const task = draggedInfo.task;
-    if (task.type === 'frame') return;
-    const taskSize = measureTaskAABB(task);
-    const cardCenter = { x: task.x + taskSize.width / 2, y: task.y + taskSize.height / 2 };
-
-    const frames = Array.from(document.querySelectorAll('.frame-box')).map(el => el.__veoTask).filter(t => t && t.type === 'frame' && !t.isCollapsed);
-    let validFrames = [];
-
-    for (let f of frames) {
-        if (cardCenter.x > f.x && cardCenter.x < f.x + f.width && cardCenter.y > f.y && cardCenter.y < f.y + f.height) {
-            validFrames.push(f);
-        }
-    }
-
-    let droppedIntoFrame = null;
-    if (validFrames.length > 0) {
-        validFrames.sort((a, b) => {
-            const elA = document.getElementById('card-' + a.id);
-            const elB = document.getElementById('card-' + b.id);
-            const zA = parseInt(elA ? elA.style.zIndex || 0 : 0);
-            const zB = parseInt(elB ? elB.style.zIndex || 0 : 0);
-            return zB - zA;
-        });
-        droppedIntoFrame = validFrames[0].id;
-    }
-
-    if (droppedIntoFrame) {
-        const frame = await getTaskDB(droppedIntoFrame) || validFrames.find((f) => f.id === droppedIntoFrame);
-        const prevParent = task.parentId;
-        task.parentId = droppedIntoFrame;
-        const fitState = fitTaskInsideFrameBounds(task, frame, FRAME_SAFE_PADDING);
-        const saveList = [task];
-        if (fitState.frameChanged && frame) saveList.push(frame);
-        if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(saveList);
-        else for (const item of saveList) await saveTaskDB(item);
-        if (fitState.taskChanged || fitState.frameChanged) await renderBoard();
-        if (prevParent !== droppedIntoFrame) showToast("📦 卡片已移入项目组", "success");
-    } else {
-        if (task.parentId) {
-            task.parentId = null; await saveTaskDB(task);
-            showToast("📤 卡片已自由脱离项目组", "info");
-        }
+    if (!draggedInfo || !draggedInfo.task) return;
+    if (draggedInfo.task.parentId) {
+        draggedInfo.task.parentId = null;
+        await saveTaskDB(draggedInfo.task);
     }
 }
-
 
 const viewport = document.getElementById('canvas-viewport'), board = document.getElementById('canvas-board'), marquee = document.getElementById('selection-marquee');
 let transform = { x: window.innerWidth / 2, y: 100, scale: 1 }, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
@@ -1479,13 +591,9 @@ let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 let selectedTasks = new Set(), isSelecting = false, startSelX = 0, startSelY = 0;
 let selectionCandidates = [];
 let selectionToolbarFrame = 0;
-let activeFrameResize = null;
 let isPrimaryPointerDown = false;
 let lastPointerClientX = 0;
 let lastPointerClientY = 0;
-let toolDragSession = null;
-let lastViewportDragClientX = NaN;
-let lastViewportDragClientY = NaN;
 const CANVAS_MIN_SCALE = 0.18;
 const CANVAS_MAX_SCALE = 3.5;
 const CANVAS_GRID_BASE = 30;
@@ -1536,13 +644,6 @@ function normalizeTaskPosition(task) {
 
 function getTaskFallbackSize(task) {
     if (!task || typeof task !== 'object') return { width: 340, height: 400 };
-    if (task.type === 'note') {
-        return {
-            width: Math.max(200, toFiniteNumber(task.width, 260)),
-            height: Math.max(140, toFiniteNumber(task.height, 180))
-        };
-    }
-    if (task.type === 'tool_generator') return { width: 380, height: 420 };
     if (task.type === 'tool_image_gen') {
         ensureImgGenState(task);
         const isCollapsed = task.state.previewCollapsed === true;
@@ -1553,18 +654,82 @@ function getTaskFallbackSize(task) {
             height: Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)))
         };
     }
-
-    if (task.type === 'tool_cropper') return { width: 340, height: 420 };
-    if (task.type === 'frame') {
-        return {
-            width: Math.max(340, toFiniteNumber(task.width, 340)),
-            height: Math.max(140, toFiniteNumber(task.height, 140))
-        };
-    }
     return {
         width: Math.max(280, toFiniteNumber(task.width, 340)),
         height: Math.max(220, toFiniteNumber(task.height, 400))
     };
+}
+
+function createDefaultImageGenTask(spawnX, spawnY) {
+    return {
+        id: 'tool_img_' + Date.now(),
+        type: 'tool_image_gen',
+        x: toFiniteNumber(spawnX, 0),
+        y: toFiniteNumber(spawnY, 0),
+        timestamp: Date.now(),
+        status: 'idle',
+        state: {
+            version: 'pro',
+            providerSort: 'ai666',
+            modelSuffix: '',
+            routeMode: 'ai666',
+            imageModel: 'gpt-image-2',
+            quality: 'auto',
+            format: 'png',
+            n: 1,
+            size: '1024x1024',
+            trialRatio: '1:1',
+            proRatio: '1:1',
+            proResolution: '1k',
+            customW: 9,
+            customH: 16,
+            background: 'auto',
+            moderation: 'auto',
+            prompt: '',
+            images: [],
+            refControls: [],
+            seedLocked: false,
+            seed: '',
+            maskImage: null,
+            maskBlob: null,
+            maskEditMode: false,
+            maskBrushSize: 20,
+            maskStageHeight: 220,
+            resultUrl: null,
+            resultBlob: null,
+            resultBlobs: [],
+            previewCollapsed: false,
+            paramsCollapsed: true,
+            imgGenUiV2: true,
+            cardWidthOpen: 680,
+            cardWidthCollapsed: 360,
+            cardHeight: 520,
+            channel: 'channel_1',
+            autoRetry: false,
+            stageDocked: false,
+            stageReleased: false
+        },
+        retryCount: 0
+    };
+}
+
+async function createImageGenNode(x = NaN, y = NaN) {
+    let spawnX = toFiniteNumber(x, NaN);
+    let spawnY = toFiniteNumber(y, NaN);
+    if (!Number.isFinite(spawnX) || !Number.isFinite(spawnY)) {
+        const rect = viewport && typeof viewport.getBoundingClientRect === 'function'
+            ? viewport.getBoundingClientRect()
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+        const center = clientToBoard(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        spawnX = center.x - 340;
+        spawnY = center.y - 260;
+    }
+    const task = createDefaultImageGenTask(spawnX, spawnY);
+    ensureImgGenState(task);
+    await saveTaskDB(task);
+    await renderBoard();
+    showToast('已新建 AI 生图节点', 'success');
+    return task;
 }
 
 function measureTaskAABB(task) {
@@ -1672,11 +837,6 @@ function selectAndFocusTaskIds(taskIds) {
 }
 
 function detectToolPluginType(el) {
-    if (!el) return '';
-    const attr = el.getAttribute('ondragstart') || '';
-    if (attr.includes("'generator'")) return 'generator';
-    if (attr.includes("'image_gen'")) return 'image_gen';
-    if (attr.includes("'cropper'")) return 'cropper';
     return '';
 }
 
@@ -1888,7 +1048,7 @@ function updateViewportCulling() {
         right: (-transform.x + window.innerWidth) / scaleSafe + padding,
         bottom: (-transform.y + window.innerHeight) / scaleSafe + padding
     };
-    document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box').forEach((cardEl) => {
+    document.querySelectorAll('.canvas-board > .video-card').forEach((cardEl) => {
         const task = cardEl.__veoTask;
         if (!task || cardEl.classList.contains('hidden-in-frame') || cardEl.classList.contains('is-stage-docked') || cardEl.classList.contains('selected') || (draggingCardInfo && draggingCardInfo.el === cardEl)) {
             cardEl.classList.remove('is-viewport-culled');
@@ -1974,7 +1134,7 @@ function requestSelectionToolbarUpdate() {
 }
 
 function buildSelectionCandidates() {
-    return Array.from(document.querySelectorAll('.canvas-board > .video-card, .canvas-board > .frame-box'))
+    return Array.from(document.querySelectorAll('.canvas-board > .video-card'))
         .filter((card) => card && !card.classList.contains('hidden-in-frame') && !card.classList.contains('is-stage-docked') && !card.classList.contains('is-viewport-culled'))
         .map((card) => ({
             el: card,
@@ -1993,7 +1153,7 @@ window.addEventListener('mousedown', (e) => {
 function clearSelection() {
     selectionCandidates = [];
     selectedTasks.clear();
-    document.querySelectorAll('.video-card.selected, .frame-box.selected').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.video-card.selected').forEach(c => c.classList.remove('selected'));
     updateSelectionToolbar();
     scheduleViewportCulling(40);
 }
@@ -2050,15 +1210,6 @@ window.addEventListener('mousemove', (e) => {
                 }
                 requestSelectionToolbarUpdate();
             }
-            else if (activeFrameResize) {
-                const dx = (e.clientX - activeFrameResize.startX) / transform.scale, dy = (e.clientY - activeFrameResize.startY) / transform.scale;
-                const newW = Math.max(activeFrameResize.minW, activeFrameResize.startW + dx);
-                const newH = Math.max(activeFrameResize.minH, activeFrameResize.startH + dy);
-                activeFrameResize.el.style.width = newW + 'px'; activeFrameResize.el.style.height = newH + 'px';
-                activeFrameResize.task.width = newW; activeFrameResize.task.height = newH;
-                syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
-                requestSelectionToolbarUpdate();
-            }
             ticking = false;
         });
         ticking = true;
@@ -2068,7 +1219,7 @@ window.addEventListener('mousemove', (e) => {
 viewport.addEventListener('mousedown', (e) => {
     if (!isSpacePanningKeyDown) return;
     const interactive = e.target && typeof e.target.closest === 'function'
-        ? e.target.closest('input, textarea, select, button, .img-gen-preview-panel, .cropper-workspace, .img-gen-mask-block')
+        ? e.target.closest('input, textarea, select, button, .img-gen-preview-panel, .img-gen-mask-block')
         : null;
     if (interactive) return;
     e.preventDefault();
@@ -2141,14 +1292,6 @@ window.addEventListener('mouseup', async () => {
         updateSelectionToolbar();
         renderMinimap();
     }
-    if (activeFrameResize) {
-        syncCardViewportMetrics(activeFrameResize.el, activeFrameResize.task);
-        await saveTaskDB(activeFrameResize.task);
-        activeFrameResize = null;
-        scheduleViewportCulling(40);
-        updateSelectionToolbar();
-        renderMinimap();
-    }
 });
 
 function consumeNestedCanvasWheel(e) {
@@ -2212,32 +1355,7 @@ window.addEventListener('resize', () => {
 });
 
 function startFrameResize(e, id) {
-    e.stopPropagation();
-    isPanning = false; setCanvasMoving(false);
-    const el = document.getElementById('card-' + id);
-    const task = el.__veoTask;
-
-    let minW = 340;
-    let minH = 140;
-
-    if (task) {
-        document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
-            if (childEl.__veoTask && childEl.__veoTask.parentId === id) {
-                const childTask = childEl.__veoTask;
-                const childSize = measureTaskAABB(childTask);
-                const childRight = (childTask.x - task.x) + childSize.width + FRAME_SAFE_PADDING;
-                const childBottom = (childTask.y - task.y) + childSize.height + FRAME_SAFE_PADDING;
-                if (childRight > minW) minW = childRight;
-                if (childBottom > minH) minH = childBottom;
-            }
-        });
-    }
-
-    activeFrameResize = {
-        id: id, startX: e.clientX, startY: e.clientY,
-        startW: el.offsetWidth, startH: el.offsetHeight, el: el, task: task,
-        minW: minW, minH: minH
-    };
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
 }
 
 // ✅ 替换为支持 Alt 克隆的拖拽绑定引擎
@@ -2245,13 +1363,13 @@ function bindCardDrag(cardEl, task) {
     cardEl.__veoTask = task;
     cardEl.oncontextmenu = (e) => {
         const interactive = e.target && typeof e.target.closest === 'function'
-            ? e.target.closest('input, textarea, select, button, video, .cropper-workspace, .img-gen-mask-block, .img-gen-preview-panel')
+            ? e.target.closest('input, textarea, select, button, video, .img-gen-mask-block, .img-gen-preview-panel')
             : null;
         if (interactive) return;
         openCanvasTaskContextMenu(e, task.id);
     };
     cardEl.onmousedown = (e) => {
-        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('frame-resize-handle')) {
+        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
             highestZIndex++; cardEl.style.zIndex = highestZIndex;
             if (task.type === 'tool_image_gen') {
                 activeImgGenStageTaskId = task.id;
@@ -2260,7 +1378,7 @@ function bindCardDrag(cardEl, task) {
         }
     };
 
-    const header = cardEl.querySelector('.card-header') || cardEl.querySelector('.frame-header');
+    const header = cardEl.querySelector('.card-header');
     if(header) {
         // 🌟 改为 async 函数，因为克隆需要查库
         header.onmousedown = async (e) => {
@@ -2301,29 +1419,8 @@ function bindCardDrag(cardEl, task) {
                 justCreated: false
             };
 
-            if (task.type === 'frame') {
-                draggingCardInfo.children = [];
-                document.querySelectorAll('.video-card, .frame-box').forEach(childEl => {
-                    if (childEl.__veoTask && childEl.__veoTask.parentId === task.id) {
-                        childEl.style.willChange = 'transform';
-                        draggingCardInfo.children.push({
-                            el: childEl,
-                            task: childEl.__veoTask,
-                            initialX: toFiniteNumber(childEl.__veoTask && childEl.__veoTask.x, 0),
-                            initialY: toFiniteNumber(childEl.__veoTask && childEl.__veoTask.y, 0)
-                        });
-                    }
-                });
-            }
+            if (task.type === 'frame') return;
             e.stopPropagation();
-        };
-    }
-
-    const resizeHandle = cardEl.querySelector('.frame-resize-handle');
-    if (resizeHandle) {
-        resizeHandle.onmousedown = (e) => {
-            e.stopPropagation(); isPanning = false; setCanvasMoving(false);
-            startFrameResize(e, task.id);
         };
     }
 }
@@ -2339,8 +1436,6 @@ function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
     if (clone.type === 'tool_image_gen') {
         sanitizeImgGenCloneState(clone);
     }
-    if (clone.type === 'tool_cropper' && clone.state) clone.state.resultBlob = null;
-
     normalizeTaskPosition(clone);
     clone.x += offsetX;
     clone.y += offsetY;
@@ -2507,7 +1602,7 @@ window.addEventListener('keydown', async (e) => {
         return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); document.querySelectorAll('.video-card, .frame-box').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
+        e.preventDefault(); document.querySelectorAll('.video-card').forEach(card => { if(card.classList.contains('hidden-in-frame')) return; selectedTasks.add(card.id.replace('card-', '')); card.classList.add('selected'); }); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
@@ -2536,10 +1631,10 @@ async function renderMinimap() {
     const ctx = canvas.getContext('2d'), cw = container.clientWidth, ch = container.clientHeight;
     canvas.width = cw; canvas.height = ch;
 
-    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !isImgGenTaskStageDocked(t));
+    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !RETIRED_NODE_TYPES.has(t.type) && !isImgGenTaskStageDocked(t));
     if (boardTasks.length === 0) { ctx.clearRect(0, 0, cw, ch); viewBox.style.display = 'none'; return; }
 
-    const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
+    const frameMap = {};
 
     let minX = Math.min(...boardTasks.map(t => t.x)), maxX = Math.max(...boardTasks.map(t => t.x + (t.width || 340)));
     let minY = Math.min(...boardTasks.map(t => t.y)), maxY = Math.max(...boardTasks.map(t => t.y + (t.height || 400)));
@@ -2561,8 +1656,8 @@ async function renderMinimap() {
         const px = offsetX + (t.x - minX) * mapScale, py = offsetY + (t.y - minY) * mapScale, pw = (t.width || 340) * mapScale, ph = (t.height || 400) * mapScale;
         ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(px, py, pw, Math.max(ph, 5), 3); else ctx.rect(px, py, pw, Math.max(ph, 5));
 
-        if (t.type === 'frame') ctx.fillStyle = 'rgba(167, 139, 250, 0.15)';
-        else if (t.type === 'note') ctx.fillStyle = 'rgba(255, 202, 40, 0.8)'; else if (t.type === 'tool_generator') ctx.fillStyle = 'rgba(129, 140, 248, 0.8)'; else if (t.type === 'tool_image_gen') ctx.fillStyle = 'rgba(10, 132, 255, 0.8)'; else if (t.type === 'tool_cropper') ctx.fillStyle = 'rgba(50, 215, 75, 0.8)'; else ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        if (t.type === 'tool_image_gen') ctx.fillStyle = 'rgba(10, 132, 255, 0.8)';
+        else ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.fill();
     });
     syncMinimapViewport();
@@ -2616,13 +1711,16 @@ const consoleEl = document.getElementById('floating-console');
 document.addEventListener('click', (e) => {
     const popover = document.getElementById('ref-popover'), slotBox = document.getElementById('slot-ref-box');
     if (popover && popover.style.display === 'flex' && !popover.contains(e.target) && !slotBox.contains(e.target)) popover.style.display = 'none';
-    if (e.target === viewport || e.target === board) { consoleEl.classList.add('minimized'); document.getElementById('tool-drawer').classList.remove('open'); document.getElementById('material-drawer').classList.remove('open'); } else if (consoleEl.contains(e.target)) consoleEl.classList.remove('minimized');
+    if (e.target === viewport || e.target === board) {
+        consoleEl.classList.add('minimized');
+        document.getElementById('material-drawer').classList.remove('open');
+    } else if (consoleEl.contains(e.target)) consoleEl.classList.remove('minimized');
 });
 
 viewport.addEventListener('dblclick', (e) => {
     if (e.target === viewport || e.target === board) {
         const p = clientToBoard(e.clientX, e.clientY);
-        createStickyNote(p.x, p.y);
+        createImageGenNode(p.x, p.y);
     }
 });
 
@@ -2631,6 +1729,7 @@ async function exportWorkspace() {
     try {
         const tasks = await getAllTasksDB(); const exportData = [];
         for (let t of tasks) {
+            if (RETIRED_NODE_TYPES.has(t.type)) continue;
             let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
             if (clone.state) {
                 if (clone.state.images) clone.state.images = await blobsToBase64Sequential(clone.state.images, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
@@ -2658,6 +1757,7 @@ async function importWorkspace(input) {
             if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
                 const importedTasks = [];
                 for (let t of data) {
+                    if (RETIRED_NODE_TYPES.has(t.type)) continue;
                     if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
                     if (t.state) {
                         if (t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
@@ -2681,129 +1781,12 @@ async function importWorkspace(input) {
 
 window.addEventListener("dragover", function(e){ e.preventDefault(); }, false); window.addEventListener("drop", function(e){ e.preventDefault(); }, false);
 
-document.addEventListener('dragstart', (e) => {
-    const toolEl = e.target && e.target.closest ? e.target.closest('.draggable-tool') : null;
-    if (!toolEl) return;
-    const point = getEventClientPoint(e);
-    if (!point) return;
-    const plugin = detectToolPluginType(toolEl);
-    const startBoard = clientToBoard(point.x, point.y);
-
-    toolDragSession = {
-        plugin,
-        startClientX: point.x,
-        startClientY: point.y,
-        startBoardX: startBoard.x,
-        startBoardY: startBoard.y,
-        hotX: NaN,
-        hotY: NaN
-    };
-    document.body.classList.add('is-tool-dragging');
-
-    if (plugin && e.dataTransfer) e.dataTransfer.setData('plugin', plugin);
-    if (e.dataTransfer && typeof e.dataTransfer.setDragImage === 'function') {
-        const rect = toolEl.getBoundingClientRect();
-        const hotX = Math.max(0, Math.min(rect.width, point.x - rect.left));
-        const hotY = Math.max(0, Math.min(rect.height, point.y - rect.top));
-        toolDragSession.hotX = hotX;
-        toolDragSession.hotY = hotY;
-        e.dataTransfer.setDragImage(toolEl, hotX, hotY);
-    }
-}, true);
-
-document.addEventListener('dragend', () => {
-    toolDragSession = null;
-    lastViewportDragClientX = NaN;
-    lastViewportDragClientY = NaN;
-    document.body.classList.remove('is-tool-dragging');
-}, true);
-
 viewport.addEventListener('dragover', (e) => {
     e.preventDefault();
-    const point = getEventClientPoint(e);
-    if (!point) return;
-    lastViewportDragClientX = point.x;
-    lastViewportDragClientY = point.y;
 }, false);
 
 viewport.addEventListener('drop', async (e) => {
     e.preventDefault();
-    const pluginType = e.dataTransfer.getData('plugin') || (toolDragSession && toolDragSession.plugin) || '';
-    if (pluginType) {
-        const dropPoint = getEventClientPoint(e) || (
-            Number.isFinite(lastViewportDragClientX) && Number.isFinite(lastViewportDragClientY)
-                ? { x: lastViewportDragClientX, y: lastViewportDragClientY }
-                : null
-        );
-        if (!dropPoint) return;
-        const dropBoard = clientToBoard(dropPoint.x, dropPoint.y);
-        const spawnX = toFiniteNumber(dropBoard.x, 0);
-        const spawnY = toFiniteNumber(dropBoard.y, 0);
-
-        let newTool = null;
-        if (pluginType === 'generator') newTool = { id: 'tool_' + Date.now(), type: 'tool_generator', x: spawnX, y: spawnY, timestamp: Date.now(), state: { format: '', opening: '', attribute: '', general: '' } };
-        else if (pluginType === 'image_gen') newTool = {
-            id: 'tool_img_' + Date.now(),
-            type: 'tool_image_gen',
-            x: spawnX,
-            y: spawnY,
-            timestamp: Date.now(),
-            status: 'idle',
-            state: {
-                version: 'pro',
-                providerSort: 'ai666',
-                modelSuffix: '',
-                routeMode: 'ai666',
-                imageModel: 'gpt-image-2',
-                quality: 'auto',
-                format: 'png',
-                n: 1,
-                size: '1024x1024',
-                trialRatio: '1:1',
-                proRatio: '1:1',
-                proResolution: '1k',
-                customW: 9,
-                customH: 16,
-                background: 'auto',
-                moderation: 'auto',
-                prompt: '',
-                images: [],
-                refControls: [],
-                seedLocked: false,
-                seed: '',
-                maskImage: null,
-                maskBlob: null,
-                maskEditMode: false,
-                maskBrushSize: 20,
-                maskStageHeight: 220,
-                resultUrl: null,
-                resultBlob: null,
-                resultBlobs: [],
-                previewCollapsed: false,
-                paramsCollapsed: true,
-                imgGenUiV2: true,
-                cardWidthOpen: 680,
-                cardWidthCollapsed: 360,
-                cardHeight: 520,
-                channel: 'channel_1',
-                autoRetry: false,
-                stageDocked: false,
-                stageReleased: false
-            },
-            retryCount: 0
-        };
-        else if (pluginType === 'cropper') newTool = { id: 'tool_crop_' + Date.now(), type: 'tool_cropper', x: spawnX, y: spawnY, timestamp: Date.now(), state: { sourceBlob: null, resultBlob: null, cropParams: { left: 10, top: 10, width: 80, height: 80 } } };
-        if (newTool) {
-            await saveTaskDB(newTool);
-            renderBoard();
-            document.getElementById('tool-drawer').classList.remove('open');
-            toolDragSession = null;
-            document.body.classList.remove('is-tool-dragging');
-            lastViewportDragClientX = NaN;
-            lastViewportDragClientY = NaN;
-            return;
-        }
-    }
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
         let added = false;
@@ -2858,7 +1841,6 @@ async function parseDroppedImage(e) {
 function getTaskReusableImage(task) {
     if (!task || typeof task !== 'object') return null;
     if (task.type === 'local_image') return task.src || null;
-    if (task.type === 'tool_cropper') return task.state && task.state.resultBlob ? task.state.resultBlob : (task.state && task.state.sourceBlob ? task.state.sourceBlob : null);
     if (task.type === 'tool_image_gen') {
         ensureImgGenState(task);
         const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
@@ -3366,20 +2348,16 @@ async function reuseTask(taskId) {
 }
 
 function generateCardHTML(task) {
-    if (task.type === 'frame') return renderFrameCardHTML(task);
-    if (task.type === 'note') return renderNoteCardHTML(task);
-    if (task.type === 'tool_generator') return renderGeneratorCardHTML(task);
+    if (RETIRED_NODE_TYPES.has(task.type)) return '';
 
     if (task.type === 'tool_image_gen') return renderImgGenCardHTML(task);
-
-    if (task.type === 'tool_cropper') return renderCropperCardHTML(task);
 
     return renderVideoTaskCardHTML(task);
 }
 
 // 🌟 初次挂载与排版专用的全局刷新函数
 async function renderBoard() {
-    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image'), boardTaskIds = new Set(boardTasks.map(t => 'card-' + t.id));
+    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !RETIRED_NODE_TYPES.has(t.type)), boardTaskIds = new Set(boardTasks.map(t => 'card-' + t.id));
     const existingCards = Array.from(board.children); existingCards.forEach(card => {
         if (!boardTaskIds.has(card.id)) {
             const removedTaskId = resolveTaskIdFromCardElement(card);
@@ -3390,8 +2368,6 @@ async function renderBoard() {
             card.remove();
         }
     });
-
-    const frameMap = {}; boardTasks.filter(t => t.type === 'frame').forEach(f => frameMap[f.id] = f);
 
     boardTasks.forEach(task => {
         if (task && task.type === 'tool_image_gen') {
@@ -3416,35 +2392,20 @@ async function renderBoard() {
         const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
 
         let isHiddenInFrame = false;
-        if (task.parentId && frameMap[task.parentId] && frameMap[task.parentId].isCollapsed) isHiddenInFrame = true;
         const isStageDocked = isImgGenTaskStageDocked(task);
 
         if (!cardEl) {
             cardEl = document.createElement('div'); cardEl.id = 'card-' + task.id;
 
-            if (task.type === 'frame') {
-                cardEl.className = 'frame-box';
-                cardEl.style.width = `${task.width}px`;
-                cardEl.style.height = task.isCollapsed ? '0px' : `${task.height}px`;
-                if (task.isCollapsed) cardEl.style.border = 'none';
-            }
-            else if (task.type === 'note') { cardEl.className = 'video-card sticky-note'; cardEl.style.width = `${task.width || 260}px`; cardEl.style.height = `${task.height || 180}px`; } else if (task.type === 'tool_generator') cardEl.className = 'video-card tool-generator'; else if (task.type === 'tool_image_gen') cardEl.className = 'video-card tool-image-gen'; else if (task.type === 'tool_cropper') cardEl.className = 'video-card tool-cropper'; else cardEl.className = 'video-card';
+            cardEl.className = task.type === 'tool_image_gen' ? 'video-card tool-image-gen' : 'video-card';
 
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`; morphCardDOM(cardEl, generateCardHTML(task)); board.appendChild(cardEl);
             applyImgGenCardFrame(cardEl, task);
             syncImgMaskEditor(cardEl, task).catch(() => {});
             bindImgGenCardResizeSave(cardEl, task);
-            if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
             window.VeoVideoTasks.ensurePollingTask(task);
         } else {
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
-
-            if (task.type === 'frame') {
-                cardEl.style.width = `${task.width}px`;
-                cardEl.style.height = task.isCollapsed ? '0px' : `${task.height}px`;
-                cardEl.style.border = task.isCollapsed ? 'none' : '';
-            }
-            else if (task.type === 'note' && task.width && task.height) { cardEl.style.width = `${task.width}px`; cardEl.style.height = `${task.height}px`; }
 
             const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldPromptToolsCollapsed = cardEl.getAttribute('data-sync-prompt-tools-collapsed'), oldMaskPanelCollapsed = cardEl.getAttribute('data-sync-mask-panel-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
@@ -3548,7 +2509,6 @@ async function duplicateTask(originalTask, mouseEvent) {
         if (clone.type === 'tool_image_gen') {
             sanitizeImgGenCloneState(clone);
         }
-        if (clone.type === 'tool_cropper') clone.state.resultBlob = null;
     }
 
     if (originalTask && originalTask.rawImages) {
@@ -3587,7 +2547,6 @@ async function duplicateTask(originalTask, mouseEvent) {
     newCardEl.style.zIndex = highestZIndex;
     newCardEl.style.willChange = 'transform';
     newCardEl.style.transform = `translate3d(${clone.x}px, ${clone.y}px, 0)`;
-    newCardEl.classList.remove('hidden-in-frame');
 
     clearSelection();
     selectedTasks.add(newId);
@@ -3840,8 +2799,8 @@ function ensureImgGenState(task) {
     if (!task.state.format) task.state.format = 'png';
     if (!task.state.background) task.state.background = 'auto';
     if (!task.state.moderation) task.state.moderation = 'auto';
-    if (typeof task.state.stageDocked !== 'boolean') task.state.stageDocked = false;
-    if (typeof task.state.stageReleased !== 'boolean') task.state.stageReleased = false;
+    task.state.stageDocked = false;
+    task.state.stageReleased = false;
     task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
     if (!task.state.trialRatio) {

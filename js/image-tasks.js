@@ -128,9 +128,8 @@
                 forceRenderImgGenPreviewPanel(writeTask, itemId);
                 console.warn('[img-poll] stopped invalid image polling:', {
                     reason: pollEndpoint.reason,
-                    imagePollWebhook: API_IMAGE_POLL || '',
-                    imageGenWebhook: API_IMAGE_GEN,
-                    legacyWebhook: API_IMAGE_GEN_LEGACY,
+                    imagePollWebhook: window.VeoApi.config.imagePoll || '',
+                    imageGenWebhook: window.VeoApi.config.imageUnified,
                     remoteId
                 });
                 showToast('图片轮询已熔断：请检查 VEO_IMAGE_POLL_WEBHOOK，不要填旧版生成入口', 'warning');

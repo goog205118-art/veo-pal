@@ -7,7 +7,6 @@
         videoSubmit: 'https://api.wallyai.top/webhook/proxy-submit',
         videoPoll: 'https://api.wallyai.top/webhook/proxy-poll',
         imageUnified: trimOverride(window.VEO_IMAGE_UNIFIED_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-image-unified',
-        imageLegacy: trimOverride(window.VEO_IMAGE_LEGACY_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-image-gen',
         imagePoll: trimOverride(window.VEO_IMAGE_POLL_WEBHOOK),
         imageAuth: trimOverride(window.VEO_WEBHOOK_AUTH)
     };
@@ -33,13 +32,9 @@
         return normalizeEndpoint(rawUrl).endsWith('/proxy-image-unified');
     }
 
-    function isLegacyImageEndpoint(rawUrl) {
-        return normalizeEndpoint(rawUrl).endsWith('/proxy-image-gen');
-    }
-
     function isImageGenerationEndpoint(rawUrl) {
         const endpoint = normalizeEndpoint(rawUrl);
-        return endpoint.endsWith('/proxy-image-unified') || endpoint.endsWith('/proxy-image-gen');
+        return endpoint.endsWith('/proxy-image-unified');
     }
 
     function resolveImagePollEndpoint() {
@@ -51,9 +46,6 @@
         }
         if (isUnifiedImageEndpoint(url) || (isSameEndpoint(url, config.imageUnified) && isUnifiedImageEndpoint(config.imageUnified))) {
             return { url, reason: 'unified_poll' };
-        }
-        if (isLegacyImageEndpoint(url) || isSameEndpoint(url, config.imageLegacy)) {
-            return { url: '', reason: 'points_to_generation' };
         }
         return { url, reason: '' };
     }
@@ -129,7 +121,6 @@
         imagePoll,
         imageSubmit,
         isImageGenerationEndpoint,
-        isLegacyImageEndpoint,
         isSameEndpoint,
         isUnifiedImageEndpoint,
         normalizeEndpoint,

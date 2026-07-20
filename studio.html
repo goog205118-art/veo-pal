@@ -65,23 +65,15 @@
             <span class="material-symbols-outlined">account_tree</span> Veo Studio <span style="font-size:12px; color:var(--text-sub); font-weight:normal;">/ Lite</span>
         </div>
        <div class="top-actions">
-            <button class="top-btn" onclick="createFrame()" data-tip="按住 Shift 框选多张卡片后，点击将其打组收纳">
-                <span class="material-symbols-outlined" style="font-size: 16px; color: #a78bfa;">dashboard_customize</span> 建组
-            </button>
+            <button class="top-btn" onclick="createImageGenNode()" data-tip="新建 AI 生图节点"><span class="material-symbols-outlined" style="font-size: 16px; color: #0a84ff;">brush</span> 新建生图</button>
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
 
             <button class="top-btn" onclick="alignSelectedCards()" data-tip="将选中的卡片(或全盘)网格化自动对齐">
                 <span class="material-symbols-outlined" style="font-size: 16px; color: #ffca28;">grid_on</span> 排版
             </button>
-            <button class="top-btn" onclick="toggleDrawer()" data-tip="展开工具箱，拖拽 AI 插件组件至画布">
-                <span class="material-symbols-outlined" style="font-size: 16px;">grid_view</span> 工具箱
-            </button>
             <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.2); margin: 0 4px;"></div>
             <button class="top-btn icon-only" onclick="toggleMaterialDrawer()" data-tip="全局素材库 (集中存放所有图片)">
                 <span class="material-symbols-outlined">perm_media</span>
-            </button>
-            <button class="top-btn icon-only" onclick="createStickyNote()" data-tip="新建文本便签">
-                <span class="material-symbols-outlined">sticky_note_2</span>
             </button>
             <label class="top-btn icon-only" style="cursor: pointer; margin: 0;" data-tip="导入 .veo 工程文件">
                 <span class="material-symbols-outlined">upload</span>
@@ -106,54 +98,7 @@
         </div>
     </div>
 
-    <div class="tool-drawer" id="tool-drawer">
-        <div class="drawer-title">
-            <span class="material-symbols-outlined" style="font-size:18px;">apps</span> 拖拽组件至画布
-        </div>
-
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'generator')">
-            <div style="background: rgba(79, 70, 229, 0.2); color: #818cf8; padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">auto_awesome</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">社媒灵感生成器 测试中</div>
-                <div style="font-size: 11px; color: var(--text-sub);">一键生成爆款剧本四要素</div>
-            </div>
-        </div>
-
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'image_gen')">
-            <div style="background: rgba(10, 132, 255, 0.2); color: var(--accent); padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">brush</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">Neo gpt-image-2生图</div>
-                <div style="font-size: 11px; color: var(--text-sub);">支持 1-5 张垫图合并创作</div>
-            </div>
-        </div>
-
-        <div class="draggable-tool" draggable="true" ondragstart="event.dataTransfer.setData('plugin', 'cropper')">
-            <div style="background: rgba(50, 215, 75, 0.2); color: var(--success); padding: 6px; border-radius: 6px; display: flex;">
-                <span class="material-symbols-outlined">crop</span>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 500; color: var(--text-main);">图片裁切器</div>
-                <div style="font-size: 11px; color: var(--text-sub);">提取局部画面直接复用</div>
-            </div>
-        </div>
-    </div>
-
-    <aside class="img-gen-stage-rail" id="img-gen-stage-rail" aria-label="AI 生图台前调度">
-        <button class="img-gen-stage-toggle" type="button" onclick="toggleImgGenStageRail(event)" data-tip="收纳/展开生图台前调度">
-            <span class="material-symbols-outlined">photo_library</span>
-        </button>
-        <div class="img-gen-stage-header">
-            <span>生图台前</span>
-            <strong id="img-gen-stage-count">0</strong>
-        </div>
-        <div class="img-gen-stage-list" id="img-gen-stage-list"></div>
-    </aside>
-
-    <div class="canvas-viewport" id="canvas-viewport" data-tip="双击空白处：快速新建文本便签">
+    <div class="canvas-viewport" id="canvas-viewport" data-tip="双击空白处：快速新建 AI 生图节点">
         <div class="canvas-board" id="canvas-board"></div>
         <div id="selection-marquee" class="selection-marquee"></div>
     </div>
@@ -385,12 +330,10 @@
     <script>
       // Optional: override image generation webhook. Empty means use api-client.js default.
       window.VEO_IMAGE_UNIFIED_WEBHOOK = window.VEO_IMAGE_UNIFIED_WEBHOOK || '';
-      // Optional: image polling webhook. Empty reuses proxy-image-unified when it supports action=poll. Do not point this to legacy proxy-image-gen.
+      // Optional: image polling webhook. Empty reuses proxy-image-unified when it supports action=poll.
       window.VEO_IMAGE_POLL_WEBHOOK = window.VEO_IMAGE_POLL_WEBHOOK || '';
       // Optional: unified webhook auth header, for example "Bearer sk-xxxx".
       window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
-      // Optional: legacy trial image webhook fallback.
-      window.VEO_IMAGE_LEGACY_WEBHOOK = window.VEO_IMAGE_LEGACY_WEBHOOK || '';
     </script><script src="js/db.js"></script>
     <script src="js/store.js"></script>
     <script src="js/api-client.js"></script>
@@ -408,11 +351,8 @@
     <script src="js/image-preview-actions.js"></script>
     <script src="js/image-interactions.js"></script>
     <script src="js/image-submit.js"></script>
+    <script src="js/app-shell.js"></script>
     <script src="js/app.js"></script>
-    <script src="js/board-tools-runtime.js"></script>
-    <script src="js/generator-tools.js"></script>
-    <script src="js/board-card-ui.js"></script>
-    <script src="js/cropper-tools.js"></script>
     <script src="js/video-card-ui.js"></script>
 </body>
 </html>
