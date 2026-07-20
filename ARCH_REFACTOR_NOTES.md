@@ -9,6 +9,8 @@
 - js/store.js
 - js/db.js
 - js/api-client.js
+- js/dom-utils.js
+- js/task-cache.js
 - js/media-utils.js
 - js/image-core.js
 - js/image-request.js
@@ -58,6 +60,16 @@
 - Centralized image webhook endpoint normalization and response parsing.
 - Entry pages now load `js/api-client.js` between `store.js` and `app.js`.
 
+## DOM Utility Layer Changes (Compatible)
+- Added `window.VeoDom` for shared text escaping, CSS escaping, safe blob URL cleanup, form state sync, and lightweight card DOM morphing.
+- Removed those pure DOM helpers from `js/app.js` while preserving the previous global helper names for inline handlers and older modules.
+- Entry pages now load `js/dom-utils.js` before media, image UI, and app orchestration scripts.
+
+## Runtime Task Cache Layer Changes (Compatible)
+- Added `window.VeoTaskCache` for live task shadows and debounced image prompt draft persistence.
+- Removed task shadow maps and prompt draft timers from `js/app.js` while preserving `setTaskShadow`, `getTaskShadow`, `updateImgGenPromptDraft`, and related global handler names.
+- Entry pages now load `js/task-cache.js` before image, video, and app orchestration scripts.
+
 ## Media Utility Layer Changes (Compatible)
 - Added `window.VeoMedia` for image generation route config, reference intent metadata, media encoding helpers, and image metadata reads.
 - `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
@@ -88,6 +100,8 @@
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
+- `node --check js/dom-utils.js`: pass
+- `node --check js/task-cache.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
 - `node --check js/image-request.js`: pass
