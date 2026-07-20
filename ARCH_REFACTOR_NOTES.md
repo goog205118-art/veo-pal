@@ -11,6 +11,7 @@
 - js/api-client.js
 - js/media-utils.js
 - js/image-core.js
+- js/image-request.js
 - js/material-library.js
 
 ## Store Layer Changes (Compatible)
@@ -67,6 +68,11 @@
 - `js/app.js` keeps the previous helper names while delegating reusable image-generation rules to `js/image-core.js`.
 - Entry pages now load `js/image-core.js` after `js/media-utils.js` and before `js/app.js`.
 
+## Image Request Layer Changes (Compatible)
+- Added `window.VeoImageRequest` for prompt context, output compression normalization, encoded payload sizing, unified image payload construction, and single-submit transport.
+- `js/image-submit.js` now focuses more on submit orchestration and preview persistence.
+- Entry pages now load `js/image-request.js` before `js/image-submit.js`.
+
 ## Material Library Layer Changes (Compatible)
 - Added `window.VeoMaterials` for the global material drawer, grouped material rendering, duplicate cleanup, delete, and clear actions.
 - `js/app.js` keeps the previous inline handler names while delegating material-library behavior to `js/material-library.js`.
@@ -78,6 +84,7 @@
 - `node --check js/api-client.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
+- `node --check js/image-request.js`: pass
 - `node --check js/material-library.js`: pass
 - `node --check js/app.js`: pass
 - Retired canvas-flow runtime removed in slimming pass; no legacy runtime check remains.

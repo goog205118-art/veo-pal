@@ -13,6 +13,7 @@
 - js/material-library.js
 - js/billing.js
 - js/video-tasks.js
+- js/image-request.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -84,6 +85,11 @@
 - `js/app.js` keeps the previous inline handler names while delegating video task behavior to `js/video-tasks.js`.
 - Entry pages now load `js/video-tasks.js` before `js/app.js`.
 
+## Image Request Layer Changes (Compatible)
+- Added `window.VeoImageRequest` for prompt context, output compression normalization, encoded payload sizing, unified image payload construction, and single-submit transport.
+- `js/image-submit.js` now focuses more on submit orchestration and preview persistence.
+- Entry pages now load `js/image-request.js` before `js/image-submit.js`.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
@@ -93,6 +99,7 @@
 - `node --check js/material-library.js`: pass
 - `node --check js/billing.js`: pass
 - `node --check js/video-tasks.js`: pass
+- `node --check js/image-request.js`: pass
 - `node --check js/app.js`: pass
 - Retired canvas-flow runtime removed in slimming pass; no legacy runtime check remains.
 

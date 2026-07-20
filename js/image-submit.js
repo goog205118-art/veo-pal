@@ -61,11 +61,7 @@ async function submitImgGen(taskId) {
     }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
 
     let resolvedSize = resolveImgGenSize(task.state);
-    let finalPrompt = task.state.prompt;
-    const trialCustomW = task.state.customW || 9;
-    const trialCustomH = task.state.customH || 16;
-    const trialCustomRatio = (version !== 'pro' && task.state.trialRatio === 'custom') ? `${trialCustomW}:${trialCustomH}` : '';
-    if (trialCustomRatio) finalPrompt = `${finalPrompt} 画面比例${trialCustomRatio}`;
+    const promptContext = window.VeoImageRequest.resolvePromptContext(task, version);
 
     if (version === 'pro' && resolvedSize !== 'auto') {
         const strict = enforceProSizeRules(resolvedSize);
@@ -97,7 +93,7 @@ async function submitImgGen(taskId) {
     const maskSource = task.state.maskBlob || task.state.maskImage || null;
     const maskBase64 = maskSource ? await blobToBase64(maskSource, maskEncodeOptions) : null;
     const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64, maxImageCount);
-    const encodedImageBytes = imagesBase64.reduce((sum, item) => sum + String(item || '').length, 0) + String(maskBase64 || '').length;
+    const encodedImageBytes = window.VeoImageRequest.measureEncodedPayloadBytes(imagesBase64, maskBase64);
     if (route.key === 'ai666' && encodedImageBytes > 10 * 1024 * 1024) {
         markImgGenPreviewFailed(task, previewItemId, 'AI666 垫图请求体仍然过大，请减少参考图或先裁切压缩');
         await saveTaskDB(task);
@@ -106,85 +102,20 @@ async function submitImgGen(taskId) {
         return showToast('AI666 通道垫图体积过大，请减少参考图或先裁切压缩', 'error');
     }
     const referenceControls = buildImgGenRefControlPayload(task);
-    const lockedSeed = task.state.seedLocked && task.state.seed !== '' ? parseInt(task.state.seed, 10) : null;
     const clientRequestId = `${task.id}_${previewItemId}`;
-    const nValue = 1;
-    const rawOutputCompression = toFiniteNumber(task.state.outputCompression ?? task.state.output_compression, NaN);
-    const outputCompression = Number.isFinite(rawOutputCompression)
-        ? Math.max(0, Math.min(100, Math.round(rawOutputCompression)))
-        : undefined;
-
-    const unifiedPayloadCore = {
-        version: version,
-        channel: task.state.channel || 'channel_1',
-        mode: mode,
-        model: imageModel,
-        imageModel: imageModel,
-        modelSuffix: route.suffix,
-        routeMode: route.mode,
-        ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
-        aspect_ratio: version === 'pro' ? (task.state.proRatio || '1:1') : (task.state.trialRatio || '1:1'),
-        resolution: version === 'pro' ? (task.state.proResolution || '1k') : '1k',
-        proRatio: task.state.proRatio || '1:1',
-        proResolution: task.state.proResolution || '1k',
-        prompt: finalPrompt,
-        size: sizeToSend,
-        providerSort: route.key,
-        providerKey: route.key,
-        provider_key: route.key,
-        provider: { key: route.key, sort: route.mode, suffix: route.suffix, model: imageModel },
-        quality: task.state.quality || 'auto',
-        format: task.state.format || 'png',
-        output_format: task.state.format || 'png',
-        outputCompression,
-        output_compression: outputCompression,
-        background: task.state.background || 'auto',
-        moderation: task.state.moderation || 'auto',
-        n: nValue,
+    const unifiedPayload = window.VeoImageRequest.buildUnifiedPayload({
+        task,
+        version,
+        route,
+        mode,
+        imageModel,
+        sizeToSend,
+        previewItemId,
         clientRequestId,
-        client_request_id: clientRequestId,
-        previewItemId: previewItemId,
-        preview_item_id: previewItemId,
-        requestId: clientRequestId,
-        request_id: clientRequestId,
-        seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
-        seedLocked: task.state.seedLocked === true,
-        seed_locked: task.state.seedLocked === true,
+        promptContext,
         referenceControls,
-        reference_controls: referenceControls,
-        imageControls: referenceControls,
-        image_controls: referenceControls,
-        imageWeights: referenceControls.map((item) => item.weight),
-        image_weights: referenceControls.map((item) => item.weight),
-        imageIntents: referenceControls.map((item) => item.intent),
-        image_intents: referenceControls.map((item) => item.intent),
-        ...imagePayloadFields,
-        custom_ratio: trialCustomRatio || undefined,
-        custom_w: trialCustomRatio ? trialCustomW : undefined,
-        custom_h: trialCustomRatio ? trialCustomH : undefined
-    };
-
-    const unifiedPayload = {
-        ...unifiedPayloadCore
-    };
-
-    const requestImgGenOnce = async (payloadForUnified) => {
-        const apiConfig = window.VeoApi.config;
-        const imageUnified = apiConfig.imageUnified;
-        const response = await window.VeoApi.imageSubmit(imageUnified, payloadForUnified);
-
-        if (response.status === 401 || response.status === 403) {
-            handleAuthError();
-            throw new Error("密钥校验失败");
-        }
-        if (!response.ok) throw new Error("API 异常: " + response.status);
-
-        const rawData = await parseImgGenHttpResponse(response, 'processing');
-
-        const resData = unwrapImgGenResponseData(rawData);
-        const returnedUrls = extractImageUrlsFromResponse(rawData);
-        return { rawData, resData, returnedUrls };
-    };
+        imagePayloadFields
+    });
 
     let success = false;
     let attempts = 0;
@@ -194,7 +125,7 @@ async function submitImgGen(taskId) {
     while (attempts < maxAttempts && !success) {
         attempts++;
         try {
-            const resultPack = await requestImgGenOnce(unifiedPayload);
+            const resultPack = await window.VeoImageRequest.submitUnifiedOnce(unifiedPayload);
             const resData = resultPack.resData;
             const returnedUrls = resultPack.returnedUrls;
 
