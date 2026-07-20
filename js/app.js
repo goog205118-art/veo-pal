@@ -1513,35 +1513,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
     if (!originalTask || typeof originalTask !== 'object') return;
-    const baseType = originalTask.type ? originalTask.type : 'task';
-    const newId = `${baseType}_copy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const clone = { ...originalTask, id: newId, timestamp: Date.now() };
-
-    // 解除从属关系，让克隆出的卡片自由散落
-    delete clone.parentId;
-
-    // 深拷贝内部状态，避免引用串联污染
-    if (originalTask && originalTask.state) {
-        clone.state = { ...originalTask.state };
-        if (Array.isArray(originalTask.state.images)) clone.state.images = [...originalTask.state.images];
-        if (originalTask.state.cropParams) clone.state.cropParams = { ...originalTask.state.cropParams };
-
-        if (clone.type === 'tool_image_gen') {
-            sanitizeImgGenCloneState(clone);
-        }
-    }
-
-    if (originalTask && originalTask.rawImages) {
-        clone.rawImages = { ...originalTask.rawImages };
-        if (Array.isArray(originalTask.rawImages.references)) clone.rawImages.references = [...originalTask.rawImages.references];
-    }
-
-    normalizeTaskPosition(clone);
-    if (!mouseEvent || !isPrimaryPointerDown) {
-        const cascadeOffset = 40;
-        clone.x += cascadeOffset;
-        clone.y += cascadeOffset;
-    }
+    const cascadeOffset = !mouseEvent || !isPrimaryPointerDown ? 40 : 0;
+    const clone = buildDuplicateTaskPayload(originalTask, cascadeOffset, cascadeOffset);
+    if (!clone) return;
+    const newId = clone.id;
 
     await saveTaskDB(clone);
     await renderBoard();
