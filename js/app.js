@@ -41,7 +41,6 @@ const IMG_GEN_PROMPT_TAGS = [
     { group: '材质', label: '硬核工业材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
     { group: '社媒', label: '海报留白', text: 'clean negative space for headline, premium e-commerce hero composition' }
 ];
-let isSpacePanningKeyDown = false;
 let imgGenStageRailCollapsed = false;
 let imgGenStageRailTimer = null;
 let activeImgGenStageTaskId = '';
@@ -335,14 +334,14 @@ const canvasCamera = window.VeoCanvasCamera.configure({
     }
 });
 const canvasSelection = window.VeoCanvasSelection.configure({ marquee });
-let transform = canvasCamera.transform, isPanning = false, startPanX = 0, startPanY = 0, ticking = false;
+let transform = canvasCamera.transform;
 const viewportCulling = window.VeoViewportCulling.configure({
     viewport,
     board,
     transform,
     hooks: {
         clampScale: (value) => clampCanvasScale(value),
-        getDraggingCardInfo: () => draggingCardInfo,
+        getDraggingCardInfo: () => getDraggingCardInfo(),
         getTaskFallbackSize: (task) => getTaskFallbackSize(task),
         measureTaskAABB: (task) => measureTaskAABB(task),
         toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
@@ -515,12 +514,54 @@ window.VeoCanvasRenderer.configure({
         updateSelectionToolbar: () => updateSelectionToolbar()
     }
 });
-let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
+window.VeoCanvasInteractions.configure({
+    viewport,
+    board,
+    transform,
+    selection: canvasSelection,
+    hooks: {
+        activateImageStageTask: (task) => {
+            if (!task || task.type !== 'tool_image_gen') return;
+            activeImgGenStageTaskId = task.id;
+            if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
+        },
+        applyCanvasTransform: (options) => applyCanvasTransform(options),
+        buildSelectionCandidates: () => buildSelectionCandidates(),
+        canDockToStage: (dragInfo, clientX, clientY) => canDragInfoDockToImgGenStage(dragInfo, clientX, clientY),
+        cancelCameraAnimation: () => cancelCameraAnimation(),
+        cancelCanvasInertia: () => cancelCanvasInertia(),
+        checkGroupDrop: (dragInfo) => checkGroupDrop(dragInfo),
+        clearSelection: () => clearSelection(),
+        deleteSelectedTasks: () => deleteSelectedTasks(),
+        dockToStage: (dragInfo) => dockImgGenCardToStage(dragInfo),
+        duplicateSelectedTasks: () => duplicateSelectedTasks(),
+        duplicateTask: (task, event) => duplicateTask(task, event),
+        isPointInStageRail: (clientX, clientY) => isPointInImgGenStageRail(clientX, clientY),
+        isPointNearStageRail: (clientX, clientY) => isPointNearImgGenStageRail(clientX, clientY),
+        isTaskSelected: (taskId) => selectedTasks.has(taskId),
+        nextZIndex: () => {
+            highestZIndex++;
+            return highestZIndex;
+        },
+        openTaskContextMenu: (event, taskId) => openCanvasTaskContextMenu(event, taskId),
+        panCanvasBy: (deltaX, deltaY, options) => panCanvasBy(deltaX, deltaY, options),
+        recordPanSample: (clientX, clientY) => recordPanSample(clientX, clientY),
+        renderMinimap: () => renderMinimap(),
+        requestSelectionToolbarUpdate: () => requestSelectionToolbarUpdate(),
+        saveTask: (task) => saveTaskDB(task),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        setCanvasMoving: (active) => setCanvasMoving(active),
+        setStageDragOver: (isOver) => setImgGenStageDragOver(isOver),
+        showToast: (message, type) => showToast(message, type),
+        startCanvasInertia: () => startCanvasInertia(),
+        syncCardViewportMetrics: (cardEl, task) => syncCardViewportMetrics(cardEl, task),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
+        updateSelectionToolbar: () => updateSelectionToolbar(),
+        zoomCanvasAt: (clientX, clientY, nextScale, options) => zoomCanvasAt(clientX, clientY, nextScale, options)
+    }
+});
+let highestZIndex = 10;
 const selectedTasks = canvasSelection.selectedTasks;
-let isPrimaryPointerDown = false;
-let lastPointerClientX = 0;
-let lastPointerClientY = 0;
-let resizeRefreshTimer = null;
 
 function clientToBoard(clientX, clientY) {
     return window.VeoCanvasCamera.clientToBoard(clientX, clientY);
@@ -686,14 +727,7 @@ function setCanvasMoving(active) {
 }
 
 function beginCanvasPan(e) {
-    cancelCameraAnimation();
-    cancelCanvasInertia();
-    clearSelection();
-    isPanning = true;
-    setCanvasMoving(true);
-    startPanX = e.clientX - transform.x;
-    startPanY = e.clientY - transform.y;
-    recordPanSample(e.clientX, e.clientY);
+    return window.VeoCanvasInteractions.beginCanvasPan(e);
 }
 
 function wakeMinimap(duration = 900) {
@@ -747,7 +781,7 @@ function scheduleViewportCulling(delay = 120) {
 function getSelectionToolbarContext() {
     return {
         selectedTaskIds: Array.from(selectedTasks),
-        isPanning,
+        isPanning: window.VeoCanvasInteractions.isPanning(),
         isSelecting: canvasSelection.isSelecting,
         actions: {
             focus: focusSelectedTasks,
@@ -778,246 +812,29 @@ function buildSelectionCandidates() {
     return canvasSelection.buildSelectionCandidates();
 }
 
-window.addEventListener('mousedown', (e) => {
-    if (e.button === 0) isPrimaryPointerDown = true;
-    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
-    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
-}, true);
-
 function clearSelection() {
     canvasSelection.clearSelection();
     updateSelectionToolbar();
     scheduleViewportCulling(40);
 }
 
-window.addEventListener('mousemove', (e) => {
-    if (Number.isFinite(e.clientX)) lastPointerClientX = e.clientX;
-    if (Number.isFinite(e.clientY)) lastPointerClientY = e.clientY;
-    if (!ticking) {
-        requestAnimationFrame(() => {
-            if (isPanning) {
-                transform.x = e.clientX - startPanX;
-                transform.y = e.clientY - startPanY;
-                recordPanSample(e.clientX, e.clientY);
-                applyCanvasTransform({ cull: false, minimapDuration: 900 });
-            }
-            else if (canvasSelection.isSelecting) {
-                canvasSelection.updateMarqueeSelection(e.clientX, e.clientY);
-                requestSelectionToolbarUpdate();
-            }
-            else if (draggingCardInfo) {
-                const dx = (e.clientX - draggingCardInfo.startMouseX) / transform.scale, dy = (e.clientY - draggingCardInfo.startMouseY) / transform.scale;
-                const dragBaseX = toFiniteNumber(draggingCardInfo.initialX, 0);
-                const dragBaseY = toFiniteNumber(draggingCardInfo.initialY, 0);
-                draggingCardInfo.task.x = dragBaseX + dx; draggingCardInfo.task.y = dragBaseY + dy;
-                draggingCardInfo.el.style.transform = `translate3d(${draggingCardInfo.task.x}px, ${draggingCardInfo.task.y}px, 0)`;
-                setImgGenStageDragOver(canDragInfoDockToImgGenStage(draggingCardInfo, e.clientX, e.clientY));
-                if (draggingCardInfo.children) {
-                    draggingCardInfo.children.forEach(child => {
-                        const childBaseX = toFiniteNumber(child.initialX, 0);
-                        const childBaseY = toFiniteNumber(child.initialY, 0);
-                        child.task.x = childBaseX + dx; child.task.y = childBaseY + dy;
-                        child.el.style.transform = `translate3d(${child.task.x}px, ${child.task.y}px, 0)`;
-                    });
-                }
-                requestSelectionToolbarUpdate();
-            }
-            ticking = false;
-        });
-        ticking = true;
-    }
-});
-
-viewport.addEventListener('mousedown', (e) => {
-    if (!isSpacePanningKeyDown) return;
-    const interactive = e.target && typeof e.target.closest === 'function'
-        ? e.target.closest('input, textarea, select, button, .img-gen-preview-panel, .img-gen-mask-block')
-        : null;
-    if (interactive) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-    beginCanvasPan(e);
-}, true);
-
-viewport.addEventListener('mousedown', (e) => {
-    if (e.target === viewport || e.target === board) {
-        cancelCameraAnimation();
-        cancelCanvasInertia();
-        if (e.shiftKey) {
-            canvasSelection.startMarqueeSelection(e.clientX, e.clientY, buildSelectionCandidates());
-            updateSelectionToolbar();
-        }
-        else {
-            beginCanvasPan(e);
-        }
-    }
-});
-
-window.addEventListener('mouseup', async () => {
-    isPrimaryPointerDown = false;
-    const wasPanning = isPanning;
-    isPanning = false;
-    setCanvasMoving(false);
-    if (wasPanning) startCanvasInertia();
-    if (canvasSelection.finishMarqueeSelection()) {
-        scheduleViewportCulling(40);
-        updateSelectionToolbar();
-    }
-
-    if (draggingCardInfo) {
-        draggingCardInfo.el.style.willChange = 'auto';
-        const dockedToStage = await dockImgGenCardToStage(draggingCardInfo);
-        if (dockedToStage) {
-            draggingCardInfo = null;
-            return;
-        }
-        setImgGenStageDragOver(false);
-        syncCardViewportMetrics(draggingCardInfo.el, draggingCardInfo.task);
-        await saveTaskDB(draggingCardInfo.task);
-
-        if (draggingCardInfo.children) {
-            for(let child of draggingCardInfo.children) { child.el.style.willChange = 'auto'; syncCardViewportMetrics(child.el, child.task); await saveTaskDB(child.task); }
-        } else {
-            await checkGroupDrop(draggingCardInfo);
-        }
-        draggingCardInfo = null;
-        scheduleViewportCulling(40);
-        updateSelectionToolbar();
-        renderMinimap();
-    }
-});
-
 function consumeNestedCanvasWheel(e) {
-    const target = e && e.target && typeof e.target.closest === 'function' ? e.target : null;
-    if (!target) return false;
-    const promptRail = target.closest('.img-gen-prompt-chip-row');
-    if (promptRail) {
-        const modeFactor = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
-        const deltaX = toFiniteNumber(e.deltaX, 0) * modeFactor;
-        const deltaY = toFiniteNumber(e.deltaY, 0) * modeFactor;
-        const amount = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
-        if (amount !== 0) {
-            e.preventDefault();
-            promptRail.scrollLeft += amount;
-        }
-        return true;
-    }
-    if (target.closest('.img-gen-input-body, .img-gen-preview-panel, .img-gen-preview-body, .img-gen-help-body')) {
-        return true;
-    }
-    return false;
+    return window.VeoCanvasInteractions.consumeNestedCanvasWheel(e);
 }
-
-viewport.addEventListener('wheel', (e) => {
-    const wheelTarget = e.target && typeof e.target.closest === 'function' ? e.target : null;
-    if (e.target.tagName === 'TEXTAREA' || e.target.closest('textarea')) return;
-    if (consumeNestedCanvasWheel(e)) return;
-    if (draggingCardInfo) return;
-    e.preventDefault();
-    cancelCameraAnimation();
-    cancelCanvasInertia();
-    setCanvasMoving(true);
-    clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-        setCanvasMoving(false);
-        scheduleViewportCulling(40);
-        renderMinimap();
-    }, 170);
-
-    const modeFactor = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? window.innerHeight : 1);
-    const deltaX = toFiniteNumber(e.deltaX, 0) * modeFactor;
-    const deltaY = toFiniteNumber(e.deltaY, 0) * modeFactor;
-    const trackpadPan = !e.ctrlKey && (Math.abs(deltaX) > 0.5 || (e.deltaMode === 0 && Math.abs(deltaY) < 48) || e.shiftKey);
-
-    if (trackpadPan) {
-        panCanvasBy(-deltaX, -deltaY, { cull: false, minimapDuration: 700 });
-    } else {
-        const factor = Math.exp(-deltaY * 0.0012);
-        zoomCanvasAt(e.clientX, e.clientY, transform.scale * factor, { cull: false, minimapDuration: 700 });
-    }
-}, { passive: false });
-
-window.addEventListener('resize', () => {
-    clearTimeout(resizeRefreshTimer);
-    resizeRefreshTimer = setTimeout(() => {
-        applyCanvasTransform({ cull: false, revealMinimap: false });
-        scheduleViewportCulling(60);
-        renderMinimap();
-        updateSelectionToolbar();
-    }, 90);
-});
 
 function startFrameResize(e, id) {
-    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+    return window.VeoCanvasInteractions.startFrameResize(e, id);
 }
 
-// ✅ 替换为支持 Alt 克隆的拖拽绑定引擎
 function bindCardDrag(cardEl, task) {
-    cardEl.__veoTask = task;
-    cardEl.oncontextmenu = (e) => {
-        const interactive = e.target && typeof e.target.closest === 'function'
-            ? e.target.closest('input, textarea, select, button, video, .img-gen-mask-block, .img-gen-preview-panel')
-            : null;
-        if (interactive) return;
-        openCanvasTaskContextMenu(e, task.id);
-    };
-    cardEl.onmousedown = (e) => {
-        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
-            highestZIndex++; cardEl.style.zIndex = highestZIndex;
-            if (task.type === 'tool_image_gen') {
-                activeImgGenStageTaskId = task.id;
-                if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
-            }
-        }
-    };
-
-    const header = cardEl.querySelector('.card-header');
-    if(header) {
-        // 🌟 改为 async 函数，因为克隆需要查库
-        header.onmousedown = async (e) => {
-            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
-            cancelCameraAnimation();
-            cancelCanvasInertia();
-            setCanvasMoving(false);
-
-            // 🌟🌟🌟 新增：侦测到按住 Alt 键，直接执行克隆并阻断原卡片的拖拽
-            if (e.altKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-                await duplicateTask(task, e);
-                return;
-            }
-
-            highestZIndex++; cardEl.style.zIndex = highestZIndex; cardEl.style.willChange = 'transform';
-            if (task.type === 'tool_image_gen') {
-                activeImgGenStageTaskId = task.id;
-                if (isImgGenTaskStageDocked(task)) scheduleImgGenStageRailRender(80);
-            }
-            if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                canvasSelection.toggleTask(task.id, cardEl);
-            } else {
-                if (!selectedTasks.has(task.id)) { clearSelection(); canvasSelection.selectTask(task.id, cardEl); }
-            }
-            draggingCardInfo = {
-                el: cardEl,
-                task: cardEl.__veoTask,
-                startMouseX: e.clientX,
-                startMouseY: e.clientY,
-                initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
-                initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0),
-                fromCanvasCard: true,
-                startedInsideStageRail: isPointInImgGenStageRail(e.clientX, e.clientY),
-                startedNearStageRail: isPointNearImgGenStageRail(e.clientX, e.clientY),
-                justCreated: false
-            };
-
-            if (task.type === 'frame') return;
-            e.stopPropagation();
-        };
-    }
+    return window.VeoCanvasInteractions.bindCardDrag(cardEl, task);
 }
+
+function getDraggingCardInfo() {
+    return window.VeoCanvasInteractions.getDraggingCardInfo();
+}
+
+window.VeoCanvasInteractions.bind();
 
 function buildDuplicateTaskPayload(originalTask, offsetX = 40, offsetY = 40) {
     return window.VeoTaskActions.buildDuplicateTaskPayload(originalTask, offsetX, offsetY);
@@ -1086,33 +903,6 @@ function focusTaskById(taskId) {
 async function deleteSelectedTasks() {
     return window.VeoTaskLifecycle.deleteSelectedTasks();
 }
-
-window.addEventListener('keydown', async (e) => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-    if (e.code === 'Space') {
-        isSpacePanningKeyDown = true;
-        document.body.classList.add('space-pan-ready');
-        e.preventDefault();
-        return;
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault(); canvasSelection.selectVisibleCards(); updateSelectionToolbar(); scheduleViewportCulling(40); showToast(`已全选可视节点`, "info");
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        await duplicateSelectedTasks();
-    }
-    if (e.key === 'Backspace' || e.key === 'Delete') {
-        await deleteSelectedTasks();
-    }
-});
-
-window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space') {
-        isSpacePanningKeyDown = false;
-        document.body.classList.remove('space-pan-ready');
-    }
-});
 
 async function renderMinimap() {
     return window.VeoMinimap.render();
@@ -1426,7 +1216,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
     if (!originalTask || typeof originalTask !== 'object') return;
-    const cascadeOffset = !mouseEvent || !isPrimaryPointerDown ? 40 : 0;
+    const pointerState = window.VeoCanvasInteractions.getPointerState();
+    const cascadeOffset = !mouseEvent || !pointerState.isPrimaryPointerDown ? 40 : 0;
     const clone = buildDuplicateTaskPayload(originalTask, cascadeOffset, cascadeOffset);
     if (!clone) return;
     const newId = clone.id;
@@ -1463,10 +1254,10 @@ async function duplicateTask(originalTask, mouseEvent) {
     scheduleViewportCulling(40);
 
     // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
-    if (isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
-        const dragStartX = toFiniteNumber(mouseEvent.clientX, lastPointerClientX);
-        const dragStartY = toFiniteNumber(mouseEvent.clientY, lastPointerClientY);
-        draggingCardInfo = {
+    if (pointerState.isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
+        const dragStartX = toFiniteNumber(mouseEvent.clientX, pointerState.lastPointerClientX);
+        const dragStartY = toFiniteNumber(mouseEvent.clientY, pointerState.lastPointerClientY);
+        window.VeoCanvasInteractions.setDraggingCardInfo({
             el: newCardEl,
             task: newCardEl.__veoTask,
             startMouseX: dragStartX,
@@ -1477,7 +1268,7 @@ async function duplicateTask(originalTask, mouseEvent) {
             startedInsideStageRail: isPointInImgGenStageRail(dragStartX, dragStartY),
             startedNearStageRail: isPointNearImgGenStageRail(dragStartX, dragStartY),
             justCreated: true
-        };
+        });
     } else {
         newCardEl.style.willChange = 'auto';
         // 若用户已松手，立即落库校正后坐标，避免刷新后回弹到旧位置

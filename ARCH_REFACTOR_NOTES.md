@@ -22,6 +22,7 @@
 - js/task-actions.js
 - js/task-lifecycle.js
 - js/canvas-renderer.js
+- js/canvas-interactions.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/image-core.js
@@ -139,6 +140,11 @@
 - Reduced `js/app.js` `renderCard`, `generateCardHTML`, and `renderBoard` to compatibility adapters while preserving global callers from image/video modules.
 - Canvas rendering is now a replaceable layer for the upcoming workspace UI redesign.
 - Entry pages now load `js/canvas-renderer.js` after task lifecycle and before selection toolbar/app orchestration scripts.
+
+## Canvas Interaction Layer Changes (Compatible)
+- Added `window.VeoCanvasInteractions` for pointer tracking, canvas pan/marquee, wheel zoom/pan, resize refresh, keyboard shortcuts, and card header drag orchestration.
+- Reduced `js/app.js` mouse, wheel, resize, keyboard, and card-drag blocks to compatibility adapters while keeping Alt-drag clone behavior intact.
+- Entry pages now load `js/canvas-interactions.js` after canvas renderer and before selection toolbar/app orchestration scripts.
 
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
