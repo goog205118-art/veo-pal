@@ -15,6 +15,7 @@
 - js/canvas-selection.js
 - js/viewport-culling.js
 - js/minimap.js
+- js/workspace-io.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -96,6 +97,11 @@
 - Reduced `js/app.js` minimap functions to compatibility adapters so inline HTML handlers and existing app calls keep working.
 - Entry pages now load `js/minimap.js` after viewport culling and before selection toolbar/app orchestration scripts.
 
+## Workspace IO Layer Changes (Compatible)
+- Added `window.VeoWorkspaceIO` for `.veo` export serialization, import deserialization, retired-node filtering, save handoff, and post-import refresh.
+- Reduced `js/app.js` import/export functions to compatibility adapters for existing button and input handlers.
+- Entry pages now load `js/workspace-io.js` after minimap and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -148,6 +154,7 @@
 - `node --check js/canvas-selection.js`: pass
 - `node --check js/viewport-culling.js`: pass
 - `node --check js/minimap.js`: pass
+- `node --check js/workspace-io.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass

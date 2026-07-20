@@ -357,6 +357,26 @@ const minimap = window.VeoMinimap.configure({
         isStageDocked: (task) => isImgGenTaskStageDocked(task)
     }
 });
+window.VeoWorkspaceIO.configure({
+    hooks: {
+        alert: (message) => alert(message),
+        afterImport: async () => {
+            await renderBoard();
+            await renderMaterialLibrary();
+            await updateBillingUI();
+            await renderMinimap();
+        },
+        blobToBase64: (blob, options) => blobToBase64(blob, options),
+        blobsToBase64Sequential: (blobs, options) => blobsToBase64Sequential(blobs, options),
+        confirmImport: (count) => confirm(`导入解析成功，共 ${count} 个节点。是否合并到当前画布？`),
+        getAllTasks: () => getAllTasksDB(),
+        getRetiredNodeTypes: () => RETIRED_NODE_TYPES,
+        saveTasks: async (tasks) => {
+            if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(tasks);
+            else for (const task of tasks) await saveTaskDB(task);
+        }
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1164,60 +1184,12 @@ viewport.addEventListener('dblclick', (e) => {
 });
 
 async function exportWorkspace() {
-    const btn = document.getElementById('export-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 打包中...`;
-    try {
-        const tasks = await getAllTasksDB(); const exportData = [];
-        for (let t of tasks) {
-            if (RETIRED_NODE_TYPES.has(t.type)) continue;
-            let clone = { ...t }; if (clone.type === 'local_image' && clone.src) clone.src = await blobToBase64(clone.src, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-            if (clone.state) {
-                if (clone.state.images) clone.state.images = await blobsToBase64Sequential(clone.state.images, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-                if (Array.isArray(clone.state.resultBlobs)) clone.state.resultBlobs = await blobsToBase64Sequential(clone.state.resultBlobs, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-                if (clone.state.resultBlob) clone.state.resultBlob = await blobToBase64(clone.state.resultBlob, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-                if (clone.state.sourceBlob) clone.state.sourceBlob = await blobToBase64(clone.state.sourceBlob, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-            }
-            if (clone.rawImages) {
-                if (clone.rawImages.firstFrame) clone.rawImages.firstFrame = await blobToBase64(clone.rawImages.firstFrame, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-                if (clone.rawImages.lastFrame) clone.rawImages.lastFrame = await blobToBase64(clone.rawImages.lastFrame, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-                if (clone.rawImages.references) clone.rawImages.references = await blobsToBase64Sequential(clone.rawImages.references, { mode: 'network', maxBytes: 10 * 1024 * 1024, maxEdge: 2048 });
-            }
-            exportData.push(clone);
-        }
-        const blob = new Blob([JSON.stringify(exportData)], {type: 'application/json'}); const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `VeoStudio_Flow_${Date.now()}.veo`; a.click(); URL.revokeObjectURL(url);
-    } catch (e) { alert('导出失败: ' + e.message); } finally { btn.innerHTML = originalHTML; }
+    return window.VeoWorkspaceIO.exportWorkspace();
 }
 
 async function importWorkspace(input) {
-    if (!input.files[0]) return; const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const data = JSON.parse(e.target.result);
-            if (confirm(`📦 解析成功！包含 ${data.length} 个节点。\n这会与您当前的画布合并，是否继续？`)) {
-                const importedTasks = [];
-                for (let t of data) {
-                    if (RETIRED_NODE_TYPES.has(t.type)) continue;
-                    if (t.type === 'local_image' && typeof t.src === 'string') t.src = await fetch(t.src).then(r => r.blob());
-                    if (t.state) {
-                        if (t.state.images) t.state.images = await Promise.all(t.state.images.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
-                        if (Array.isArray(t.state.resultBlobs)) {
-                            t.state.resultBlobs = await Promise.all(t.state.resultBlobs.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b));
-                        }
-                        if (t.state.resultBlob && typeof t.state.resultBlob === 'string') t.state.resultBlob = await fetch(t.state.resultBlob).then(r => r.blob());
-                        if (t.state.sourceBlob && typeof t.state.sourceBlob === 'string') t.state.sourceBlob = await fetch(t.state.sourceBlob).then(r => r.blob());
-                    }
-                    if (t.rawImages) { if (typeof t.rawImages.firstFrame === 'string') t.rawImages.firstFrame = await fetch(t.rawImages.firstFrame).then(r => r.blob()); if (typeof t.rawImages.lastFrame === 'string') t.rawImages.lastFrame = await fetch(t.rawImages.lastFrame).then(r => r.blob()); if (t.rawImages.references) t.rawImages.references = await Promise.all(t.rawImages.references.map(async b => typeof b === 'string' ? await fetch(b).then(r => r.blob()) : b)); }
-                    importedTasks.push(t);
-                }
-                if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(importedTasks);
-                else for (const t of importedTasks) await saveTaskDB(t);
-                renderBoard(); await renderMaterialLibrary(); await updateBillingUI(); renderMinimap();
-            }
-        } catch(err) { alert('❌ 文件解析失败，请确保导入的是有效的 .veo 格式文件'); } input.value = '';
-    };
-    reader.readAsText(input.files[0]);
+    return window.VeoWorkspaceIO.importWorkspace(input);
 }
-
 window.addEventListener("dragover", function(e){ e.preventDefault(); }, false); window.addEventListener("drop", function(e){ e.preventDefault(); }, false);
 
 viewport.addEventListener('dragover', (e) => {
