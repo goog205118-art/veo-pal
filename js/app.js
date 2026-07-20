@@ -451,6 +451,33 @@ window.VeoTaskActions.configure({
         updateSelectionToolbar: () => updateSelectionToolbar()
     }
 });
+window.VeoTaskLifecycle.configure({
+    hooks: {
+        clearActiveStageTask: () => { activeImgGenStageTaskId = ''; },
+        clearImagePolling: (taskId) => clearImgGenPolling(taskId),
+        clearImageRuntime: (taskId) => clearImgGenStateRuntime(taskId),
+        clearPromptDraft: (taskId) => clearImgGenPromptDraftTimer(taskId),
+        clearSelection: () => clearSelection(),
+        clearTaskShadow: (taskId) => clearTaskShadow(taskId),
+        clearVideoPolling: (taskId) => clearTaskPolling(taskId),
+        deleteTask: (taskId) => deleteTaskDB(taskId),
+        deselectTask: (taskId) => selectedTasks.delete(taskId),
+        destroyMaskEditor: (taskId) => destroyImgMaskEditor(taskId),
+        destroyMaskStudio: (taskId) => destroyImgMaskStudio(taskId),
+        getAllTasks: () => getAllTasksDB(),
+        getSelectedTaskIds: () => Array.from(selectedTasks),
+        isActiveStageTask: (taskId) => taskId === activeImgGenStageTaskId,
+        removeCard: (taskId) => {
+            const card = document.getElementById('card-' + taskId);
+            if (card) card.remove();
+        },
+        renderMinimap: () => renderMinimap(),
+        scheduleStageRailRender: (delay) => scheduleImgGenStageRailRender(delay),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        showToast: (message, type) => showToast(message, type),
+        updateSelectionToolbar: () => updateSelectionToolbar()
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1020,36 +1047,7 @@ function focusTaskById(taskId) {
 }
 
 async function deleteSelectedTasks() {
-    if (selectedTasks.size === 0) return;
-    const ids = Array.from(selectedTasks);
-    if (!confirm(`🗑️ 确定要彻底删除选中的 ${ids.length} 个对象吗？(若包含项目组，内部卡片也会连锅端！)`)) return;
-    const deletePromises = ids.map(async (id) => {
-        clearImgGenPromptDraftTimer(id);
-        destroyImgMaskStudio(id);
-        destroyImgMaskEditor(id);
-        await deleteTaskDB(id);
-        const card = document.getElementById('card-' + id);
-        if (card) card.remove();
-        const allTasks = await getAllTasksDB();
-        for(let t of allTasks) {
-            if(t.parentId === id) {
-                clearImgGenPromptDraftTimer(t.id);
-                destroyImgMaskStudio(t.id);
-                destroyImgMaskEditor(t.id);
-                await deleteTaskDB(t.id);
-                const childEl = document.getElementById('card-' + t.id);
-                if(childEl) childEl.remove();
-            }
-        }
-    });
-    await Promise.all(deletePromises);
-    if (ids.includes(activeImgGenStageTaskId)) activeImgGenStageTaskId = '';
-    selectedTasks.clear();
-    updateSelectionToolbar();
-    scheduleViewportCulling(40);
-    renderMinimap();
-    scheduleImgGenStageRailRender(40);
-    showToast(`清理完成`, "success");
+    return window.VeoTaskLifecycle.deleteSelectedTasks();
 }
 
 window.addEventListener('keydown', async (e) => {
@@ -1475,23 +1473,7 @@ async function renderBoard() {
 }
 
 async function removeTask(id) {
-    if (!confirm('确定删除这张卡片吗？')) return;
-    clearTaskPolling(id);
-    clearImgGenPolling(id);
-    clearImgGenPromptDraftTimer(id);
-    clearImgGenStateRuntime(id);
-    destroyImgMaskStudio(id);
-    destroyImgMaskEditor(id);
-    await deleteTaskDB(id);
-    clearTaskShadow(id);
-    selectedTasks.delete(id);
-    if (id === activeImgGenStageTaskId) activeImgGenStageTaskId = '';
-    const card = document.getElementById('card-' + id);
-    if (card) card.remove();
-    updateSelectionToolbar();
-    scheduleViewportCulling(40);
-    renderMinimap();
-    scheduleImgGenStageRailRender(40);
+    return window.VeoTaskLifecycle.removeTask(id);
 }
 function downloadVideo(url) { const a = document.createElement('a'); a.href = url; a.target = "_blank"; a.download = `Studio_${Date.now()}.mp4`; a.click(); }
 

@@ -20,6 +20,7 @@
 - js/canvas-context-menu.js
 - js/canvas-cards.js
 - js/task-actions.js
+- js/task-lifecycle.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -127,6 +128,12 @@
 - Alt-drag cloning now reuses the same duplicate payload builder to avoid divergent shallow-copy behavior.
 - Entry pages now load `js/task-actions.js` after canvas cards and before selection toolbar/app orchestration scripts.
 
+## Task Lifecycle Layer Changes (Compatible)
+- Added `window.VeoTaskLifecycle` for selected-task deletion, single-card removal, runtime cleanup, and post-delete canvas refresh.
+- Reduced `js/app.js` delete helpers to compatibility adapters while preserving toolbar, shortcut, card-button, and context-menu callers.
+- Batch delete now fetches all tasks once before removing direct children, avoiding repeated IndexedDB scans on large workspaces.
+- Entry pages now load `js/task-lifecycle.js` after task actions and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -184,6 +191,7 @@
 - `node --check js/canvas-context-menu.js`: pass
 - `node --check js/canvas-cards.js`: pass
 - `node --check js/task-actions.js`: pass
+- `node --check js/task-lifecycle.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass
