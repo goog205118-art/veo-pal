@@ -14,6 +14,7 @@
 - js/canvas-camera.js
 - js/canvas-selection.js
 - js/viewport-culling.js
+- js/minimap.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -90,6 +91,11 @@
 - Reduced `js/app.js` culling functions to compatibility adapters while keeping task-size rules and business triggers in the app layer.
 - Entry pages now load `js/viewport-culling.js` after canvas selection and before selection toolbar/app orchestration scripts.
 
+## Minimap Layer Changes (Compatible)
+- Added `window.VeoMinimap` for minimap canvas rendering, viewport-box syncing, and click-to-camera navigation.
+- Reduced `js/app.js` minimap functions to compatibility adapters so inline HTML handlers and existing app calls keep working.
+- Entry pages now load `js/minimap.js` after viewport culling and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -141,6 +147,7 @@
 - `node --check js/canvas-camera.js`: pass
 - `node --check js/canvas-selection.js`: pass
 - `node --check js/viewport-culling.js`: pass
+- `node --check js/minimap.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass

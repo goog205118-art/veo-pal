@@ -348,6 +348,15 @@ const viewportCulling = window.VeoViewportCulling.configure({
         toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
     }
 });
+const minimap = window.VeoMinimap.configure({
+    transform,
+    hooks: {
+        animateCameraTo: (target, options) => animateCameraTo(target, options),
+        getAllTasks: () => getAllTasksDB(),
+        getRetiredNodeTypes: () => RETIRED_NODE_TYPES,
+        isStageDocked: (task) => isImgGenTaskStageDocked(task)
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1107,73 +1116,16 @@ window.addEventListener('keyup', (e) => {
     }
 });
 
-let mapMeta = { minX: 0, minY: 0, mapScale: 0, offsetX: 0, offsetY: 0 };
-
 async function renderMinimap() {
-    const container = document.getElementById('minimap-container');
-    if (!container || container.classList.contains('is-minimized')) return;
-
-    const canvas = document.getElementById('minimap-canvas'), viewBox = document.getElementById('minimap-viewport-box');
-    if (!canvas || !viewBox) return;
-    const ctx = canvas.getContext('2d'), cw = container.clientWidth, ch = container.clientHeight;
-    canvas.width = cw; canvas.height = ch;
-
-    const tasks = await getAllTasksDB(); const boardTasks = tasks.filter(t => t.type !== 'local_image' && !RETIRED_NODE_TYPES.has(t.type) && !isImgGenTaskStageDocked(t));
-    if (boardTasks.length === 0) { ctx.clearRect(0, 0, cw, ch); viewBox.style.display = 'none'; return; }
-
-    const frameMap = {};
-
-    let minX = Math.min(...boardTasks.map(t => t.x)), maxX = Math.max(...boardTasks.map(t => t.x + (t.width || 340)));
-    let minY = Math.min(...boardTasks.map(t => t.y)), maxY = Math.max(...boardTasks.map(t => t.y + (t.height || 400)));
-
-    const viewMinX = -transform.x / transform.scale, viewMaxX = viewMinX + window.innerWidth / transform.scale;
-    const viewMinY = -transform.y / transform.scale, viewMaxY = viewMinY + window.innerHeight / transform.scale;
-
-    minX = Math.min(minX, viewMinX); maxX = Math.max(maxX, viewMaxX); minY = Math.min(minY, viewMinY); maxY = Math.max(maxY, viewMaxY);
-    const padding = 800; minX -= padding; maxX += padding; minY -= padding; maxY += padding;
-
-    const mapWidth = maxX - minX, mapHeight = maxY - minY;
-    const scaleX = cw / mapWidth, scaleY = ch / mapHeight, mapScale = Math.min(scaleX, scaleY);
-    const offsetX = (cw - mapWidth * mapScale) / 2, offsetY = (ch - mapHeight * mapScale) / 2;
-    mapMeta = { minX, minY, mapScale, offsetX, offsetY };
-
-    ctx.clearRect(0, 0, cw, ch);
-    boardTasks.forEach(t => {
-        if (t.parentId && frameMap[t.parentId] && frameMap[t.parentId].isCollapsed) return;
-        const px = offsetX + (t.x - minX) * mapScale, py = offsetY + (t.y - minY) * mapScale, pw = (t.width || 340) * mapScale, ph = (t.height || 400) * mapScale;
-        ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(px, py, pw, Math.max(ph, 5), 3); else ctx.rect(px, py, pw, Math.max(ph, 5));
-
-        if (t.type === 'tool_image_gen') ctx.fillStyle = 'rgba(10, 132, 255, 0.8)';
-        else ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fill();
-    });
-    syncMinimapViewport();
+    return window.VeoMinimap.render();
 }
 
 function syncMinimapViewport() {
-    const viewBox = document.getElementById('minimap-viewport-box'); if (!viewBox) return;
-    if (!mapMeta || !Number.isFinite(mapMeta.mapScale) || mapMeta.mapScale <= 0) {
-        viewBox.style.display = 'none';
-        return;
-    }
-    const viewMinX = -transform.x / transform.scale, viewMinY = -transform.y / transform.scale;
-    const vPx = mapMeta.offsetX + (viewMinX - mapMeta.minX) * mapMeta.mapScale, vPy = mapMeta.offsetY + (viewMinY - mapMeta.minY) * mapMeta.mapScale;
-    const vPw = (window.innerWidth / transform.scale) * mapMeta.mapScale, vPh = (window.innerHeight / transform.scale) * mapMeta.mapScale;
-    viewBox.style.display = 'block'; viewBox.style.left = vPx + 'px'; viewBox.style.top = vPy + 'px'; viewBox.style.width = vPw + 'px'; viewBox.style.height = vPh + 'px';
+    return window.VeoMinimap.syncViewport();
 }
 
 function handleMinimapClick(e) {
-    const container = document.getElementById('minimap-container');
-    if (container.classList.contains('is-minimized')) return;
-
-    const rect = container.getBoundingClientRect();
-    const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
-    const targetWorldX = (clickX - mapMeta.offsetX) / mapMeta.mapScale + mapMeta.minX, targetWorldY = (clickY - mapMeta.offsetY) / mapMeta.mapScale + mapMeta.minY;
-    animateCameraTo({
-        x: -targetWorldX * transform.scale + window.innerWidth / 2,
-        y: -targetWorldY * transform.scale + window.innerHeight / 2,
-        scale: transform.scale
-    }, { duration: 420 });
+    return window.VeoMinimap.handleClick(e);
 }
 
 let lightboxEl = null;
