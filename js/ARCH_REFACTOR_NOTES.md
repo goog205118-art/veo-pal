@@ -12,6 +12,7 @@
 - js/media-utils.js
 - js/material-library.js
 - js/billing.js
+- js/video-tasks.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -73,6 +74,11 @@
 - Entry pages now load `js/billing.js` before `js/app.js`.
 - IndexedDB upgraded to version 5 and deletes the retired `flow_workspaces` object store during upgrade.
 
+## Video Task Layer Changes (Compatible)
+- Added `window.VeoVideoTasks` for video submission, retry, polling, billing handoff, and active polling state.
+- `js/app.js` keeps the previous inline handler names while delegating video task behavior to `js/video-tasks.js`.
+- Entry pages now load `js/video-tasks.js` before `js/app.js`.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
@@ -80,6 +86,7 @@
 - `node --check js/media-utils.js`: pass
 - `node --check js/material-library.js`: pass
 - `node --check js/billing.js`: pass
+- `node --check js/video-tasks.js`: pass
 - `node --check js/app.js`: pass
 - Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
@@ -89,5 +96,5 @@
 
 ## Next Suggested Refactor Steps
 1. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
-2. Extract task polling modules so model routing and usage tracking can evolve independently.
+2. Extract image generation polling modules so model routing and usage tracking can evolve independently.
 3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.

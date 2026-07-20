@@ -363,9 +363,6 @@ const IMG_GEN_PROMPT_TAGS = [
     { group: '材质', label: '硬核工业材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
     { group: '社媒', label: '海报留白', text: 'clean negative space for headline, premium e-commerce hero composition' }
 ];
-let activeTasks = [], activeRetries = new Set();
-const taskPollControllers = new Map();
-const taskPollTimers = new Map();
 const imgGenPollControllers = new Map();
 const imgGenPollTimers = new Map();
 const taskShadowCache = new Map();
@@ -637,19 +634,7 @@ async function readImageMeta(imageLike) {
     return window.VeoMedia.readImageMeta(imageLike);
 }
 
-function clearTaskPolling(taskId, removeActive = true) {
-    const controller = taskPollControllers.get(taskId);
-    if (controller) {
-        try { controller.abort(); } catch (err) {}
-        taskPollControllers.delete(taskId);
-    }
-    const timerId = taskPollTimers.get(taskId);
-    if (timerId) {
-        clearTimeout(timerId);
-        taskPollTimers.delete(taskId);
-    }
-    if (removeActive) removeActiveTask(taskId);
-}
+function clearTaskPolling(taskId, removeActive = true) { return window.VeoVideoTasks.clearPolling(taskId, removeActive); }
 
 function buildImgGenPollKey(taskId, previewItemId = '') {
     return `${taskId}::${previewItemId || 'default'}`;
@@ -2170,7 +2155,7 @@ function clearImgGenPromptDraftTimer(taskId) {
     imgGenPromptDraftTimers.delete(taskId);
 }
 
-function removeActiveTask(id) { const index = activeTasks.indexOf(id); if (index > -1) activeTasks.splice(index, 1); }
+function removeActiveTask(id) { return window.VeoVideoTasks.removeActive(id); }
 function toggleDrawer() { document.getElementById('tool-drawer').classList.toggle('open'); }
 function toggleMaterialDrawer() { window.VeoMaterials.toggleDrawer(); }
 
@@ -4431,187 +4416,10 @@ function clearFrame(event, type) {
     revokeBlobPrefixSafe(`temp_${t}`);
 }
 
-async function submitBatchTask() {
-    const prompt = document.getElementById('prompt-input').value.trim(); if (!prompt) return alert('请填写提示词');
-    const batchCount = parseInt(document.getElementById('batch-select').value), btn = document.getElementById('generate-btn');
-    btn.disabled = true; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>`;
-
-    const state = globalStore.getState();
-    const inputMode = state.currentMode === 'frame' ? 'frame' : 'ref';
-    let submitRef = [...state.references], submitFirst = state.firstFrame, submitLast = state.lastFrame;
-    if (inputMode === 'ref') { submitFirst = null; submitLast = null; } else submitRef = [];
-    const taskParams = { model: buildVideoSubmitModel(state.model, inputMode), inputMode, aspectRatio: state.aspectRatio, enhancePrompt: state.enhancePrompt, enableUpsample: state.enableUpsample, autoRetry: state.autoRetry, firstFrame: submitFirst, lastFrame: submitLast, references: submitRef };
-    let promises = []; for(let i=0; i<batchCount; i++) promises.push(executeSubmission(taskParams, prompt, i));
-
-    await Promise.allSettled(promises);
-    btn.disabled = false; btn.innerHTML = `<span class="material-symbols-outlined">arrow_upward</span>`; updateEstimatedCost();
-    document.getElementById('prompt-input').value = '';
-    // Keep all console cleanup on the same state/UI path as manual slot actions.
-    clearFrame(null, 'firstFrame');
-    clearFrame(null, 'lastFrame');
-    clearReferences({ stopPropagation() {} });
-    const firstFile = document.getElementById('first-file');
-    const lastFile = document.getElementById('last-file');
-    const refFile = document.getElementById('ref-file');
-    if (firstFile) firstFile.value = '';
-    if (lastFile) lastFile.value = '';
-    if (refFile) refFile.value = '';
-}
-
-// 🌟 提交引擎 (高容错 ID 解析版)
-async function executeSubmission(params, promptText, offsetIndex = 0) {
-    try {
-        const apiPayload = {
-            model: params.model,
-            prompt: promptText,
-            aspectRatio: params.aspectRatio,
-            enhancePrompt: params.enhancePrompt,
-            enableUpsample: params.enableUpsample,
-            firstFrame: await blobToBase64(params.firstFrame, { mode: 'network' }),
-            lastFrame: await blobToBase64(params.lastFrame, { mode: 'network' }),
-            references: await blobsToBase64Sequential(params.references, { mode: 'network' })
-        };
-        const response = await window.VeoApi.videoSubmit(apiPayload);
-
-        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`API 返回异常: ${response.status} - ${errText}`);
-        }
-
-        const data = await response.json();
-        const returnedId = data.taskId || data.id || data.task_id; // 🌟 兼容各种 n8n 返回结构
-
-        if (returnedId) {
-            const spawnX = (-transform.x + window.innerWidth/2 - 170) / transform.scale + (offsetIndex * 360), spawnY = (-transform.y + window.innerHeight/2 - 150) / transform.scale + (offsetIndex * 40);
-            const taskMode = params.inputMode || (params.references && params.references.length > 0 ? 'ref' : 'frame');
-            const displayModelName = getVideoModelDisplayName(params.model, taskMode);
-
-            const newTask = { id: returnedId, prompt: promptText, modelStr: displayModelName, modelVal: params.model, ratio: params.aspectRatio, autoRetry: params.autoRetry, retryCount: 0, rawImages: { firstFrame: params.firstFrame, lastFrame: params.lastFrame, references: params.references || [] }, mode: taskMode, inputMode: taskMode, status: 'processing', progress: null, timestamp: Date.now(), time: new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}), videoUrl: null, x: spawnX, y: spawnY, isBilled: false };
-            await saveTaskDB(newTask); await renderBoard();
-        }
-    } catch (error) {
-        console.error('任务提交失败:', error);
-        showToast('视频生成提交失败，请检查网络或余额。', 'error');
-    }
-}
-
-async function retryTask(taskId, btnElement) {
-    if (activeRetries.has(taskId)) return; activeRetries.add(taskId);
-    if (btnElement) { btnElement.disabled = true; btnElement.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:18px;height:18px;stroke:var(--text-sub);"><circle cx="25" cy="25" r="20"></circle></svg>`; }
-    const task = await getTaskDB(taskId); if(!task) { activeRetries.delete(taskId); return; }
-    try {
-        const apiPayload = {
-            model: task.modelVal,
-            prompt: task.prompt,
-            aspectRatio: task.ratio,
-            enhancePrompt: true,
-            enableUpsample: false,
-            firstFrame: await blobToBase64(task.rawImages.firstFrame, { mode: 'network' }),
-            lastFrame: await blobToBase64(task.rawImages.lastFrame, { mode: 'network' }),
-            references: await blobsToBase64Sequential((task.rawImages.references || []), { mode: 'network' })
-        };
-        const response = await window.VeoApi.videoSubmit(apiPayload);
-        if (response.status === 401 || response.status === 403) { handleAuthError(); throw new Error("密码错误"); }
-        if (!response.ok) throw new Error("API 异常");
-        const data = await response.json();
-
-        const returnedId = data.taskId || data.id || data.task_id;
-        if (returnedId) {
-            clearTaskPolling(taskId);
-            await deleteTaskDB(taskId);
-            task.id = returnedId; task.status = 'processing'; task.progress = null; task.retryCount = (task.retryCount || 0) + 1; task.timestamp = Date.now(); task.time = new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute:'2-digit'}); task.isBilled = false;
-            await saveTaskDB(task); activeRetries.delete(taskId); await renderBoard();
-        } else throw new Error("无返回 ID");
-    } catch (error) { task.status = 'failed'; task.autoRetry = false; await saveTaskDB(task); activeRetries.delete(taskId); renderCard(taskId); }
-}
-
-// 🌟 轮询引擎 (高容错状态解析版)
-function startTaskPolling(taskId) {
-    clearTaskPolling(taskId, false);
-    let attempts = 0;
-    let errorCount = 0;
-    const maxAttempts = 240;
-    const maxConsecutiveErrors = 20;
-    const scheduleNextPoll = (delayMs = 15000) => {
-        const safeDelay = Math.max(500, toFiniteNumber(delayMs, 15000));
-        const timerId = setTimeout(() => {
-            poll().catch(() => {});
-        }, safeDelay);
-        taskPollTimers.set(taskId, timerId);
-    };
-    const poll = async () => {
-        taskPollTimers.delete(taskId);
-        attempts++;
-        try {
-            const task = await getTaskDB(taskId); if (!task) { clearTaskPolling(taskId); return; }
-            // 仅视频任务使用该轮询器，防止生图/工具卡在刷新后被误判失败。
-            if (task.type) { clearTaskPolling(taskId); return; }
-            if (!task.modelVal) { clearTaskPolling(taskId); return; }
-            const currentPwd = sessionStorage.getItem('veo_admin_pwd');
-            if (!currentPwd) { scheduleNextPoll(2000); return; }
-
-            const controller = new AbortController();
-            taskPollControllers.set(taskId, controller);
-            const response = await window.VeoApi.videoPoll({ taskId: taskId, model: task.modelVal }, { signal: controller.signal });
-            taskPollControllers.delete(taskId);
-            if (response.status === 401 || response.status === 403) { clearTaskPolling(taskId); handleAuthError(); return; }
-            if (!response.ok) throw new Error("API 异常");
-            const data = await response.json();
-            errorCount = 0;
-
-            // 🌟 强力兼容各种 n8n 的字段名与状态名
-            const currentStatus = (data.status || data.state || 'processing').toLowerCase();
-            const currentVideoUrl = data.videoUrl || data.video_url || data.url;
-
-            if (data && (currentStatus === 'success' || currentStatus === 'completed' || currentStatus === 'succeeded') && currentVideoUrl) {
-                clearTaskPolling(taskId); task.status = 'success'; task.videoUrl = currentVideoUrl;
-                if (!task.isBilled) {
-                    let cost = 0.35, detailDesc = "Veo 3.1 (首尾帧)";
-                    if (task.modelVal === 'veo3.1-components') { cost = 0.35; detailDesc = "Veo 3.1 Cmp (参考图)"; }
-                    else if (task.modelVal === 'veo3.1-4k') { cost = 0.50; detailDesc = "Veo 3.1 4K (首尾帧)"; }
-                    else if (task.modelVal === 'veo3.1-components-4k') { cost = 0.50; detailDesc = "Veo 3.1 Cmp 4K (参考图)"; }
-                    else if (task.modelVal.includes('lite')) { cost = 0.20; detailDesc = "极速特惠版模型"; }
-
-                    await addBillingRecord({ id: 'bill_' + task.id, taskId: task.id, type: 'video', cost: cost, detail: detailDesc });
-                    task.isBilled = true;
-                    updateBillingUI();
-                }
-                await saveTaskDB(task); renderCard(taskId); return;
-            }
-            if (data && (currentStatus === 'failed' || currentStatus === 'error' || currentStatus === 'canceled' || currentStatus === 'rejected')) {
-                clearTaskPolling(taskId);
-                if (task.autoRetry) retryTask(task.id, null);
-                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
-                return;
-            }
-            if (data && (currentStatus === 'processing' || currentStatus === 'pending' || currentStatus === 'queued' || currentStatus === 'in_progress') && data.progress && task.progress !== data.progress) {
-                task.progress = data.progress; await saveTaskDB(task); renderCard(taskId);
-            }
-
-            if (attempts < maxAttempts) scheduleNextPoll(15000);
-            else {
-                clearTaskPolling(taskId);
-                if (task.autoRetry) retryTask(task.id, null);
-                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
-            }
-        } catch (error) {
-            if (error && error.name === 'AbortError') return;
-            errorCount++;
-            taskPollControllers.delete(taskId);
-            const task = await getTaskDB(taskId);
-            if (!task) { clearTaskPolling(taskId); return; }
-            if (errorCount >= maxConsecutiveErrors || attempts >= maxAttempts) {
-                clearTaskPolling(taskId);
-                if (task.autoRetry) retryTask(task.id, null);
-                else { task.status = 'failed'; await saveTaskDB(task); renderCard(taskId); }
-                return;
-            }
-            scheduleNextPoll(15000);
-        }
-    };
-    poll();
-}
+async function submitBatchTask() { return window.VeoVideoTasks.submitBatchTask(); }
+async function executeSubmission(params, promptText, offsetIndex = 0) { return window.VeoVideoTasks.executeSubmission(params, promptText, offsetIndex); }
+async function retryTask(taskId, btnElement) { return window.VeoVideoTasks.retryTask(taskId, btnElement); }
+function startTaskPolling(taskId) { return window.VeoVideoTasks.startPolling(taskId); }
 
 async function reuseTask(taskId) {
     const task = await getTaskDB(taskId); if(!task) return;
@@ -5498,7 +5306,7 @@ async function renderBoard() {
             syncImgMaskEditor(cardEl, task).catch(() => {});
             bindImgGenCardResizeSave(cardEl, task);
             if (task.type === 'note') cardEl.addEventListener('mouseup', () => saveNoteSize(task.id, cardEl.offsetWidth, cardEl.offsetHeight));
-            if (!task.type && task.status === 'processing' && !activeTasks.includes(task.id)) { activeTasks.push(task.id); startTaskPolling(task.id); }
+            window.VeoVideoTasks.ensurePollingTask(task);
         } else {
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
 
