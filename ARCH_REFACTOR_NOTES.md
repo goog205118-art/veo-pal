@@ -9,6 +9,7 @@
 - js/store.js
 - js/db.js
 - js/api-client.js
+- js/media-utils.js
 
 ## Store Layer Changes (Compatible)
 - Replaced simple EventBus with safer implementation:
@@ -54,10 +55,16 @@
 - Centralized image webhook endpoint normalization and response parsing.
 - Entry pages now load `js/api-client.js` between `store.js` and `app.js`.
 
+## Media Utility Layer Changes (Compatible)
+- Added `window.VeoMedia` for image generation route config, reference intent metadata, media encoding helpers, and image metadata reads.
+- `js/app.js` keeps previous helper names as compatibility wrappers while delegating reusable media logic to `js/media-utils.js`.
+- Entry pages now load `js/media-utils.js` before `js/app.js`.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
 - `node --check js/api-client.js`: pass
+- `node --check js/media-utils.js`: pass
 - `node --check js/app.js`: pass
 - Node workflow runtime removed in slimming pass; no flow runtime check remains.
 
@@ -66,6 +73,6 @@
 - `globalStore.getState()` still returns live state reference to avoid breaking existing direct mutations.
 
 ## Next Suggested Refactor Steps
-1. Split material library logic into a dedicated module shared by active app entrypoints.
+1. Split material library UI rendering/actions into a dedicated module shared by active app entrypoints.
 2. Continue moving app state orchestration out of `js/app.js` behind stable global adapters.
 3. Redesign the studio workspace layout around faster task switching, denser controls, and clearer model routing.

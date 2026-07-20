@@ -325,13 +325,8 @@ const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 const IMG_GEN_VARIATION_COUNT = 4;
 const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
-const IMG_GEN_FEATURES = {
-    trialAvailable: false
-};
-const IMG_GEN_ROUTE_CONFIG = {
-    stable: { key: 'stable', aliases: ['stable', 'success_rate', 'default'], suffix: '', mode: 'success_rate', label: '默认专业通道', maxRefs: 5 },
-    ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 }
-};
+const IMG_GEN_FEATURES = window.VeoMedia.features;
+const IMG_GEN_ROUTE_CONFIG = window.VeoMedia.routeConfig;
 const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     return window.VeoApi.normalizeEndpoint(rawUrl);
@@ -357,13 +352,7 @@ function resolveImgGenPollEndpoint() {
     return window.VeoApi.resolveImagePollEndpoint();
 }
 
-const IMG_GEN_REF_INTENTS = [
-    { value: 'structure', label: '结构', hint: '产品轮廓 / 深度 / 构图' },
-    { value: 'style', label: '风格', hint: '影调 / 氛围 / 电影感' },
-    { value: 'color', label: '色彩', hint: '配色 / 材质倾向' },
-    { value: 'detail', label: '细节', hint: '局部纹理 / 功能点' },
-    { value: 'layout', label: '版式', hint: '海报排版 / 留白' }
-];
+const IMG_GEN_REF_INTENTS = window.VeoMedia.refIntents;
 const IMG_GEN_PROMPT_TAGS = [
     { group: '环境', label: '高山岩地', text: 'rugged alpine terrain, weathered rocks, expedition campsite' },
     { group: '环境', label: '沙漠硬光', text: 'remote desert plateau, dust in the air, hard sunlight' },
@@ -598,39 +587,19 @@ function morphCardDOM(cardEl, nextHtml) {
 }
 
 async function blobsToBase64Sequential(blobs, options = {}) {
-    const list = Array.isArray(blobs) ? blobs : [];
-    const out = [];
-    for (const blob of list) {
-        out.push(await blobToBase64(blob, options));
-    }
-    return out;
+    return window.VeoMedia.blobsToBase64Sequential(blobs, options);
 }
 
 function buildImgGenImagePayloadFields(imagesBase64, maskBase64 = null, maxImages = 5) {
-    const maxCount = Math.max(1, Math.min(5, parseInt(maxImages, 10) || 5));
-    const images = Array.isArray(imagesBase64) ? imagesBase64.filter(Boolean).slice(0, maxCount) : [];
-    return {
-        images,
-        image_urls: images,
-        mask: maskBase64 || null,
-        mask_url: maskBase64 || null,
-        image_count: images.length,
-        reference_count: Math.max(0, images.length - 1)
-    };
+    return window.VeoMedia.buildImgGenImagePayloadFields(imagesBase64, maskBase64, maxImages);
 }
 
 function getImgGenMaxReferenceCount(task) {
-    if (!task || task.type !== 'tool_image_gen') return 5;
-    const state = task.state && typeof task.state === 'object' ? task.state : {};
-    if (state.version !== 'pro') return 5;
-    const route = normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix);
-    return route.maxRefs || 5;
+    return window.VeoMedia.getImgGenMaxReferenceCount(task);
 }
 
 function limitImgGenReferencesForRoute(task, incomingImages = []) {
-    const images = Array.isArray(incomingImages) ? incomingImages.filter(Boolean) : [];
-    const maxCount = getImgGenMaxReferenceCount(task);
-    return maxCount <= 1 ? images.slice(-1) : images.slice(0, 5);
+    return window.VeoMedia.limitImgGenReferencesForRoute(task, incomingImages);
 }
 
 function enforceImgGenRouteReferenceLimit(task) {
@@ -657,93 +626,15 @@ function enforceImgGenRouteReferenceLimit(task) {
 }
 
 function resolveImgGenNetworkEncodeOptions(routeKey, kind = 'image') {
-    if (routeKey === 'ai666') {
-        if (kind === 'mask') {
-            return {
-                mode: 'network',
-                maxBytes: 2 * 1024 * 1024,
-                maxEdge: 1280,
-                maxPixels: 1280 * 1280,
-                forceResize: true,
-                keepPng: true,
-                outputType: 'image/png'
-            };
-        }
-        return {
-            mode: 'network',
-            maxBytes: 1536 * 1024,
-            maxEdge: 1280,
-            maxPixels: 1280 * 1280,
-            forceResize: true,
-            outputType: 'image/jpeg',
-            quality: 0.78
-        };
-    }
-    return { mode: 'network', maxBytes: 8 * 1024 * 1024, maxEdge: 2048 };
+    return window.VeoMedia.resolveImgGenNetworkEncodeOptions(routeKey, kind);
 }
 
 async function buildBlobSignature(blob) {
-    if (!blob) return '';
-    if (typeof blob === 'string') return `str_${blob.length}_${blob.slice(-120)}`;
-    const size = toFiniteNumber(blob.size, 0);
-    const type = blob.type || 'application/octet-stream';
-    const head = await blob.slice(0, 64).arrayBuffer().catch(() => null);
-    const tailStart = Math.max(0, size - 64);
-    const tail = await blob.slice(tailStart, size).arrayBuffer().catch(() => null);
-    const headArr = head ? Array.from(new Uint8Array(head)).join(',') : '';
-    const tailArr = tail ? Array.from(new Uint8Array(tail)).join(',') : '';
-    return `${type}|${size}|${headArr}|${tailArr}`;
+    return window.VeoMedia.buildBlobSignature(blob);
 }
 
 async function readImageMeta(imageLike) {
-    if (!imageLike) return null;
-    try {
-        if (typeof imageLike !== 'string' && typeof createImageBitmap === 'function') {
-            const bitmap = await createImageBitmap(imageLike);
-            const width = toFiniteNumber(bitmap.width, 0);
-            const height = toFiniteNumber(bitmap.height, 0);
-            try { bitmap.close(); } catch (err) {}
-            if (width > 0 && height > 0) {
-                const ratio = width / height;
-                return {
-                    width,
-                    height,
-                    ratio,
-                    layout: ratio >= 1.2 ? 'landscape' : (ratio <= 0.85 ? 'portrait' : 'square')
-                };
-            }
-        }
-    } catch (err) {}
-
-    try {
-        const src = typeof imageLike === 'string' ? imageLike : URL.createObjectURL(imageLike);
-        const meta = await new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => {
-                const width = toFiniteNumber(img.naturalWidth || img.width, 0);
-                const height = toFiniteNumber(img.naturalHeight || img.height, 0);
-                if (width > 0 && height > 0) {
-                    const ratio = width / height;
-                    resolve({
-                        width,
-                        height,
-                        ratio,
-                        layout: ratio >= 1.2 ? 'landscape' : (ratio <= 0.85 ? 'portrait' : 'square')
-                    });
-                } else {
-                    resolve(null);
-                }
-            };
-            img.onerror = () => resolve(null);
-            img.src = src;
-        });
-        if (typeof imageLike !== 'string') {
-            try { URL.revokeObjectURL(src); } catch (err) {}
-        }
-        return meta;
-    } catch (err) {
-        return null;
-    }
+    return window.VeoMedia.readImageMeta(imageLike);
 }
 
 function clearTaskPolling(taskId, removeActive = true) {
@@ -6088,18 +5979,11 @@ function resolveImgGenSize(state) {
 }
 
 function normalizeImgGenRoute(raw = 'stable') {
-    const key = String(raw || 'stable').trim().toLowerCase().replace(/^:/, '');
-    for (const route of Object.values(IMG_GEN_ROUTE_CONFIG)) {
-        if (route.key === key || (Array.isArray(route.aliases) && route.aliases.includes(key))) {
-            return { ...route };
-        }
-    }
-    return { ...IMG_GEN_ROUTE_CONFIG.stable };
+    return window.VeoMedia.normalizeImgGenRoute(raw);
 }
 
 function getImgGenModelForRoute(route) {
-    const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'stable');
-    return `gpt-image-2${safeRoute.suffix || ''}`;
+    return window.VeoMedia.getImgGenModelForRoute(route);
 }
 
 function ensureImgGenState(task) {
