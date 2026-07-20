@@ -291,6 +291,7 @@ window.VeoTaskActions.configure({
         createImagePreviewId: () => createImgGenPreviewId(),
         ensureImageState: (task) => ensureImgGenState(task),
         getImagePreviewLimit: () => IMG_GEN_PREVIEW_LIMIT,
+        getPointerState: () => window.VeoCanvasInteractions.getPointerState(),
         getSelectedTaskIds: () => Array.from(selectedTasks),
         getTask: (taskId) => getTaskDB(taskId),
         getTaskElement: (taskId) => document.getElementById('card-' + taskId),
@@ -304,9 +305,11 @@ window.VeoTaskActions.configure({
         },
         recalcImageTaskStatus: (task) => recalcImgGenTaskStatus(task),
         renderBoard: () => renderBoard(),
+        renderCard: (taskId) => renderCard(taskId),
         saveTask: (task) => saveTaskDB(task),
         scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
         selectTask: (taskId, el) => canvasSelection.selectTask(taskId, el),
+        setDraggingCardInfo: (dragInfo) => window.VeoCanvasInteractions.setDraggingCardInfo(dragInfo),
         showToast: (message, type) => showToast(message, type),
         toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
         updateSelectionToolbar: () => updateSelectionToolbar()
@@ -778,67 +781,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 🌟 智能克隆引擎 (Alt + Drag 专用)
 // ==========================================
 async function duplicateTask(originalTask, mouseEvent) {
-    if (!originalTask || typeof originalTask !== 'object') return;
-    const pointerState = window.VeoCanvasInteractions.getPointerState();
-    const cascadeOffset = !mouseEvent || !pointerState.isPrimaryPointerDown ? 40 : 0;
-    const clone = buildDuplicateTaskPayload(originalTask, cascadeOffset, cascadeOffset);
-    if (!clone) return;
-    const newId = clone.id;
-
-    await saveTaskDB(clone);
-    await renderBoard();
-    await renderCard(newId);
-
-    const newCardEl = document.getElementById('card-' + newId);
-    if (!newCardEl) {
-        showToast("已克隆，但渲染节点未挂载，请重试一次", "error");
-        return;
-    }
-    if (newCardEl.__veoTask) normalizeTaskPosition(newCardEl.__veoTask);
-    normalizeTaskPosition(clone);
-    const settledX = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.x, clone.x) : clone.x;
-    const settledY = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.y, clone.y) : clone.y;
-    clone.x = settledX;
-    clone.y = settledY;
-    if (newCardEl.__veoTask) {
-        newCardEl.__veoTask.x = settledX;
-        newCardEl.__veoTask.y = settledY;
-    }
-
-    highestZIndex++;
-    newCardEl.style.zIndex = highestZIndex;
-    newCardEl.style.willChange = 'transform';
-    newCardEl.style.transform = `translate3d(${clone.x}px, ${clone.y}px, 0)`;
-
-    clearSelection();
-    selectedTasks.add(newId);
-    newCardEl.classList.add('selected');
-    updateSelectionToolbar();
-    scheduleViewportCulling(40);
-
-    // 仅在鼠标仍按下时接管拖拽，避免异步克隆后的错位
-    if (pointerState.isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
-        const dragStartX = toFiniteNumber(mouseEvent.clientX, pointerState.lastPointerClientX);
-        const dragStartY = toFiniteNumber(mouseEvent.clientY, pointerState.lastPointerClientY);
-        window.VeoCanvasInteractions.setDraggingCardInfo({
-            el: newCardEl,
-            task: newCardEl.__veoTask,
-            startMouseX: dragStartX,
-            startMouseY: dragStartY,
-            initialX: toFiniteNumber(newCardEl.__veoTask.x, clone.x),
-            initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y),
-            fromCanvasCard: true,
-            justCreated: true
-        });
-    } else {
-        newCardEl.style.willChange = 'auto';
-        // 若用户已松手，立即落库校正后坐标，避免刷新后回弹到旧位置
-        try { await saveTaskDB(newCardEl.__veoTask || clone); } catch(err) { console.warn('clone settle save failed:', err); }
-    }
-
-    showToast("🪄 已克隆组件及参数", "success");
+    return window.VeoTaskActions.duplicateTask(originalTask, mouseEvent);
 }
-
 // ==========================================
 function clampNumber(v, min, max) {
     return window.VeoImageCore.clampNumber(v, min, max);

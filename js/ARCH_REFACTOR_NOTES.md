@@ -149,6 +149,7 @@
 - Added `window.VeoTaskActions` for default image-node creation, selected-card duplication, and image-generation clone cleanup.
 - Reduced `js/app.js` task action helpers to compatibility adapters while keeping existing button, menu, and shortcut callers intact.
 - Alt-drag cloning now reuses the same duplicate payload builder to avoid divergent shallow-copy behavior.
+- Single-card duplication and Alt-drag handoff now live in the same task action layer instead of `js/app.js`.
 - Entry pages now load `js/task-actions.js` after canvas cards and before selection toolbar/app orchestration scripts.
 
 ## Task Lifecycle Layer Changes (Compatible)

@@ -180,11 +180,75 @@
         callHook('showToast', `已复制 ${clones.length} 个节点`, 'success');
     }
 
+    async function duplicateTask(originalTask, mouseEvent) {
+        if (!originalTask || typeof originalTask !== 'object') return;
+        const pointerState = callHook('getPointerState') || {};
+        const cascadeOffset = !mouseEvent || !pointerState.isPrimaryPointerDown ? 40 : 0;
+        const clone = buildDuplicateTaskPayload(originalTask, cascadeOffset, cascadeOffset);
+        if (!clone) return;
+        const newId = clone.id;
+
+        await callHook('saveTask', clone);
+        await callHook('renderBoard');
+        await callHook('renderCard', newId);
+
+        const newCardEl = callHook('getTaskElement', newId);
+        if (!newCardEl) {
+            callHook('showToast', '\u5df2\u590d\u5236\uff0c\u4f46\u65b0\u5361\u7247\u672a\u6302\u8f7d\uff0c\u8bf7\u91cd\u8bd5\u4e00\u6b21\u3002', 'error');
+            return;
+        }
+        if (newCardEl.__veoTask) normalizeTaskPosition(newCardEl.__veoTask);
+        normalizeTaskPosition(clone);
+        const settledX = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.x, clone.x) : clone.x;
+        const settledY = newCardEl.__veoTask ? toFiniteNumber(newCardEl.__veoTask.y, clone.y) : clone.y;
+        clone.x = settledX;
+        clone.y = settledY;
+        if (newCardEl.__veoTask) {
+            newCardEl.__veoTask.x = settledX;
+            newCardEl.__veoTask.y = settledY;
+        }
+
+        newCardEl.style.zIndex = callHook('nextZIndex');
+        newCardEl.style.willChange = 'transform';
+        newCardEl.style.transform = `translate3d(${clone.x}px, ${clone.y}px, 0)`;
+
+        callHook('clearSelection');
+        callHook('selectTask', newId, newCardEl);
+        callHook('updateSelectionToolbar');
+        callHook('scheduleViewportCulling', 40);
+
+        if (pointerState.isPrimaryPointerDown && newCardEl.__veoTask && mouseEvent) {
+            const dragStartX = toFiniteNumber(mouseEvent.clientX, pointerState.lastPointerClientX);
+            const dragStartY = toFiniteNumber(mouseEvent.clientY, pointerState.lastPointerClientY);
+            callHook('setDraggingCardInfo', {
+                el: newCardEl,
+                task: newCardEl.__veoTask,
+                startMouseX: dragStartX,
+                startMouseY: dragStartY,
+                initialX: toFiniteNumber(newCardEl.__veoTask.x, clone.x),
+                initialY: toFiniteNumber(newCardEl.__veoTask.y, clone.y),
+                fromCanvasCard: true,
+                justCreated: true
+            });
+        } else {
+            newCardEl.style.willChange = 'auto';
+            try {
+                await callHook('saveTask', newCardEl.__veoTask || clone);
+            } catch (err) {
+                console.warn('clone settle save failed:', err);
+            }
+        }
+
+        callHook('showToast', '\u5df2\u590d\u5236\u7ec4\u4ef6\u548c\u53c2\u6570', 'success');
+        return clone;
+    }
+
     const api = {
         buildDuplicateTaskPayload,
         configure,
         createDefaultImageGenTask,
         createImageGenNode,
+        duplicateTask,
         duplicateSelectedTasks,
         sanitizeImgGenCloneState
     };
