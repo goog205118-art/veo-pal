@@ -1,7 +1,7 @@
 ﻿# Veo Studio Frontend V2 - Refactor Notes
 
 ## Scope
-- No feature change.
+- Slimming pass includes removal of retired image route surfaces and old node-workflow actions.
 - Keep existing entry files and runtime behavior.
 - Refactor only foundation layers for future modularization.
 
@@ -90,6 +90,12 @@
 - `js/image-submit.js` now focuses more on submit orchestration and preview persistence.
 - Entry pages now load `js/image-request.js` before `js/image-submit.js`.
 
+## Image Route Slimming
+- Removed the retired image channel from UI labels, task defaults, request payloads, polling payloads, and billing metadata.
+- Image generation now normalizes to the GPT Image 2 unified route only.
+- Removed V1-4 variant node creation and preview-to-cropper actions to avoid spawning retired frame/cropper workflow nodes.
+- Kept `RETIRED_NODE_TYPES` as a migration guard so existing old node data stays filtered.
+
 ## Runtime Validation
 - `node --check js/store.js`: pass
 - `node --check js/db.js`: pass
@@ -100,6 +106,8 @@
 - `node --check js/billing.js`: pass
 - `node --check js/video-tasks.js`: pass
 - `node --check js/image-request.js`: pass
+- `node --check js/image-preview-actions.js`: pass
+- `node --check js/image-ui.js`: pass
 - `node --check js/app.js`: pass
 - Retired canvas-flow runtime removed in slimming pass; no legacy runtime check remains.
 

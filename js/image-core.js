@@ -3,10 +3,6 @@
     const PRO_OUTPUT_PRICE_PER_1M = 30;
     const PROXY_RECHARGE_FACTOR = 0.5;
     const PRO_FALLBACK_COST = 0.12;
-    const TRIAL_CHANNEL_COSTS = Object.freeze({
-        channel_1: 0.084,
-        channel_2: 0.06
-    });
 
     const PRO_SIZE_PRESETS = Object.freeze({
         '1:1': Object.freeze({ '1k': '1024x1024', '2k': '2048x2048', '4k': '4096x4096' }),
@@ -190,14 +186,6 @@
 
     function resolveSize(state) {
         if (!state || typeof state !== 'object') return '1024x1024';
-        if (state.version !== 'pro') {
-            const trialRatio = state.trialRatio || '1:1';
-            if (trialRatio === 'custom') return buildCustomSizeByResolution(state.customW, state.customH, '1k');
-            const preset = PRO_SIZE_PRESETS[trialRatio];
-            if (preset && preset['1k']) return preset['1k'];
-            if (typeof state.size === 'string' && state.size.trim()) return state.size;
-            return '1024x1024';
-        }
         const ratio = state.proRatio || '1:1';
         const resolution = state.proResolution || '1k';
         if (ratio === 'auto') return 'auto';
@@ -305,30 +293,19 @@
     }
 
     function calculateBilling(task, rawData) {
-        const version = task && task.state && task.state.version === 'pro' ? 'pro' : 'trial';
-        const channel = task && task.state && task.state.channel === 'channel_2' ? 'channel_2' : 'channel_1';
-        if (version === 'pro') {
-            const usage = extractUsage(rawData);
-            if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
-                const meteredCost = ((usage.inputTokens * PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
-                const cost = meteredCost * PROXY_RECHARGE_FACTOR;
-                return {
-                    cost,
-                    detail: `AI生图 专业版 GPT Image 2 · 输入 ${usage.inputTokens} / 输出 ${usage.outputTokens} tokens · 中转半价`,
-                    usage
-                };
-            }
+        const usage = extractUsage(rawData);
+        if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+            const meteredCost = ((usage.inputTokens * PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
+            const cost = meteredCost * PROXY_RECHARGE_FACTOR;
             return {
-                cost: PRO_FALLBACK_COST,
-                detail: 'AI生图 专业版 GPT Image 2 · usage 缺失兜底',
-                usage: null
+                cost,
+                detail: `AI生图 GPT Image 2 · 输入 ${usage.inputTokens} / 输出 ${usage.outputTokens} tokens · 中转半价`,
+                usage
             };
         }
-
-        const cost = TRIAL_CHANNEL_COSTS[channel] || TRIAL_CHANNEL_COSTS.channel_1;
         return {
-            cost,
-            detail: `AI生图 试用版 (${channel})`,
+            cost: PRO_FALLBACK_COST,
+            detail: 'AI生图 GPT Image 2 · usage 缺失兜底',
             usage: null
         };
     }
@@ -339,7 +316,6 @@
             PRO_OUTPUT_PRICE_PER_1M,
             PROXY_RECHARGE_FACTOR,
             PRO_FALLBACK_COST,
-            TRIAL_CHANNEL_COSTS,
             PRO_SIZE_PRESETS,
             PRO_SIZE_RULES
         },

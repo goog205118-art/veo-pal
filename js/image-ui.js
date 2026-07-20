@@ -109,23 +109,20 @@ function renderImgGenPromptChips(task) {
 
 function renderImgGenMiniToolDock(task) {
     ensureImgGenState(task);
-    const isPro = task.state.version === 'pro';
     const promptOpen = task.state.promptToolsCollapsed !== true;
-    const maskOpen = isPro && task.state.maskPanelCollapsed !== true;
-    const hasMaskReady = isPro && !!(task.state.maskBlob || task.state.maskImage);
+    const maskOpen = task.state.maskPanelCollapsed !== true;
+    const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
     return `
         <div class="img-gen-mini-tool-dock">
             <button class="img-gen-mini-tool ${promptOpen ? 'is-open' : ''}" type="button" onclick="toggleImgGenPromptTools(event, '${task.id}')" data-tip="${promptOpen ? '收起快捷提示词' : '展开快捷提示词'}">
                 <span class="material-symbols-outlined">auto_awesome</span>
                 <span>提示词</span>
             </button>
-            ${isPro ? `
-                <button class="img-gen-mini-tool ${maskOpen ? 'is-open' : ''} ${hasMaskReady ? 'is-ready' : ''}" type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="${maskOpen ? '收起蒙版工具' : '展开蒙版工具'}">
-                    <span class="material-symbols-outlined">gesture</span>
-                    <span>蒙版</span>
-                    ${hasMaskReady ? '<i></i>' : ''}
-                </button>
-            ` : ''}
+            <button class="img-gen-mini-tool ${maskOpen ? 'is-open' : ''} ${hasMaskReady ? 'is-ready' : ''}" type="button" onclick="toggleImgGenMaskTools(event, '${task.id}')" data-tip="${maskOpen ? '收起蒙版工具' : '展开蒙版工具'}">
+                <span class="material-symbols-outlined">gesture</span>
+                <span>蒙版</span>
+                ${hasMaskReady ? '<i></i>' : ''}
+            </button>
         </div>
     `;
 }
@@ -133,9 +130,8 @@ function renderImgGenMiniToolDock(task) {
 function renderImgGenSlots(task) {
     ensureImgGenState(task);
     normalizeImgGenRefControls(task);
-    const isPro = task.state.version === 'pro';
     const images = Array.isArray(task.state.images) ? task.state.images : [];
-    const hasMaskReady = isPro && !!(task.state.maskBlob || task.state.maskImage);
+    const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
     const maxImageCount = getImgGenMaxReferenceCount(task);
     const isSingleRefRoute = maxImageCount === 1;
     const slots = [];
@@ -149,8 +145,8 @@ function renderImgGenSlots(task) {
             img ? 'has-image' : 'is-empty',
             isBase && hasMaskReady ? 'has-mask' : ''
         ].filter(Boolean).join(' ');
-        const label = isBase ? (isPro ? 'BASE / MASK' : 'BASE') : `REF ${i}`;
-        const hint = isBase ? (isPro ? '蒙版底图' : '试用底图') : '参考图';
+        const label = isBase ? 'BASE / MASK' : `REF ${i}`;
+        const hint = isBase ? '蒙版底图' : '参考图';
 
         if (img) {
             const slotUrl = getBlobUrl(`${task.id}_img_${i}_${task.timestamp || ''}`, img);
@@ -191,20 +187,18 @@ function renderImgGenSlots(task) {
 function renderImgGenParams(task) {
     ensureImgGenState(task);
     const state = task.state;
-    const isPro = state.version === 'pro';
     const paramsCollapsed = state.paramsCollapsed === true;
     const resolvedSize = resolveImgGenSize(state);
-    const ratioKey = isPro ? 'proRatio' : 'trialRatio';
-    const ratioValue = isPro ? state.proRatio : state.trialRatio;
+    const ratioValue = state.proRatio;
     const showCustomRatio = ratioValue === 'custom';
     const route = normalizeImgGenRoute(state.providerSort || state.routeMode || 'ai666');
-    const routeLabel = isPro ? `GPT Image 2 · ${route.label} · ${resolvedSize}` : `${state.channel === 'channel_2' ? '试用通道 2' : '试用通道 1'} · 1K`;
+    const routeLabel = `GPT Image 2 · ${route.label} · ${resolvedSize}`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
         <label class="img-gen-field img-gen-seed-field">
             <span>Seed</span>
             <div class="img-gen-seed-row">
-                <button class="img-gen-seed-lock ${state.seedLocked ? 'is-locked' : ''}" type="button" onclick="updateImgGenState('${task.id}', 'seedLocked', ${state.seedLocked ? 'false' : 'true'})" data-tip="${state.seedLocked ? '解除种子锁定' : '锁定种子，便于复现与变体'}">
+                <button class="img-gen-seed-lock ${state.seedLocked ? 'is-locked' : ''}" type="button" onclick="updateImgGenState('${task.id}', 'seedLocked', ${state.seedLocked ? 'false' : 'true'})" data-tip="${state.seedLocked ? '解除种子锁定' : '锁定种子，便于复现'}">
                     <span class="material-symbols-outlined">${state.seedLocked ? 'lock' : 'lock_open'}</span>
                 </button>
                 <input class="img-gen-select img-gen-seed-input" type="number" placeholder="auto" value="${escapeAttr(seedValue)}" onchange="updateImgGenState('${task.id}', 'seed', this.value)">
@@ -223,18 +217,18 @@ function renderImgGenParams(task) {
         </div>
     ` : '';
 
-    const advancedHtml = isPro ? `
+    const advancedHtml = `
         <div class="img-gen-controls img-gen-controls-pro">
             ${seedControlHtml}
             <label class="img-gen-field">
-                <span>专业通道</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="专业版模型中转通道，不影响试用版">
+                <span>模型通道</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="GPT Image 2 模型中转通道">
                     ${Object.values(IMG_GEN_ROUTE_CONFIG).map((item) => `<option value="${item.key}" ${route.key === item.key ? 'selected' : ''}>${item.label}</option>`).join('')}
                 </select>
             </label>
             <label class="img-gen-field">
                 <span>分辨率</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="专业版：分辨率档位">
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="GPT Image 2 分辨率档位">
                     <option value="1k" ${state.proResolution === '1k' ? 'selected' : ''}>1K</option>
                     <option value="2k" ${state.proResolution === '2k' ? 'selected' : ''}>2K</option>
                     <option value="4k" ${state.proResolution === '4k' ? 'selected' : ''}>4K</option>
@@ -281,46 +275,14 @@ function renderImgGenParams(task) {
             </label>
             <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
         </div>
-    ` : `
-        <div class="img-gen-controls">
-            ${seedControlHtml}
-            <label class="img-gen-field">
-                <span>试用通道</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'channel', this.value)" data-tip="试用版双通道切换">
-                    <option value="channel_1" ${state.channel === 'channel_1' || !state.channel ? 'selected' : ''}>通道 1 主</option>
-                    <option value="channel_2" ${state.channel === 'channel_2' ? 'selected' : ''}>通道 2 备</option>
-                </select>
-            </label>
-            <label class="img-gen-field">
-                <span>分辨率</span>
-                <select class="img-gen-select" disabled data-tip="试用版分辨率固定为 1K">
-                    <option selected>1K 锁定</option>
-                </select>
-            </label>
-            <label class="img-gen-field">
-                <span>重试</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')">
-                    <option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option>
-                    <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
-                </select>
-            </label>
-            <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
-        </div>
     `;
 
     return `
         <div class="img-gen-primary-panel">
             <label class="img-gen-field">
-                <span>模型</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'version', this.value)" data-tip="试用版走旧模型双通道，专业版走 GPT Image 2">
-                    <option value="trial" ${state.version === 'trial' ? 'selected' : ''} ${IMG_GEN_TRIAL_AVAILABLE ? '' : 'disabled'}>试用版 Legacy${IMG_GEN_TRIAL_AVAILABLE ? '' : '（服务关闭）'}</option>
-                    <option value="pro" ${state.version === 'pro' ? 'selected' : ''}>专业版 GPT Image 2</option>
-                </select>
-            </label>
-            <label class="img-gen-field">
                 <span>画幅</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', '${ratioKey}', this.value)" data-tip="${isPro ? '专业版画幅比例' : '试用版固定 1K，仅按比例构图'}">
-                    ${renderImgGenRatioOptions(ratioValue, isPro)}
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proRatio', this.value)" data-tip="GPT Image 2 画幅比例">
+                    ${renderImgGenRatioOptions(ratioValue, true)}
                 </select>
             </label>
             <button class="img-gen-advanced-chip ${paramsCollapsed ? '' : 'is-open'}" type="button" onclick="toggleImgGenParamsPanel(event, '${task.id}')" data-tip="${paramsCollapsed ? '展开高级参数' : '收起高级参数'}">
@@ -342,7 +304,6 @@ function renderImgGenParams(task) {
 
 function renderImgGenMaskPanel(task) {
     ensureImgGenState(task);
-    if (task.state.version !== 'pro') return '';
     const imageList = Array.isArray(task.state.images) ? task.state.images : [];
     const baseImage = imageList[0] || null;
     const hasMaskReady = !!(task.state.maskBlob || task.state.maskImage);
@@ -358,7 +319,7 @@ function renderImgGenMaskPanel(task) {
                         <span class="material-symbols-outlined">close</span>
                     </button>
                 </div>
-                <div class="img-gen-mask-empty">专业版蒙版需要先放入第 1 张底图。</div>
+                <div class="img-gen-mask-empty">蒙版需要先放入第 1 张底图。</div>
             </div>
         `;
     }
@@ -394,8 +355,7 @@ function renderImgGenMaskPanel(task) {
 
 function renderImgGenPendingItem(item, task) {
     const proStages = ['正在连接 GPT-Image 2...', '正在渲染画面细节...', '正在进行超分处理...', '正在封装输出图像...'];
-    const trialStages = ['正在连接试用通道...', '正在生成主体构图...', '正在处理参考图...', '正在回传预览结果...'];
-    const stages = task.state.version === 'pro' ? proStages : trialStages;
+    const stages = proStages;
     const itemId = item && item.id ? item.id : '';
     const startedAt = toFiniteNumber(item && item.createdAt, Date.now());
     return `
@@ -473,14 +433,8 @@ function renderImgGenPreviewFeed(task, previewEntries) {
                         <span class="material-symbols-outlined">close</span>
                     </button>
                     <div class="img-gen-preview-actions" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
-                        <button type="button" onclick="createImgGenVariations(event, '${task.id}', '${item.id}')" data-tip="基于这张图分裂 4 个变体节点">
-                            <span class="material-symbols-outlined">hub</span> V1-4
-                        </button>
                         <button type="button" onclick="sendImgGenPreviewToMask(event, '${task.id}', '${item.id}')" data-tip="把这张图作为 Base 打开蒙版重绘">
                             <span class="material-symbols-outlined">gesture</span>
-                        </button>
-                        <button type="button" onclick="sendImgGenPreviewToCropper(event, '${task.id}', '${item.id}')" data-tip="发送至局部裁切器">
-                            <span class="material-symbols-outlined">crop</span>
                         </button>
                     </div>
                     <img src="${escapeAttr(imgUrl)}" draggable="true" ondragstart="event.dataTransfer.setData('application/json', JSON.stringify({taskId: '${task.id}', type: 'gen_result', previewId: '${item.id}', index: ${successDragIndex}}))" ondblclick="openLightbox(this.src)" data-tip="双击全屏高清预览，按住可拖动复用">
@@ -496,26 +450,20 @@ function renderImgGenHelpContent() {
         <section class="img-gen-help-section">
             <p class="img-gen-help-kicker">Veo Studio AI 生图指南</p>
             <h3>这个节点能做什么</h3>
-            <p>AI 多模生图节点是工作台里的“图像发动机”：既能文生图，也能用垫图做变体，还能用蒙版局部重绘。当前一次点击只生成 1 张，右侧预览会保留最近 6 张结果，方便你连续试稿。</p>
+            <p>AI 多模生图节点是工作台里的“图像发动机”：既能文生图，也能用参考图做变体，还能用蒙版局部重绘。当前一次点击只生成 1 张，右侧预览会保留最近 6 张结果，方便你连续试稿。</p>
             <div class="img-gen-help-tag-row">
                 <span class="img-gen-help-tag">文生图</span>
                 <span class="img-gen-help-tag">垫图变体</span>
                 <span class="img-gen-help-tag">蒙版重绘</span>
-                <span class="img-gen-help-tag">工作流复用</span>
                 <span class="img-gen-help-tag">参考权重</span>
-                <span class="img-gen-help-tag">V1-4 变体</span>
             </div>
         </section>
         <section class="img-gen-help-section">
-            <h3>模型版本：Trial / Pro</h3>
+            <h3>模型版本</h3>
             <div class="img-gen-help-grid">
                 <div class="img-gen-help-card">
-                    <strong>Trial 试用版</strong>
-                    <p>使用旧通道逻辑，适合低成本草稿、构图测试和日常灵感。试用版锁定 1K 输出，只跟随画幅比例换算尺寸，不开放蒙版编辑。</p>
-                </div>
-                <div class="img-gen-help-card">
-                    <strong>专业版 · GPT Image 2</strong>
-                    <p>专业版面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
+                    <strong>GPT Image 2</strong>
+                    <p>GPT Image 2 面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
                 </div>
             </div>
             <p class="img-gen-help-note">使用边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
@@ -523,10 +471,8 @@ function renderImgGenHelpContent() {
         <section class="img-gen-help-section">
             <h3>价格体系</h3>
             <div class="img-gen-help-table">
-                <div><strong>试用版通道 1</strong><span>￥0.084 / 张，适合低成本试稿。</span></div>
-                <div><strong>试用版通道 2</strong><span>￥0.06 / 张，适合更省钱的轻量出图。</span></div>
-                <div><strong>Pro 输入</strong><span>￥5.0000 / 1M tokens。</span></div>
-                <div><strong>Pro 输出</strong><span>￥30.0000 / 1M tokens。</span></div>
+                <div><strong>输入</strong><span>￥5.0000 / 1M tokens。</span></div>
+                <div><strong>输出</strong><span>￥30.0000 / 1M tokens。</span></div>
                 <div><strong>中转折扣</strong><span>按上述 token 价格计算后再 × 1/2 入账。</span></div>
                 <div><strong>计费方式</strong><span>按返回的 usage 里的 input_tokens / output_tokens 实时计费；示例：1643 + 1413 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。</span></div>
             </div>
@@ -534,7 +480,7 @@ function renderImgGenHelpContent() {
         <section class="img-gen-help-section">
             <h3>输入图槽位怎么用</h3>
             <ul>
-                        <li><strong>底图 / 蒙版源</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上；做变体时，它也是最强的结构参考。</li>
+                        <li><strong>底图 / 蒙版源</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上，也是最强的结构参考。</li>
                 <li><strong>REF 1-4</strong>：参考图槽。适合放产品细节、材质、风格、配色、版式灵感。它们会帮助 AI 理解“感觉”和“元素”，但不等于像素级复制。</li>
                 <li><strong>参考意图 / 权重</strong>：每张垫图悬停后可设置“结构、风格、色彩、细节、版式”和 0-100 权重。产品白底图建议结构 85-95；环境图建议风格 45-70；配色板建议色彩 35-60。</li>
                 <li><strong>拖放规则</strong>：可以从电脑、素材库或生成结果直接拖入槽位。第一张建议放要保留主体的图，其余放风格或局部细节参考。</li>
@@ -544,10 +490,10 @@ function renderImgGenHelpContent() {
             <h3>高频参数</h3>
             <div class="img-gen-help-table">
                 <div><strong>画幅比例</strong><span>决定横竖构图，例如 16:9 适合 YouTube 横版封面，9:16 适合 Shorts / Reels，1:1 适合社媒方图。</span></div>
-                <div><strong>分辨率</strong><span>Trial 固定 1K；Pro 可选 1K/2K/4K。1K 适合快速试稿，2K 适合正式发布，4K 适合产品细节但更慢更贵。</span></div>
+                <div><strong>分辨率</strong><span>可选 1K/2K/4K。1K 适合快速试稿，2K 适合正式发布，4K 适合产品细节但更慢更贵。</span></div>
                 <div><strong>Prompt</strong><span>建议写清主体、场景、风格、构图、光线、用途。做改图时要写“保留什么”和“只修改什么”。</span></div>
             </div>
-            <p class="img-gen-help-note">Pro 后台会按“比例 + 分辨率档位”自动换算到 GPT Image 2 的有效尺寸范围，避免无效尺寸导致请求失败。</p>
+            <p class="img-gen-help-note">后台会按“比例 + 分辨率档位”自动换算到 GPT Image 2 的有效尺寸范围，避免无效尺寸导致请求失败。</p>
         </section>
         <section class="img-gen-help-section">
                     <h3>高级参数字典</h3>
@@ -557,15 +503,13 @@ function renderImgGenHelpContent() {
                 <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前支持项，如果需要抠图请后续走单独抠图/去背工具。</span></div>
                 <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
                 <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
-                <div><strong>Seed</strong><span>锁定后会尽量复现构图与随机性，适合在同一张产品图上连续做细节微调；点击 V1-4 时会沿用当前配置并分裂 4 个子节点。</span></div>
+                <div><strong>Seed</strong><span>锁定后会尽量复现构图与随机性，适合在同一张产品图上连续做细节微调。</span></div>
             </div>
         </section>
         <section class="img-gen-help-section">
             <h3>结果图快捷流转</h3>
             <ul>
-                <li><strong>V1-4</strong>：在成功图上悬停，点击 V1-4 会基于该图、原 Prompt、原配置和 Seed 生成 4 个子生图节点，适合快速找产品海报变体。</li>
                 <li><strong>蒙版</strong>：点击手势按钮会把该结果图送回当前节点作为 Base，并自动打开蒙版工作室，用于局部修瑕或换背景。</li>
-                <li><strong>裁切</strong>：点击裁切按钮会在旁边创建局部裁切器，先提取局部，再拖回生图节点做局部参考或蒙版底图。</li>
             </ul>
         </section>
         <section class="img-gen-help-section">
@@ -657,16 +601,9 @@ function openImgGenHelp(e, taskId = '') {
 function renderImgGenCardHTML(task) {
     ensureImgGenState(task);
     const isFailed = task.status === 'failed';
-    const isPro = task.state.version === 'pro';
-    const isChannel2 = task.state.channel === 'channel_2';
     const previewCollapsed = task.state.previewCollapsed === true;
-    const isVariantNode = !!task.state.variantGroupId;
-    const variantIndex = Math.max(1, Math.min(99, parseInt(task.state.variantIndex, 10) || 1));
-    const resolvedSize = resolveImgGenSize(task.state);
-    const lastUsageCost = isPro ? toFiniteNumber(task.state.lastUsageCost, NaN) : NaN;
-    const currentCost = isPro
-        ? (Number.isFinite(lastUsageCost) && lastUsageCost > 0 ? formatImgGenMoney(lastUsageCost) : 'Token计费')
-        : (isChannel2 ? '0.06' : '0.084');
+    const lastUsageCost = toFiniteNumber(task.state.lastUsageCost, NaN);
+    const currentCost = Number.isFinite(lastUsageCost) && lastUsageCost > 0 ? formatImgGenMoney(lastUsageCost) : 'Token计费';
     const previewEntries = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
     const pendingCount = previewEntries.filter((item) => item && item.status === 'pending' && item.hidden !== true).length;
     const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
@@ -675,7 +612,7 @@ function renderImgGenCardHTML(task) {
     const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
     const safePrompt = escapeHtml(task.state.prompt || '');
 
-    let btnContent = `<span class="material-symbols-outlined">draw</span> ${isPro ? '专业生成' : '试用生成'} <span class="img-gen-btn-price">${isPro ? currentCost : `￥${currentCost}`}</span>`;
+    let btnContent = `<span class="material-symbols-outlined">draw</span> 生成 <span class="img-gen-btn-price">${currentCost}</span>`;
     if (pendingCount > 0) {
         btnContent = `
             <div class="img-gen-processing-wrap">
@@ -699,7 +636,7 @@ function renderImgGenCardHTML(task) {
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
 
-    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图 ${isVariantNode ? `<span class="img-gen-variant-chip">V${variantIndex}</span>` : ''}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和变体图像的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
+    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和参考图融合的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
         <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
             <div class="img-gen-left">
@@ -711,9 +648,8 @@ function renderImgGenCardHTML(task) {
                 </div>
                 <div class="img-gen-input-body">
                     <div class="img-gen-statusbar">
-                        <span class="img-gen-status-badge ${isPro ? 'is-pro' : 'is-trial'}">${isPro ? '专业版 · GPT Image 2' : '试用版 · 旧通道'}</span>
-                        ${isVariantNode ? `<span class="img-gen-status-badge is-variant">变体 ${variantIndex}</span>` : ''}
-                        <span class="img-gen-size-chip">${isPro ? `${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}` : `${(task.state.trialRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : (task.state.trialRatio || '1:1')} / 1K`}</span>
+                        <span class="img-gen-status-badge is-pro">GPT Image 2</span>
+                        <span class="img-gen-size-chip">${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}</span>
                     </div>
                     ${renderImgGenSlots(task)}
                     <div class="img-gen-upload-note">第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。</div>

@@ -1,10 +1,6 @@
 (function (window) {
     'use strict';
 
-    const features = {
-        trialAvailable: false
-    };
-
     const routeConfig = {
         ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 }
     };
@@ -62,7 +58,6 @@
     function getImgGenMaxReferenceCount(task) {
         if (!task || task.type !== 'tool_image_gen') return 5;
         const state = task.state && typeof task.state === 'object' ? task.state : {};
-        if (state.version !== 'pro') return 5;
         const route = normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix);
         return route.maxRefs || 5;
     }
@@ -167,7 +162,6 @@
         buildBlobSignature,
         buildImgGenImagePayloadFields,
         blobsToBase64Sequential,
-        features,
         getImgGenMaxReferenceCount,
         getImgGenModelForRoute,
         limitImgGenReferencesForRoute,

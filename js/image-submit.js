@@ -10,16 +10,7 @@ async function submitImgGen(taskId) {
     if (!task) return;
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
-    const version = task.state.version === 'pro' ? 'pro' : 'trial';
-    if (version !== 'pro' && !IMG_GEN_TRIAL_AVAILABLE) {
-        task.state.version = 'pro';
-        task.state.size = resolveImgGenSize(task.state);
-        task.timestamp = Date.now();
-        setTaskShadow(task);
-        await renderCard(taskId, task);
-        await saveTaskDB(task).catch(() => {});
-        return showToast('试用版服务通道已关闭，请使用专业版 GPT Image 2', 'warning');
-    }
+    const version = 'pro';
     const now = Date.now();
     const nextSubmitAt = toFiniteNumber(task.state.nextSubmitAt, 0);
     if (now < nextSubmitAt) {
@@ -61,9 +52,9 @@ async function submitImgGen(taskId) {
     }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
 
     let resolvedSize = resolveImgGenSize(task.state);
-    const promptContext = window.VeoImageRequest.resolvePromptContext(task, version);
+    const promptContext = window.VeoImageRequest.resolvePromptContext(task);
 
-    if (version === 'pro' && resolvedSize !== 'auto') {
+    if (resolvedSize !== 'auto') {
         const strict = enforceProSizeRules(resolvedSize);
         if (!strict.isValid) {
             markImgGenPreviewFailed(task, previewItemId, 'Pro 尺寸不符合规则');
@@ -86,7 +77,7 @@ async function submitImgGen(taskId) {
     task.state.images = imagesForSubmit;
     normalizeImgGenRefControls(task);
     const mode = resolveImgGenMode(task.state);
-    const imageModel = version === 'pro' ? getImgGenModelForRoute(route) : 'legacy-image';
+    const imageModel = getImgGenModelForRoute(route);
     const imageEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'image');
     const maskEncodeOptions = resolveImgGenNetworkEncodeOptions(route.key, 'mask');
     const imagesBase64 = await blobsToBase64Sequential(imagesForSubmit, imageEncodeOptions);
@@ -173,8 +164,7 @@ async function submitImgGen(taskId) {
                     detail: billingInfo.detail,
                     inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
                     outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
-                    version: writeTask.state.version || 'trial',
-                    channel: writeTask.state.channel || 'channel_1'
+                    version: 'pro'
                 });
                 updateBillingUI();
                 setTaskShadow(writeTask);

@@ -1415,12 +1415,6 @@ body.app-shell-init .minimap-container{
     border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--text-sub);
 }
 .img-gen-status-badge.is-pro { color: var(--accent); border-color: rgba(94,156,255,0.42); background: rgba(94,156,255,0.12); }
-.img-gen-status-badge.is-trial { color: var(--text-sub); border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.03); }
-.img-gen-status-badge.is-variant {
-    color: var(--warning);
-    border-color: rgba(255, 202, 40, 0.35);
-    background: rgba(255, 202, 40, 0.1);
-}
 .img-gen-size-chip {
     display: inline-flex; align-items: center; justify-content: center; min-height: 24px;
     border-radius: 999px; padding: 2px 10px; font-size: 10px;
@@ -1454,21 +1448,6 @@ body.app-shell-init .minimap-container{
     gap: 4px;
 }
 .img-gen-card-title .material-symbols-outlined { font-size: 14px; }
-.img-gen-variant-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 30px;
-    height: 18px;
-    border-radius: 999px;
-    padding: 0 7px;
-    border: 1px solid rgba(255, 202, 40, 0.32);
-    background: rgba(255, 202, 40, 0.1);
-    color: var(--warning);
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    font-weight: 800;
-}
 .img-gen-card-actions {
     display: inline-flex;
     align-items: center;
@@ -2547,26 +2526,6 @@ body.app-shell-init .minimap-container{
 }
 .img-gen-param-panel.is-collapsed .img-gen-param-head {
     background: rgba(94,156,255,0.055);
-}
-.tool-image-gen.is-img-variant-node {
-    --img-gen-left-width: 330px;
-    --img-gen-preview-width: 300px;
-    --img-gen-card-height: 440px;
-    border-color: rgba(255, 202, 40, 0.26);
-    box-shadow: 0 18px 34px rgba(0,0,0,0.54), 0 0 0 1px rgba(255,202,40,0.06);
-}
-.tool-image-gen.is-img-variant-node .img-gen-upload-note,
-.tool-image-gen.is-img-variant-node .img-gen-prompt-assist {
-    display: none;
-}
-.tool-image-gen.is-img-variant-node .img-gen-input-body {
-    gap: 8px;
-}
-.tool-image-gen.is-img-variant-node .img-gen-prompt {
-    min-height: 76px;
-}
-.tool-image-gen.is-img-variant-node .img-gen-statusbar {
-    gap: 5px;
 }
 .img-gen-mask-block {
     border: 1px solid var(--border);

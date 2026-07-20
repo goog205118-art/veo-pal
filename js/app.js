@@ -7,12 +7,9 @@ const IMG_GEN_PROXY_RECHARGE_FACTOR = window.VeoImageCore.constants.PROXY_RECHAR
 const IMG_GEN_PRO_FALLBACK_COST = window.VeoImageCore.constants.PRO_FALLBACK_COST;
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
-const IMG_GEN_VARIATION_COUNT = 4;
 const IMG_GEN_STAGE_DOCK_MIN_TRAVEL = 96;
 const RETIRED_NODE_TYPES = new Set(['frame', 'note', 'tool_generator', 'tool_cropper']);
-const IMG_GEN_FEATURES = window.VeoMedia.features;
 const IMG_GEN_ROUTE_CONFIG = window.VeoMedia.routeConfig;
-const IMG_GEN_TRIAL_AVAILABLE = IMG_GEN_FEATURES.trialAvailable;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     return window.VeoApi.normalizeEndpoint(rawUrl);
 }
@@ -27,10 +24,6 @@ function isImageGenerationWebhookEndpoint(rawUrl) {
 
 function isUnifiedImageWebhookEndpoint(rawUrl) {
     return window.VeoApi.isUnifiedImageEndpoint(rawUrl);
-}
-
-function isLegacyImageWebhookEndpoint(rawUrl) {
-    return false;
 }
 
 function resolveImgGenPollEndpoint() {
@@ -678,7 +671,6 @@ function createDefaultImageGenTask(spawnX, spawnY) {
             format: 'png',
             n: 1,
             size: '1024x1024',
-            trialRatio: '1:1',
             proRatio: '1:1',
             proResolution: '1k',
             customW: 9,
@@ -704,7 +696,6 @@ function createDefaultImageGenTask(spawnX, spawnY) {
             cardWidthOpen: 680,
             cardWidthCollapsed: 360,
             cardHeight: 520,
-            channel: 'channel_1',
             autoRetry: false,
             stageDocked: false,
             stageReleased: false
@@ -1933,7 +1924,6 @@ function applyImgGenCardFrame(cardEl, task) {
     if (!cardEl || !task || task.type !== 'tool_image_gen') return;
     ensureImgGenState(task);
     const isOpen = task.state.previewCollapsed !== true;
-    cardEl.classList.toggle('is-img-variant-node', !!task.state.variantGroupId);
     const collapsedWidth = Math.max(320, Math.min(760, toFiniteNumber(task.state.cardWidthCollapsed, 360)));
     const expandedWidth = Math.max(560, Math.min(1200, toFiniteNumber(task.state.cardWidthOpen, 680)));
     const cardHeight = Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)));
@@ -2004,8 +1994,7 @@ async function renderCard(taskId, taskOverride = null) {
     const currentProgress = task.progress || '';
     const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
     const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
-    const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
-    const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
+    const currentVersion = (task.state && task.state.version) ? task.state.version : 'pro';
     const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
     const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
     const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
@@ -2021,7 +2010,6 @@ async function renderCard(taskId, taskOverride = null) {
     cardEl.setAttribute('data-sync-progress', currentProgress);
     cardEl.setAttribute('data-sync-crop-src', cropSrc);
     cardEl.setAttribute('data-sync-crop-res', cropRes);
-    cardEl.setAttribute('data-sync-channel', currentChannel);
     cardEl.setAttribute('data-sync-version', currentVersion);
     cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
     cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed);
@@ -2280,8 +2268,7 @@ async function renderBoard() {
         const currentProgress = task.progress || '';
         const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
         const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
-        const currentChannel = (task.state && task.state.channel) ? task.state.channel : 'channel_1';
-        const currentVersion = (task.state && task.state.version) ? task.state.version : 'trial';
+        const currentVersion = (task.state && task.state.version) ? task.state.version : 'pro';
         const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
         const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
         const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
@@ -2307,10 +2294,10 @@ async function renderBoard() {
         } else {
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
 
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldChannel = cardEl.getAttribute('data-sync-channel'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldPromptToolsCollapsed = cardEl.getAttribute('data-sync-prompt-tools-collapsed'), oldMaskPanelCollapsed = cardEl.getAttribute('data-sync-mask-panel-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
+            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldPromptToolsCollapsed = cardEl.getAttribute('data-sync-prompt-tools-collapsed'), oldMaskPanelCollapsed = cardEl.getAttribute('data-sync-mask-panel-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
             const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
 
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldChannel !== currentChannel || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldPromptToolsCollapsed !== currentPromptToolsCollapsed || oldMaskPanelCollapsed !== currentMaskPanelCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
+            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldPromptToolsCollapsed !== currentPromptToolsCollapsed || oldMaskPanelCollapsed !== currentMaskPanelCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
                 morphCardDOM(cardEl, generateCardHTML(task));
             }
             applyImgGenCardFrame(cardEl, task);
@@ -2344,7 +2331,7 @@ async function renderBoard() {
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);
 
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-channel', currentChannel); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed); cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
+        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed); cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
         cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
     });
 
@@ -2523,7 +2510,7 @@ function ensureImgGenState(task) {
     if (!task || task.type !== 'tool_image_gen') return;
     if (!task.state || typeof task.state !== 'object') task.state = {};
     if (!Array.isArray(task.state.images)) task.state.images = [];
-    if (!task.state.version || (task.state.version === 'trial' && !IMG_GEN_TRIAL_AVAILABLE)) task.state.version = 'pro';
+    task.state.version = 'pro';
     const route = normalizeImgGenRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'ai666');
     task.state.providerSort = route.key;
     task.state.modelSuffix = route.suffix;
@@ -2538,17 +2525,6 @@ function ensureImgGenState(task) {
     task.state.stageReleased = false;
     task.state.n = 1;
     if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
-    if (!task.state.trialRatio) {
-        if (task.state.size === '') {
-            task.state.trialRatio = 'custom';
-        } else {
-            const trialDetected = detectProPresetFromSize(task.state.size);
-            task.state.trialRatio = (trialDetected.proRatio && trialDetected.proRatio !== 'auto') ? trialDetected.proRatio : '1:1';
-        }
-    }
-    if (!['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(task.state.trialRatio)) {
-        task.state.trialRatio = '1:1';
-    }
     if (!task.state.proRatio) task.state.proRatio = '1:1';
     if (!task.state.proResolution) task.state.proResolution = '1k';
     const ratioCustomW = parseInt(task.state.customW, 10);
@@ -2556,7 +2532,6 @@ function ensureImgGenState(task) {
     if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
     if (!Number.isFinite(ratioCustomH) || ratioCustomH < 1) task.state.customH = 16;
     if (!task.state.prompt) task.state.prompt = '';
-    if (!task.state.channel) task.state.channel = 'channel_1';
     if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
     if (typeof task.state.seedLocked !== 'boolean') task.state.seedLocked = false;
     const parsedSeed = parseInt(task.state.seed, 10);
@@ -2589,19 +2564,6 @@ function ensureImgGenState(task) {
     task.state.maskStageHeight = clampImgMaskStageHeight(task.state.maskStageHeight);
     if (!task.state.maskBlob && task.state.maskImage) task.state.maskBlob = task.state.maskImage;
     if (!task.state.maskImage && task.state.maskBlob) task.state.maskImage = task.state.maskBlob;
-    if (task.state.version !== 'pro') {
-        if (task.id && (task.state.maskBlob || task.state.maskImage)) {
-            revokeBlobPrefixSafe(`${task.id}_mask_preview_`);
-            revokeBlobPrefixSafe(`${task.id}_mask_studio_`);
-        }
-        task.state.maskEditMode = false;
-        task.state.maskBlob = null;
-        task.state.maskImage = null;
-        if (task.id) {
-            destroyImgMaskStudio(task.id);
-            destroyImgMaskEditor(task.id);
-        }
-    }
     if (!Array.isArray(task.state.images) || task.state.images.length === 0) {
         if (task.id && (task.state.maskBlob || task.state.maskImage)) {
             revokeBlobPrefixSafe(`${task.id}_mask_preview_`);
@@ -2614,14 +2576,10 @@ function ensureImgGenState(task) {
     if (!Array.isArray(task.state.resultBlobs)) task.state.resultBlobs = [];
     if (task.state.resultBlob && task.state.resultBlobs.length === 0) task.state.resultBlobs = [task.state.resultBlob];
     normalizeImgGenPreviewHistory(task);
-    if (task.state.version === 'pro') {
-        const detected = detectProPresetFromSize(task.state.size);
-        if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
-        if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
-        task.state.size = resolveImgGenSize(task.state);
-    } else {
-        task.state.size = resolveImgGenSize(task.state);
-    }
+    const detected = detectProPresetFromSize(task.state.size);
+    if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
+    if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+    task.state.size = resolveImgGenSize(task.state);
     recalcImgGenTaskStatus(task);
 }
 

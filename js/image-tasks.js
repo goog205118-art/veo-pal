@@ -215,8 +215,7 @@
                     detail: billingInfo.detail,
                     inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
                     outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
-                    version: writeTask.state.version || 'trial',
-                    channel: writeTask.state.channel || 'channel_1'
+                    version: 'pro'
                 });
                 updateBillingUI();
                 setTaskShadow(writeTask);

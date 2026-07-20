@@ -8,18 +8,10 @@
         return Number.isFinite(num) ? num : fallback;
     }
 
-    function resolvePromptContext(task, version) {
+    function resolvePromptContext(task) {
         const state = task && task.state && typeof task.state === 'object' ? task.state : {};
-        const finalVersion = version === 'pro' ? 'pro' : 'trial';
-        const trialCustomW = state.customW || 9;
-        const trialCustomH = state.customH || 16;
-        const trialCustomRatio = (finalVersion !== 'pro' && state.trialRatio === 'custom') ? `${trialCustomW}:${trialCustomH}` : '';
-        const basePrompt = state.prompt || '';
         return {
-            finalPrompt: trialCustomRatio ? `${basePrompt} 画面比例${trialCustomRatio}` : basePrompt,
-            trialCustomRatio,
-            trialCustomW,
-            trialCustomH
+            finalPrompt: state.prompt || ''
         };
     }
 
@@ -38,23 +30,22 @@
     function buildUnifiedPayload(options = {}) {
         const task = options.task || {};
         const state = task.state && typeof task.state === 'object' ? task.state : {};
-        const version = options.version === 'pro' ? 'pro' : 'trial';
+        const version = 'pro';
         const route = options.route && typeof options.route === 'object'
             ? options.route
             : window.VeoImageCore.normalizeRoute(state.providerSort || state.routeMode || state.modelSuffix || 'ai666');
         const referenceControls = Array.isArray(options.referenceControls) ? options.referenceControls : [];
         const imagePayloadFields = options.imagePayloadFields && typeof options.imagePayloadFields === 'object' ? options.imagePayloadFields : {};
-        const promptContext = options.promptContext || resolvePromptContext(task, version);
+        const promptContext = options.promptContext || resolvePromptContext(task);
         const clientRequestId = options.clientRequestId || `${task.id || 'img'}_${options.previewItemId || Date.now()}`;
         const outputCompression = normalizeOutputCompression(state);
-        const imageModel = options.imageModel || (version === 'pro' ? window.VeoImageCore.getModelForRoute(route) : 'legacy-image');
-        const ratio = version === 'pro' ? (state.proRatio || '1:1') : (state.trialRatio || '1:1');
-        const resolution = version === 'pro' ? (state.proResolution || '1k') : '1k';
+        const imageModel = options.imageModel || window.VeoImageCore.getModelForRoute(route);
+        const ratio = state.proRatio || '1:1';
+        const resolution = state.proResolution || '1k';
         const lockedSeed = state.seedLocked && state.seed !== '' ? parseInt(state.seed, 10) : null;
 
         return {
             version,
-            channel: state.channel || 'channel_1',
             mode: options.mode || window.VeoImageCore.resolveMode(state),
             model: imageModel,
             imageModel,
@@ -96,10 +87,7 @@
             image_weights: referenceControls.map((item) => item.weight),
             imageIntents: referenceControls.map((item) => item.intent),
             image_intents: referenceControls.map((item) => item.intent),
-            ...imagePayloadFields,
-            custom_ratio: promptContext.trialCustomRatio || undefined,
-            custom_w: promptContext.trialCustomRatio ? promptContext.trialCustomW : undefined,
-            custom_h: promptContext.trialCustomRatio ? promptContext.trialCustomH : undefined
+            ...imagePayloadFields
         };
     }
 

@@ -160,7 +160,7 @@ function pushImgGenPendingItem(task) {
         layout: '',
         seed: task.state.seedLocked ? task.state.seed : '',
         prompt: task.state.prompt || '',
-        version: task.state.version || 'trial',
+        version: 'pro',
         size: task.state.size || '',
         referenceControls: buildImgGenRefControlPayload(task),
         hidden: false

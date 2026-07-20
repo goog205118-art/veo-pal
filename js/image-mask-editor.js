@@ -581,10 +581,6 @@ async function openImgGenMaskStudio(e, taskId) {
     const task = baseTask ? (cloneTaskDeep(baseTask) || { ...baseTask }) : null;
     if (!task || task.type !== 'tool_image_gen') return;
     ensureImgGenState(task);
-    if (task.state.version !== 'pro') {
-        showToast('试用版不支持蒙版编辑，请切换专业版 GPT Image 2', 'warning');
-        return;
-    }
     if (!Array.isArray(task.state.images) || !task.state.images[0]) {
         showToast('请先添加垫图，再打开大蒙版编辑器', 'warning');
         return;

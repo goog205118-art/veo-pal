@@ -14,39 +14,6 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     await saveTaskDB(task);
 }
 
-async function switchImgGenChannelAndRetry(e, taskId) {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    await queueImgGenTaskUpdate(taskId, async () => {
-        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
-        if (!baseTask) return;
-        const task = cloneTaskDeep(baseTask) || { ...baseTask };
-        ensureImgGenState(task);
-        if (task.state.version === 'pro') {
-            const route = normalizeImgGenRoute();
-            task.state.providerSort = route.key;
-            task.state.modelSuffix = route.suffix;
-            task.state.routeMode = route.mode;
-            task.state.imageModel = getImgGenModelForRoute(route);
-            showToast('Pro 将使用默认通道重试', 'info');
-        } else {
-            task.state.channel = task.state.channel === 'channel_2' ? 'channel_1' : 'channel_2';
-            showToast(`已切换试用通道：${task.state.channel === 'channel_2' ? '通道 2' : '通道 1'}，准备重试`, 'info');
-        }
-        task.state.nextSubmitAt = 0;
-        task.retryCount = 0;
-        task.timestamp = Date.now();
-        setTaskShadow(task);
-        renderCard(taskId, task);
-        await saveTaskDB(task);
-    }).catch(() => {
-        showToast('切换通道失败，请手动重试', 'error');
-    });
-    setTimeout(() => submitImgGen(taskId), 80);
-}
-
 async function retryImgGenPreviewItem(e, taskId) {
     if (e) {
         e.preventDefault();
@@ -217,42 +184,12 @@ async function updateImgGenState(taskId, key, val) {
         } else if (key === 'customW' || key === 'customH') {
             const parsed = parseInt(val, 10);
             task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
-            if (task.state.version === 'pro' && task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
-            if (task.state.version !== 'pro' && task.state.trialRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
-        } else if (key === 'trialRatio') {
-            task.state.trialRatio = ['1:1', '3:2', '2:3', '16:9', '9:16', 'custom'].includes(String(val)) ? String(val) : '1:1';
-            task.state.size = resolveImgGenSize(task.state);
-        } else if (key === 'version') {
-            const nextVersion = val === 'pro' ? 'pro' : 'trial';
-            if (nextVersion === 'trial' && !IMG_GEN_TRIAL_AVAILABLE) {
-                task.state.version = 'pro';
-                task.state.size = resolveImgGenSize(task.state);
-                showToast('试用版服务通道已关闭，已保持专业版', 'warning');
-            } else {
-                task.state.version = nextVersion;
-                if (nextVersion === 'pro') {
-                    const detected = detectProPresetFromSize(task.state.size);
-                    if (detected.proRatio && detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
-                    if (detected.proResolution) task.state.proResolution = detected.proResolution;
-                    task.state.size = resolveImgGenSize(task.state);
-                } else {
-                    task.state.size = resolveImgGenSize(task.state);
-                }
-            }
+            if (task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
         } else if (key === 'size') {
             task.state.size = val;
-            if (task.state.version === 'pro') {
-                const detected = detectProPresetFromSize(val);
-                if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
-                task.state.proResolution = detected.proResolution;
-            } else {
-                if (val === '') task.state.trialRatio = 'custom';
-                else {
-                    const trialDetected = detectProPresetFromSize(val);
-                    if (trialDetected.proRatio && trialDetected.proRatio !== 'auto') task.state.trialRatio = trialDetected.proRatio;
-                }
-                task.state.size = resolveImgGenSize(task.state);
-            }
+            const detected = detectProPresetFromSize(val);
+            if (detected.proRatio !== 'auto') task.state.proRatio = detected.proRatio;
+            task.state.proResolution = detected.proResolution;
         } else {
             task.state[key] = val;
             if (key === 'prompt' && typeof task.state.prompt !== 'string') task.state.prompt = '';
