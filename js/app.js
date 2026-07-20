@@ -389,6 +389,26 @@ window.VeoWorkspaceInputs.configure({
         showToast: (message, type) => showToast(message, type)
     }
 });
+window.VeoCanvasContextMenu.configure({
+    hooks: {
+        addConsoleReferenceImage: (image) => addConsoleReferenceImage(image),
+        duplicateTask: async (taskId) => {
+            const source = getTaskShadow(taskId) || await getTaskDB(taskId);
+            if (!source) return;
+            clearSelection();
+            selectedTasks.add(taskId);
+            await duplicateSelectedTasks();
+        },
+        ensureImageState: (task) => ensureImgGenState(task),
+        focusTask: (taskId) => focusTaskById(taskId),
+        getTask: (taskId) => getTaskDB(taskId),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        getTaskShadow: (taskId) => getTaskShadow(taskId),
+        removeTask: (taskId) => removeTask(taskId),
+        setConsoleFrameImage: (stateKey, image) => setConsoleFrameImage(stateKey, image),
+        showToast: (message, type) => showToast(message, type)
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1201,92 +1221,22 @@ async function parseDroppedImage(e) {
 }
 
 function getTaskReusableImage(task) {
-    if (!task || typeof task !== 'object') return null;
-    if (task.type === 'local_image') return task.src || null;
-    if (task.type === 'tool_image_gen') {
-        ensureImgGenState(task);
-        const history = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
-        const latest = history.slice().reverse().find((item) => item && item.status === 'success' && item.image);
-        return latest ? latest.image : (task.state.resultBlob || (Array.isArray(task.state.images) ? task.state.images[0] : null));
-    }
-    if (task.rawImages) {
-        return task.rawImages.firstFrame || (Array.isArray(task.rawImages.references) ? task.rawImages.references[0] : null) || task.rawImages.lastFrame || null;
-    }
-    return null;
+    return window.VeoCanvasContextMenu.getTaskReusableImage(task);
 }
 
 async function sendTaskImageToConsole(taskId, target) {
-    const task = getTaskShadow(taskId) || await getTaskDB(taskId);
-    const image = getTaskReusableImage(task);
-    if (!image) {
-        showToast('该卡片没有可复用图片', 'warning');
-        return;
-    }
-    if (target === 'lastFrame') {
-        setConsoleFrameImage('lastFrame', image);
-        showToast('已作为尾帧送入 Veo 控制台', 'success');
-    } else if (target === 'reference') {
-        if (addConsoleReferenceImage(image)) showToast('已作为参考图送入 Veo 控制台', 'success');
-    } else {
-        setConsoleFrameImage('firstFrame', image);
-        showToast('已作为首帧送入 Veo 控制台', 'success');
-    }
+    return window.VeoCanvasContextMenu.sendTaskImageToConsole(taskId, target);
 }
 
 function closeCanvasContextMenu() {
-    const menu = document.getElementById('canvas-card-context-menu');
-    if (menu) menu.remove();
+    return window.VeoCanvasContextMenu.close();
 }
 
 function openCanvasTaskContextMenu(e, taskId) {
-    if (!taskId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    closeCanvasContextMenu();
-    const task = document.getElementById('card-' + taskId)?.__veoTask || getTaskShadow(taskId);
-    const hasImage = !!getTaskReusableImage(task);
-    const menu = document.createElement('div');
-    menu.id = 'canvas-card-context-menu';
-    menu.className = 'canvas-card-context-menu';
-    menu.innerHTML = `
-        <button type="button" data-action="focus"><span class="material-symbols-outlined">center_focus_strong</span>聚焦卡片</button>
-        <button type="button" data-action="duplicate"><span class="material-symbols-outlined">content_copy</span>复制卡片</button>
-        ${hasImage ? '<div class="context-menu-divider"></div>' : ''}
-        ${hasImage ? '<button type="button" data-action="first"><span class="material-symbols-outlined">first_page</span>作为首帧发送至 Veo</button>' : ''}
-        ${hasImage ? '<button type="button" data-action="last"><span class="material-symbols-outlined">last_page</span>作为尾帧发送至 Veo</button>' : ''}
-        ${hasImage ? '<button type="button" data-action="ref"><span class="material-symbols-outlined">add_photo_alternate</span>作为参考图发送至 Veo</button>' : ''}
-        <div class="context-menu-divider"></div>
-        <button type="button" data-action="delete" class="danger"><span class="material-symbols-outlined">delete</span>删除卡片</button>
-    `;
-    menu.style.left = `${Math.min(window.innerWidth - 230, Math.max(12, e.clientX))}px`;
-    menu.style.top = `${Math.min(window.innerHeight - 280, Math.max(12, e.clientY))}px`;
-    menu.addEventListener('mousedown', (event) => event.stopPropagation());
-    menu.addEventListener('click', async (event) => {
-        const btn = event.target.closest('button[data-action]');
-        if (!btn) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const action = btn.dataset.action;
-        closeCanvasContextMenu();
-        if (action === 'focus') focusTaskById(taskId);
-        if (action === 'duplicate') {
-            const source = getTaskShadow(taskId) || await getTaskDB(taskId);
-            if (source) {
-                clearSelection();
-                selectedTasks.add(taskId);
-                await duplicateSelectedTasks();
-            }
-        }
-        if (action === 'first') await sendTaskImageToConsole(taskId, 'firstFrame');
-        if (action === 'last') await sendTaskImageToConsole(taskId, 'lastFrame');
-        if (action === 'ref') await sendTaskImageToConsole(taskId, 'reference');
-        if (action === 'delete') await removeTask(taskId);
-    });
-    document.body.appendChild(menu);
+    return window.VeoCanvasContextMenu.open(e, taskId);
 }
 
-window.addEventListener('click', closeCanvasContextMenu);
-window.addEventListener('blur', closeCanvasContextMenu);
+window.VeoCanvasContextMenu.bindGlobalClose();
 
 // ==========================================
 // 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
