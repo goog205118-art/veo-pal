@@ -18,6 +18,7 @@
 - js/workspace-io.js
 - js/workspace-inputs.js
 - js/canvas-context-menu.js
+- js/canvas-cards.js
 - js/selection-toolbar.js
 - js/media-utils.js
 - js/material-library.js
@@ -114,6 +115,11 @@
 - Reduced `js/app.js` context menu helpers to compatibility adapters while cleaning menu labels back to readable Chinese.
 - Entry pages now load `js/canvas-context-menu.js` after workspace inputs and before selection toolbar/app orchestration scripts.
 
+## Canvas Card Layer Changes (Compatible)
+- Added `window.VeoCanvasCards` for image-card frame sizing, resize persistence, refresh fingerprint snapshots, and `data-sync-*` attribute writes.
+- Removed duplicate card refresh fingerprint logic from `renderCard` and `renderBoard` while preserving the existing compatibility helper names.
+- Entry pages now load `js/canvas-cards.js` after the context menu module and before selection toolbar/app orchestration scripts.
+
 ## Selection Toolbar Layer Changes (Compatible)
 - Added `window.VeoSelectionToolbar` for selected-card lookup, toolbar creation, action dispatch, positioning, and animation-frame update scheduling.
 - Reduced `js/app.js` to selection context adapters so future workspace layout changes can replace the toolbar without touching canvas selection state.
@@ -169,6 +175,7 @@
 - `node --check js/workspace-io.js`: pass
 - `node --check js/workspace-inputs.js`: pass
 - `node --check js/canvas-context-menu.js`: pass
+- `node --check js/canvas-cards.js`: pass
 - `node --check js/selection-toolbar.js`: pass
 - `node --check js/media-utils.js`: pass
 - `node --check js/image-core.js`: pass

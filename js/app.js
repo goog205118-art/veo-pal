@@ -409,6 +409,19 @@ window.VeoCanvasContextMenu.configure({
         showToast: (message, type) => showToast(message, type)
     }
 });
+window.VeoCanvasCards.configure({
+    hooks: {
+        clampMaskBrushSize: (value) => clampImgMaskBrushSize(value),
+        clampMaskStageHeight: (value) => clampImgMaskStageHeight(value),
+        ensureImageState: (task) => ensureImgGenState(task),
+        getPreviewFingerprint: (task) => getImgGenPreviewFingerprint(task),
+        getTaskShadow: (taskId) => getTaskShadow(taskId),
+        queueTaskUpdate: (taskId, updater) => queueImgGenTaskUpdate(taskId, updater),
+        saveTask: (task) => saveTaskDB(task),
+        setTaskShadow: (task) => setTaskShadow(task),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback)
+    }
+});
 let draggingCardInfo = null, highestZIndex = 10, scrollTimeout;
 const selectedTasks = canvasSelection.selectedTasks;
 let isPrimaryPointerDown = false;
@@ -1242,47 +1255,11 @@ window.VeoCanvasContextMenu.bindGlobalClose();
 // 🚀 核心：单节点局部渲染引擎 (彻底告别全局闪烁)
 // ==========================================
 function applyImgGenCardFrame(cardEl, task) {
-    if (!cardEl || !task || task.type !== 'tool_image_gen') return;
-    ensureImgGenState(task);
-    const isOpen = task.state.previewCollapsed !== true;
-    const collapsedWidth = Math.max(320, Math.min(760, toFiniteNumber(task.state.cardWidthCollapsed, 360)));
-    const expandedWidth = Math.max(560, Math.min(1200, toFiniteNumber(task.state.cardWidthOpen, 680)));
-    const cardHeight = Math.max(420, Math.min(1100, toFiniteNumber(task.state.cardHeight, 520)));
-    cardEl.classList.toggle('is-preview-open', isOpen);
-    cardEl.style.setProperty('--img-gen-card-height', `${cardHeight}px`);
-    cardEl.style.width = `${isOpen ? expandedWidth : collapsedWidth}px`;
-    cardEl.style.height = `${cardHeight}px`;
+    return window.VeoCanvasCards.applyImageCardFrame(cardEl, task);
 }
 
 function bindImgGenCardResizeSave(cardEl, task) {
-    if (!cardEl || !task || task.type !== 'tool_image_gen' || cardEl.__imgGenResizeBound) return;
-    cardEl.__imgGenResizeBound = true;
-    cardEl.addEventListener('mouseup', () => {
-        const liveTask = cardEl.__veoTask || getTaskShadow(task.id) || task;
-        if (!liveTask || liveTask.type !== 'tool_image_gen') return;
-        ensureImgGenState(liveTask);
-        const width = Math.round(toFiniteNumber(cardEl.offsetWidth, 0));
-        const height = Math.round(toFiniteNumber(cardEl.offsetHeight, 0));
-        if (width <= 0 || height <= 0) return;
-        const isCollapsed = liveTask.state.previewCollapsed === true;
-        const nextWidth = isCollapsed
-            ? Math.max(320, Math.min(760, width))
-            : Math.max(560, Math.min(1200, width));
-        const nextHeight = Math.max(420, Math.min(1100, height));
-        const widthKey = isCollapsed ? 'cardWidthCollapsed' : 'cardWidthOpen';
-        if (Math.abs(toFiniteNumber(liveTask.state[widthKey], 0) - nextWidth) < 2 && Math.abs(toFiniteNumber(liveTask.state.cardHeight, 0) - nextHeight) < 2) return;
-        liveTask.state[widthKey] = nextWidth;
-        liveTask.state.cardHeight = nextHeight;
-        cardEl.style.width = `${nextWidth}px`;
-        cardEl.style.height = `${nextHeight}px`;
-        cardEl.style.setProperty('--img-gen-card-height', `${nextHeight}px`);
-        liveTask.timestamp = Date.now();
-        setTaskShadow(liveTask);
-        queueImgGenTaskUpdate(liveTask.id, async () => {
-            const latest = getTaskShadow(liveTask.id) || liveTask;
-            await saveTaskDB(latest);
-        }).catch(() => {});
-    });
+    return window.VeoCanvasCards.bindImageCardResizeSave(cardEl, task);
 }
 
 async function renderCard(taskId, taskOverride = null) {
@@ -1310,38 +1287,7 @@ async function renderCard(taskId, taskOverride = null) {
     scheduleViewportCulling(40);
     updateSelectionToolbar();
 
-    // 同步追踪属性，防止后续被误刷
-    const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
-    const currentProgress = task.progress || '';
-    const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
-    const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
-    const currentVersion = (task.state && task.state.version) ? task.state.version : 'pro';
-    const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
-    const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
-    const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
-    const currentPromptToolsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.promptToolsCollapsed === true) : 'na';
-    const currentMaskPanelCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskPanelCollapsed === true) : 'na';
-    const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
-    const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
-    const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
-
-    cardEl.setAttribute('data-sync-status', task.status || 'static');
-    cardEl.setAttribute('data-sync-retry', task.retryCount || 0);
-    cardEl.setAttribute('data-sync-img-len', currentImgLen);
-    cardEl.setAttribute('data-sync-progress', currentProgress);
-    cardEl.setAttribute('data-sync-crop-src', cropSrc);
-    cardEl.setAttribute('data-sync-crop-res', cropRes);
-    cardEl.setAttribute('data-sync-version', currentVersion);
-    cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed);
-    cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed);
-    cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed);
-    cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed);
-    cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed);
-    cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode);
-    cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize);
-    cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
-    cardEl.setAttribute('data-sync-title', task.title || '');
-    cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
+    window.VeoCanvasCards.applySyncAttributes(cardEl, task);
     if (task.type === 'tool_image_gen' && isStageDocked) scheduleImgGenStageRailRender(40);
 }
 
@@ -1569,19 +1515,7 @@ async function renderBoard() {
         normalizeTaskPosition(task);
         setTaskShadow(task);
         let cardEl = document.getElementById('card-' + task.id);
-        const currentImgLen = (task.state && task.state.images) ? task.state.images.length : 0;
-        const currentProgress = task.progress || '';
-        const cropSrc = task.state && task.state.sourceBlob ? 'hasSrc' : 'noSrc';
-        const cropRes = task.state && task.state.resultBlob ? 'hasRes' : 'noRes';
-        const currentVersion = (task.state && task.state.version) ? task.state.version : 'pro';
-        const currentPreviewCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.previewCollapsed === true) : 'na';
-        const currentPreviewFeed = (task.type === 'tool_image_gen' && task.state) ? getImgGenPreviewFingerprint(task) : 'na';
-        const currentParamsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.paramsCollapsed === true) : 'na';
-        const currentPromptToolsCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.promptToolsCollapsed === true) : 'na';
-        const currentMaskPanelCollapsed = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskPanelCollapsed === true) : 'na';
-        const currentMaskEditMode = (task.type === 'tool_image_gen' && task.state) ? String(task.state.maskEditMode === true) : 'na';
-        const currentMaskBrushSize = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskBrushSize(task.state.maskBrushSize)) : 'na';
-        const currentMaskStageHeight = (task.type === 'tool_image_gen' && task.state) ? String(clampImgMaskStageHeight(task.state.maskStageHeight)) : 'na';
+        const syncSnapshot = window.VeoCanvasCards.getSyncSnapshot(task);
 
         let isHiddenInFrame = false;
         const isStageDocked = isImgGenTaskStageDocked(task);
@@ -1599,10 +1533,7 @@ async function renderBoard() {
         } else {
             cardEl.style.transform = `translate3d(${task.x}px, ${task.y}px, 0)`;
 
-            const oldStatus = cardEl.getAttribute('data-sync-status'), oldRetry = cardEl.getAttribute('data-sync-retry'), oldImgLen = cardEl.getAttribute('data-sync-img-len'), oldProgress = cardEl.getAttribute('data-sync-progress'), oldCropSrc = cardEl.getAttribute('data-sync-crop-src'), oldCropRes = cardEl.getAttribute('data-sync-crop-res'), oldVersion = cardEl.getAttribute('data-sync-version'), oldPreviewCollapsed = cardEl.getAttribute('data-sync-preview-collapsed'), oldPreviewFeed = cardEl.getAttribute('data-sync-preview-feed'), oldParamsCollapsed = cardEl.getAttribute('data-sync-params-collapsed'), oldPromptToolsCollapsed = cardEl.getAttribute('data-sync-prompt-tools-collapsed'), oldMaskPanelCollapsed = cardEl.getAttribute('data-sync-mask-panel-collapsed'), oldMaskEditMode = cardEl.getAttribute('data-sync-mask-edit'), oldMaskBrushSize = cardEl.getAttribute('data-sync-mask-brush'), oldMaskStageHeight = cardEl.getAttribute('data-sync-mask-height');
-            const oldFrameTitle = cardEl.getAttribute('data-sync-title'), oldFrameCollapsed = cardEl.getAttribute('data-sync-collapsed');
-
-            if (oldStatus !== task.status || oldRetry != task.retryCount || oldImgLen != currentImgLen || oldProgress !== currentProgress || oldCropSrc !== cropSrc || oldCropRes !== cropRes || oldVersion !== currentVersion || oldPreviewCollapsed !== currentPreviewCollapsed || oldPreviewFeed !== currentPreviewFeed || oldParamsCollapsed !== currentParamsCollapsed || oldPromptToolsCollapsed !== currentPromptToolsCollapsed || oldMaskPanelCollapsed !== currentMaskPanelCollapsed || oldMaskEditMode !== currentMaskEditMode || oldMaskBrushSize !== currentMaskBrushSize || oldMaskStageHeight !== currentMaskStageHeight || oldFrameTitle !== task.title || oldFrameCollapsed !== String(task.isCollapsed)) {
+            if (window.VeoCanvasCards.shouldRefresh(cardEl, task, syncSnapshot)) {
                 morphCardDOM(cardEl, generateCardHTML(task));
             }
             applyImgGenCardFrame(cardEl, task);
@@ -1636,8 +1567,7 @@ async function renderBoard() {
         bindCardDrag(cardEl, task);
         syncCardViewportMetrics(cardEl, task);
 
-        cardEl.setAttribute('data-sync-status', task.status || 'static'); cardEl.setAttribute('data-sync-retry', task.retryCount || 0); cardEl.setAttribute('data-sync-img-len', currentImgLen); cardEl.setAttribute('data-sync-progress', currentProgress); cardEl.setAttribute('data-sync-crop-src', cropSrc); cardEl.setAttribute('data-sync-crop-res', cropRes); cardEl.setAttribute('data-sync-version', currentVersion); cardEl.setAttribute('data-sync-preview-collapsed', currentPreviewCollapsed); cardEl.setAttribute('data-sync-preview-feed', currentPreviewFeed); cardEl.setAttribute('data-sync-params-collapsed', currentParamsCollapsed); cardEl.setAttribute('data-sync-prompt-tools-collapsed', currentPromptToolsCollapsed); cardEl.setAttribute('data-sync-mask-panel-collapsed', currentMaskPanelCollapsed); cardEl.setAttribute('data-sync-mask-edit', currentMaskEditMode); cardEl.setAttribute('data-sync-mask-brush', currentMaskBrushSize); cardEl.setAttribute('data-sync-mask-height', currentMaskStageHeight);
-        cardEl.setAttribute('data-sync-title', task.title || ''); cardEl.setAttribute('data-sync-collapsed', String(task.isCollapsed));
+        window.VeoCanvasCards.applySyncAttributes(cardEl, task, syncSnapshot);
     });
 
     renderMinimap();
