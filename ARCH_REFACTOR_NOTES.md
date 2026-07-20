@@ -22,6 +22,7 @@
 - js/canvas-context-menu.js
 - js/canvas-cards.js
 - js/image-render.js
+- js/image-normalize.js
 - js/task-actions.js
 - js/task-lifecycle.js
 - js/canvas-renderer.js
@@ -138,6 +139,11 @@
 - Reduced `js/app.js` image preview DOM helpers to compatibility adapters used by image submit, polling, and preview actions.
 - Entry pages now load `js/image-render.js` after canvas cards and before task action/app orchestration scripts.
 
+## Image Normalize Layer Changes (Compatible)
+- Added `window.VeoImageNormalize` for image route normalization, model mapping, route reference limits, and image-generation task state defaults.
+- Reduced `js/app.js` image state normalization helpers to compatibility adapters while keeping existing global callers stable.
+- Entry pages now load `js/image-normalize.js` after preview state helpers and before image task orchestration.
+
 ## Task Action Layer Changes (Compatible)
 - Added `window.VeoTaskActions` for default image-node creation, selected-card duplication, and image-generation clone cleanup.
 - Reduced `js/app.js` task action helpers to compatibility adapters while keeping existing button, menu, and shortcut callers intact.
@@ -220,6 +226,7 @@
 - `node --check js/canvas-context-menu.js`: pass
 - `node --check js/canvas-cards.js`: pass
 - `node --check js/image-render.js`: pass
+- `node --check js/image-normalize.js`: pass
 - `node --check js/task-actions.js`: pass
 - `node --check js/task-lifecycle.js`: pass
 - `node --check js/canvas-renderer.js`: pass
