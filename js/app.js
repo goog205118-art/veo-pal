@@ -1426,16 +1426,6 @@ async function createFrame() {
     clearSelection(); await renderBoard(); showToast(`✅ 已将 ${selected.length} 个卡片收纳为项目组`, "success");
 }
 
-async function updateTaskField(id, key, val) { const task = await getTaskDB(id); if (task) { task[key] = val; await saveTaskDB(task); } }
-async function toggleFrameCollapse(id) { const frame = await getTaskDB(id); if (frame) { frame.isCollapsed = !frame.isCollapsed; await saveTaskDB(frame); await renderBoard(); } }
-async function removeFrame(id) {
-    if(confirm('📦 确定要解散这个项目组吗？\n(内部卡片将安全保留在画布上)')) {
-        await deleteTaskDB(id); const tasks = await getAllTasksDB();
-        for (let t of tasks) { if (t.parentId === id) { delete t.parentId; await saveTaskDB(t); } }
-        await renderBoard(); showToast("项目组已解散", "success");
-    }
-}
-
 async function checkGroupDrop(draggedInfo) {
     const task = draggedInfo.task;
     if (task.type === 'frame') return;
@@ -2629,20 +2619,12 @@ document.addEventListener('click', (e) => {
     if (e.target === viewport || e.target === board) { consoleEl.classList.add('minimized'); document.getElementById('tool-drawer').classList.remove('open'); document.getElementById('material-drawer').classList.remove('open'); } else if (consoleEl.contains(e.target)) consoleEl.classList.remove('minimized');
 });
 
-async function createStickyNote(spawnX, spawnY) {
-    if (spawnX === undefined) spawnX = (-transform.x + window.innerWidth/2 - 120) / transform.scale; if (spawnY === undefined) spawnY = (-transform.y + window.innerHeight/2 - 80) / transform.scale;
-    await saveTaskDB({ id: 'note_' + Date.now() + Math.random().toString(36).substr(2, 5), type: 'note', text: '', x: spawnX, y: spawnY, width: 260, height: 200, timestamp: Date.now() }); renderBoard();
-}
 viewport.addEventListener('dblclick', (e) => {
     if (e.target === viewport || e.target === board) {
         const p = clientToBoard(e.clientX, e.clientY);
         createStickyNote(p.x, p.y);
     }
 });
-
-let noteTimeout;
-async function updateNoteText(id, text) { clearTimeout(noteTimeout); noteTimeout = setTimeout(async () => { const note = await getTaskDB(id); if (note) { note.text = text; await saveTaskDB(note); } }, 500); }
-function saveNoteSize(id, w, h) { setTimeout(async () => { const note = await getTaskDB(id); if (note && (note.width !== w || note.height !== h)) { note.width = w; note.height = h; await saveTaskDB(note); renderMinimap(); } }, 100); }
 
 async function exportWorkspace() {
     const btn = document.getElementById('export-btn'); const originalHTML = btn.innerHTML; btn.innerHTML = `<svg class="spinner" viewBox="0 0 50 50" style="width:16px;height:16px;stroke:currentColor;margin-right:6px;"><circle cx="25" cy="25" r="20"></circle></svg> 打包中...`;
