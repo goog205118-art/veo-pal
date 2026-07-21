@@ -26,7 +26,8 @@
 ├── js/
 │   ├── app.js              # 主工作台胶水层和旧全局函数兼容
 │   ├── app-bootstrap.js    # 启动流程、DB 初始化、首屏渲染
-│   ├── api-client.js       # n8n/webhook 请求封装
+│   ├── api-client.js       # n8n/webhook 请求封装和命名端点注册表
+│   ├── model-registry.js   # 图像路由、视频模型、质量档位和计费元数据
 │   ├── db.js               # IndexedDB、本地 Blob 缓存、任务保存队列
 │   ├── store.js            # 视频控制台的轻量状态和事件总线
 │   ├── canvas-*.js         # 画布相机、选择、布局、渲染、交互
@@ -46,13 +47,14 @@
 关键加载阶段：
 
 1. `db.js`、`store.js`、`api-client.js` 先加载，提供 IndexedDB、`globalStore`、`sysBus` 和 `window.VeoApi`。
-2. `dom-utils.js`、`task-cache.js`、`media-utils.js`、`image-core.js` 加载通用工具和生图基础规则。
-3. `material-library.js`、`video-models.js`、`billing.js`、`video-console.js`、`video-tasks.js` 加载素材、账单和视频链路。
-4. `image-api-utils.js` 到 `image-submit.js` 加载生图解析、状态、蒙版、UI、请求和提交链路。
-5. `app-shell.js` 加载登录、主题、toast、弹窗和 lightbox。
-6. `canvas-*.js`、`workspace-*.js`、`task-*.js`、`selection-toolbar.js` 加载画布、导入导出和任务操作。
-7. `app.js` 统一配置各模块 hooks，并保留旧 inline handler 所需的全局函数。
-8. `app-bootstrap.js` 在 DOM ready 后初始化 DB、渲染画布、恢复轮询和绑定全局事件。
+2. `model-registry.js` 加载模型和路由元数据，提供 `window.VeoModelRegistry`。
+3. `dom-utils.js`、`task-cache.js`、`media-utils.js`、`image-core.js` 加载通用工具和生图基础规则。
+4. `material-library.js`、`video-models.js`、`billing.js`、`video-console.js`、`video-tasks.js` 加载素材、账单和视频链路。
+5. `image-api-utils.js` 到 `image-submit.js` 加载生图解析、状态、蒙版、UI、请求和提交链路。
+6. `app-shell.js` 加载登录、主题、toast、弹窗和 lightbox。
+7. `canvas-*.js`、`workspace-*.js`、`task-*.js`、`selection-toolbar.js` 加载画布、导入导出和任务操作。
+8. `app.js` 统一配置各模块 hooks，并保留旧 inline handler 所需的全局函数。
+9. `app-bootstrap.js` 在 DOM ready 后初始化 DB、渲染画布、恢复轮询和绑定全局事件。
 
 开发时如果新增模块，优先保持这个顺序：基础能力先于业务模块，业务模块先于 `app.js`，启动逻辑放在 `app-bootstrap.js` 之后。
 
@@ -83,6 +85,33 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 - 视频和图像请求都会带 `Content-Type: application/json`。
 - 如果存在登录密钥，请求头会带 `wally123`。
 - 图像请求可额外带 `Authorization: window.VEO_WEBHOOK_AUTH`。
+
+## 模型注册表
+
+模型和路由元数据集中在 `js/model-registry.js`，它是经典脚本，不是 ES module。入口 HTML 必须在 `api-client.js` 之后、`media-utils.js` 和 `video-models.js` 之前加载它。
+
+当前注册表暴露：
+
+- `window.VeoModelRegistry.register(family, key, meta)`：注册单个模型或路由。
+- `window.VeoModelRegistry.registerMany(family, records)`：批量注册。
+- `window.VeoModelRegistry.resolve(family, rawKey, fallbackKey)`：按 key 或 alias 解析，并返回拷贝后的元数据。
+- `window.VeoModelRegistry.getFamily(family)`：返回某个 family 的全部记录。
+- `window.VeoModelRegistry.list(family)`：返回数组格式记录。
+
+当前 family：
+
+- `image.routes`：图像生成路由。现在保留 `ai666`，模型为 `gpt-image-2`，参考图上限为 1，并包含 image/mask 网络压缩参数。
+- `video.quality`：视频质量档位。现在包含 `veo3.1` 和 `veo3.1-4k`，分别映射首尾帧模型和参考图模型。
+- `video.submit`：实际提交模型和计费元数据。现在包含 `veo3.1`、`veo3.1-components`、`veo3.1-4k`、`veo3.1-components-4k`。
+
+新增模型建议流程：
+
+1. 在 `api-client.js` 注册需要的新 n8n webhook 端点，或者确认可以复用现有 `image.unified`、`video.submit`、`video.poll`。
+2. 在 `model-registry.js` 增加对应 `image.routes`、`video.quality` 或 `video.submit` 记录。
+3. 检查 `media-utils.js` 或 `video-models.js` 是否能直接通过注册表解析；如果不能，再加很薄的适配函数。
+4. 检查 UI 是否需要展示新选项，尤其是图片参考图数量、视频质量档位、输入模式和费用提示。
+5. 检查 `image-request.js`、`video-tasks.js`、`image-tasks.js` 的 payload、轮询解析、失败兜底和账单记录。
+6. 跑语法检查和模型注册表烟测后再提交。
 
 ## 数据层
 
@@ -126,7 +155,7 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 
 ## 图像生成链路
 
-当前生图链路统一到 GPT Image 2 路由，旧通道已经从 UI、默认状态、请求和计费元数据中移除。
+当前生图链路统一到 GPT Image 2 路由，旧通道已经从 UI、默认状态、请求和计费元数据中移除。路由配置来自 `js/model-registry.js` 的 `image.routes`，`media-utils.js` 只做兼容和解析适配。
 
 核心流程：
 
@@ -150,7 +179,7 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 - `ref`：参考图驱动。
 - `frame`：首尾帧驱动。
 
-模型定义在 `js/video-models.js`：
+模型定义来自 `js/model-registry.js`，`js/video-models.js` 负责把注册表元数据适配给视频控制台和账单：
 
 - `veo3.1`
 - `veo3.1-components`
@@ -213,6 +242,7 @@ git diff --check
 ## 开发约定
 
 - 不要在业务模块里直接散落新的 webhook 地址，统一走 `window.VeoApi` 的命名端点和 `postEndpoint(...)`。
+- 不要在业务模块里直接散落新的模型元数据，统一放进 `window.VeoModelRegistry`。
 - 不要把旧 apimart 官方通道、旧节点工作流分区、旧 frame/cropper 节点重新接回主 UI。
 - 需要保留迁移保护：`flow_workspaces` 删除逻辑和 `RETIRED_NODE_TYPES` 过滤逻辑不要随手移除。
 - 新增模块尽量暴露为 `window.VeoXxx`，并提供 `configure({ hooks })`，让 `app.js` 做连接，不让模块互相硬耦合太深。
@@ -227,7 +257,7 @@ git diff --check
 2. 整理 `store.js`，补齐 `off`、`once`、错误隔离和更多视频控制台 action。
 3. 把生图轮询、预览保护和计费再拆细，让模型接口扩展更容易。
 4. 做一次 HTML 中文编码和重复入口核对，确保 `index.html`、`studio.html`、`js/index.html` 内容一致且展示正常。
-5. 如果后续要引入更多模型，先定义统一模型注册表，再从 UI、payload、轮询、计费四处接入。
+5. 如果后续要引入更多模型，先扩展统一模型注册表，再从 UI、payload、轮询、计费四处接入。
 6. 如果前端复杂度继续上升，再考虑迁移到 Vite/ESM；当前阶段先保持静态部署简单。
 
 ## 当前收尾状态
@@ -237,3 +267,4 @@ git diff --check
 - 旧工作流 IndexedDB 表：升级时删除。
 - 旧节点数据：通过退役类型过滤，避免历史工程导入后污染画布。
 - 主工作台能力：保留 GPT Image 2 生图、Veo 3.1 视频、无限画布、素材库、账单和 .veo 工程文件。
+- 模型接口：已集中到 `js/model-registry.js` 和 `js/api-client.js`，新增/删除模型时优先改这两处。

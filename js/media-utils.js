@@ -1,9 +1,12 @@
 (function (window) {
     'use strict';
 
-    const routeConfig = {
+    const fallbackRouteConfig = {
         ai666: { key: 'ai666', aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'], suffix: '', mode: 'ai666', label: 'AI666 中转站', maxRefs: 1 }
     };
+    const routeConfig = window.VeoModelRegistry
+        ? window.VeoModelRegistry.getFamily('image.routes')
+        : fallbackRouteConfig;
 
     const refIntents = [
         { value: 'structure', label: '结构', hint: '产品轮廓 / 深度 / 构图' },
@@ -41,6 +44,10 @@
     }
 
     function normalizeImgGenRoute(raw = 'ai666') {
+        if (window.VeoModelRegistry) {
+            const registered = window.VeoModelRegistry.resolve('image.routes', raw, 'ai666');
+            if (registered) return registered;
+        }
         const key = String(raw || 'ai666').trim().toLowerCase().replace(/^:/, '');
         for (const route of Object.values(routeConfig)) {
             if (route.key === key || (Array.isArray(route.aliases) && route.aliases.includes(key))) {
@@ -52,7 +59,7 @@
 
     function getImgGenModelForRoute(route) {
         const safeRoute = route && typeof route === 'object' ? route : normalizeImgGenRoute(route || 'ai666');
-        return `gpt-image-2${safeRoute.suffix || ''}`;
+        return safeRoute.model || `gpt-image-2${safeRoute.suffix || ''}`;
     }
 
     function getImgGenMaxReferenceCount(task) {
@@ -69,7 +76,9 @@
     }
 
     function resolveImgGenNetworkEncodeOptions(routeKey, kind = 'image') {
-        if (routeKey === 'ai666') {
+        const route = normalizeImgGenRoute(routeKey || 'ai666');
+        if (route && route.encode && route.encode[kind]) return { ...route.encode[kind] };
+        if (route.key === 'ai666') {
             if (kind === 'mask') {
                 return {
                     mode: 'network',
