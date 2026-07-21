@@ -163,16 +163,12 @@
 
     function updateUpsample(select) {
         if (!select) return;
-        getStoreState().enableUpsample = select.value === 'true';
-        const label = document.getElementById('upsample-text');
-        if (label) label.innerText = select.options[select.selectedIndex].text;
+        globalStore.dispatch('SET_UPSAMPLE', { value: select.value, text: select.options[select.selectedIndex].text });
     }
 
     function updateAutoRetry(select) {
         if (!select) return;
-        getStoreState().autoRetry = select.value === 'true';
-        const label = document.getElementById('retry-text');
-        if (label) label.innerText = select.options[select.selectedIndex].text;
+        globalStore.dispatch('SET_AUTO_RETRY', { value: select.value, text: select.options[select.selectedIndex].text });
     }
 
     async function handleMultiRefs(input) {
@@ -340,6 +336,15 @@
         sysBus.on('UI:UPDATE_ENHANCE_TEXT', (text) => {
             const enhanceText = document.getElementById('enhance-text');
             if (enhanceText) enhanceText.innerText = text;
+        });
+        sysBus.on('UI:UPDATE_UPSAMPLE_TEXT', (text) => {
+            const upsampleText = document.getElementById('upsample-text');
+            if (upsampleText) upsampleText.innerText = text;
+            callHook('updateEstimatedCost');
+        });
+        sysBus.on('UI:UPDATE_AUTO_RETRY_TEXT', (text) => {
+            const retryText = document.getElementById('retry-text');
+            if (retryText) retryText.innerText = text;
         });
         state.isBound = true;
     }
