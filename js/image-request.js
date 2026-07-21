@@ -92,8 +92,7 @@
     }
 
     async function submitUnifiedOnce(payload) {
-        const endpoint = window.VeoApi.config.imageUnified;
-        const response = await window.VeoApi.imageSubmit(endpoint, payload);
+        const response = await window.VeoApi.postEndpoint('image.unified', payload);
 
         if (response.status === 401 || response.status === 403) {
             if (typeof window.handleAuthError === 'function') window.handleAuthError();

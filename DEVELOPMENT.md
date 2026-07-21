@@ -66,6 +66,8 @@ videoPoll: 'https://api.wallyai.top/webhook/proxy-poll'
 imageUnified: 'https://api.wallyai.top/webhook/proxy-image-unified'
 ```
 
+`window.VeoApi` 现在提供命名端点注册表，业务模块优先使用 `postEndpoint('video.submit' | 'video.poll' | 'image.unified', payload)`。旧的 `videoSubmit`、`videoPoll`、`imageSubmit` 和 `imagePoll` 只作为兼容适配保留。后续增加模型或后端入口时，先通过 `registerEndpoint(...)` 或 `api-client.js` 的 `endpointRegistry` 接入，再更新对应模型/任务模块。
+
 入口 HTML 支持覆盖图像接口：
 
 ```js
@@ -134,7 +136,7 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 4. `image-reference-ui.js` 渲染参考图、提示词 chip、比例和小工具区。
 5. `image-preview-ui.js` 渲染 pending、success、failed 预览流。
 6. `image-mask-editor.js` 管理局部重绘蒙版。
-7. `image-request.js` 构造统一 payload，并调用 `window.VeoApi.imageSubmit(...)`。
+7. `image-request.js` 构造统一 payload，并调用 `window.VeoApi.postEndpoint('image.unified', ...)`。
 8. `image-submit.js` 处理点击生成、冷却、失败重试、直接返回图片和异步任务 ID。
 9. `image-tasks.js` 处理异步轮询、结果写回、计费和超时失败。
 10. `image-core.js` 处理尺寸规则、usage 提取和费用计算。
@@ -159,9 +161,9 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 
 1. `video-console.js` 管理控制台 UI、参考图、首尾帧、模式切换和复用任务。
 2. `store.js` 保存当前控制台状态，并通过 `sysBus` 推送 UI 更新。
-3. `video-tasks.js` 构造 payload，调用 `window.VeoApi.videoSubmit(...)`。
+3. `video-tasks.js` 构造 payload，调用 `window.VeoApi.postEndpoint('video.submit', ...)`。
 4. 返回任务 ID 后写入 `tasks`，并由 `canvas-renderer.js` 渲染视频任务卡片。
-5. `video-tasks.js` 使用 `window.VeoApi.videoPoll(...)` 轮询状态。
+5. `video-tasks.js` 使用 `window.VeoApi.postEndpoint('video.poll', ...)` 轮询状态。
 6. 成功后写入 `videoUrl`，并按 `video-models.js` 中的单价写入账单。
 
 ## UI 与样式
@@ -210,7 +212,7 @@ git diff --check
 
 ## 开发约定
 
-- 不要在业务模块里直接散落新的 webhook 地址，统一走 `window.VeoApi`。
+- 不要在业务模块里直接散落新的 webhook 地址，统一走 `window.VeoApi` 的命名端点和 `postEndpoint(...)`。
 - 不要把旧 apimart 官方通道、旧节点工作流分区、旧 frame/cropper 节点重新接回主 UI。
 - 需要保留迁移保护：`flow_workspaces` 删除逻辑和 `RETIRED_NODE_TYPES` 过滤逻辑不要随手移除。
 - 新增模块尽量暴露为 `window.VeoXxx`，并提供 `configure({ hooks })`，让 `app.js` 做连接，不让模块互相硬耦合太深。

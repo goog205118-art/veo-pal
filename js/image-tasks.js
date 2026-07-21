@@ -144,7 +144,7 @@
                 try {
                     const controller = new AbortController();
                     pollControllers.set(pollKey, controller);
-                    const response = await window.VeoApi.imagePoll(target.url, target.body, { signal: controller.signal });
+                    const response = await window.VeoApi.postEndpoint(target.url, target.body, { signal: controller.signal, includeImageAuth: true });
                     pollControllers.delete(pollKey);
                     if (response.status === 401 || response.status === 403) {
                         clearPolling(taskId, itemId);

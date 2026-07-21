@@ -100,7 +100,7 @@
                 lastFrame: await blobToBase64(params.lastFrame, { mode: 'network' }),
                 references: await blobsToBase64Sequential(params.references, { mode: 'network' })
             };
-            const response = await window.VeoApi.videoSubmit(apiPayload);
+            const response = await window.VeoApi.postEndpoint('video.submit', apiPayload);
 
             if (response.status === 401 || response.status === 403) {
                 handleAuthError();
@@ -175,7 +175,7 @@
                 lastFrame: await blobToBase64(task.rawImages.lastFrame, { mode: 'network' }),
                 references: await blobsToBase64Sequential((task.rawImages.references || []), { mode: 'network' })
             };
-            const response = await window.VeoApi.videoSubmit(apiPayload);
+            const response = await window.VeoApi.postEndpoint('video.submit', apiPayload);
             if (response.status === 401 || response.status === 403) {
                 handleAuthError();
                 throw new Error('密码错误');
@@ -255,7 +255,7 @@
 
                 const controller = new AbortController();
                 pollControllers.set(taskId, controller);
-                const response = await window.VeoApi.videoPoll({ taskId, model: task.modelVal }, { signal: controller.signal });
+                const response = await window.VeoApi.postEndpoint('video.poll', { taskId, model: task.modelVal }, { signal: controller.signal });
                 pollControllers.delete(taskId);
                 if (response.status === 401 || response.status === 403) {
                     clearPolling(taskId);

@@ -11,6 +11,13 @@
         imageAuth: trimOverride(window.VEO_WEBHOOK_AUTH)
     };
 
+    const endpointRegistry = {
+        'video.submit': { key: 'video.submit', urlKey: 'videoSubmit', auth: 'session' },
+        'video.poll': { key: 'video.poll', urlKey: 'videoPoll', auth: 'session' },
+        'image.unified': { key: 'image.unified', urlKey: 'imageUnified', auth: 'image' },
+        'image.poll': { key: 'image.poll', urlKey: 'imagePoll', auth: 'image', optional: true }
+    };
+
     function normalizeEndpoint(rawUrl) {
         const raw = String(rawUrl || '').trim();
         if (!raw) return '';
@@ -58,6 +65,37 @@
         return headers;
     }
 
+    function getEndpointMeta(endpointKey) {
+        const meta = endpointRegistry[endpointKey];
+        if (!meta) return null;
+        const url = trimOverride(config[meta.urlKey]);
+        return {
+            ...meta,
+            url,
+            normalizedUrl: normalizeEndpoint(url)
+        };
+    }
+
+    function resolveEndpoint(endpointKeyOrUrl) {
+        const meta = getEndpointMeta(endpointKeyOrUrl);
+        if (meta) return meta.url;
+        return trimOverride(endpointKeyOrUrl);
+    }
+
+    function registerEndpoint(endpointKey, options = {}) {
+        if (!endpointKey || typeof endpointKey !== 'string') return false;
+        const key = endpointKey.trim();
+        if (!key) return false;
+        endpointRegistry[key] = {
+            key,
+            urlKey: options.urlKey || key,
+            auth: options.auth || 'session',
+            optional: options.optional === true
+        };
+        if (options.url !== undefined) config[endpointRegistry[key].urlKey] = trimOverride(options.url);
+        return true;
+    }
+
     async function parseResponse(response, fallbackStatus = 'accepted') {
         if (!response) return { status: fallbackStatus, accepted: true, empty_response: true };
         const httpStatus = response.status;
@@ -98,26 +136,40 @@
         });
     }
 
+    function postEndpoint(endpointKeyOrUrl, payload, options = {}) {
+        const meta = getEndpointMeta(endpointKeyOrUrl);
+        const url = meta ? meta.url : trimOverride(endpointKeyOrUrl);
+        if (!url) {
+            return Promise.reject(new Error(`Missing API endpoint: ${endpointKeyOrUrl || 'unknown'}`));
+        }
+        const includeImageAuth = options.includeImageAuth !== undefined
+            ? options.includeImageAuth
+            : !!(meta && meta.auth === 'image');
+        return postJson(url, payload, { ...options, includeImageAuth });
+    }
+
     function videoSubmit(payload, options = {}) {
-        return postJson(config.videoSubmit, payload, options);
+        return postEndpoint('video.submit', payload, options);
     }
 
     function videoPoll(payload, options = {}) {
-        return postJson(config.videoPoll, payload, options);
+        return postEndpoint('video.poll', payload, options);
     }
 
     function imageSubmit(url, payload, options = {}) {
-        return postJson(url, payload, { ...options, includeImageAuth: true });
+        return postEndpoint(url, payload, { ...options, includeImageAuth: true });
     }
 
     function imagePoll(url, payload, options = {}) {
-        return postJson(url, payload, { ...options, includeImageAuth: true });
+        return postEndpoint(url, payload, { ...options, includeImageAuth: true });
     }
 
     window.VeoApi = {
         config,
         endpoints: config,
+        endpointRegistry,
         authHeaders,
+        getEndpointMeta,
         imagePoll,
         imageSubmit,
         isImageGenerationEndpoint,
@@ -125,6 +177,9 @@
         isUnifiedImageEndpoint,
         normalizeEndpoint,
         parseResponse,
+        postEndpoint,
+        registerEndpoint,
+        resolveEndpoint,
         resolveImagePollEndpoint,
         videoPoll,
         videoSubmit
