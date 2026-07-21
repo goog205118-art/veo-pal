@@ -85,13 +85,17 @@
     }
 
     registerMany('image.routes', {
-        ai666: {
-            aliases: ['ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'],
+        stable_channel_1: {
+            aliases: ['stable', 'stable_1', 'stable-channel-1', 'trial', 'trial_channel_1', 'channel_1'],
             suffix: '',
-            mode: 'ai666',
-            label: 'AI666 GPT Image 2',
-            model: 'gpt-image-2',
-            maxRefs: 1,
+            mode: 'stable',
+            channel: 'channel_1',
+            version: 'trial',
+            label: 'Stable 1K Channel 1',
+            model: 'gpt-image-2-all',
+            maxRefs: 5,
+            resolutions: ['1k'],
+            supportsAdvanced: false,
             encode: {
                 image: {
                     mode: 'network',
@@ -108,6 +112,64 @@
                     maxEdge: 1280,
                     maxPixels: 1280 * 1280,
                     forceResize: true,
+                    keepPng: true,
+                    outputType: 'image/png'
+                }
+            }
+        },
+        stable_channel_2: {
+            aliases: ['stable_2', 'stable-channel-2', 'trial_channel_2', 'channel_2'],
+            suffix: '',
+            mode: 'stable',
+            channel: 'channel_2',
+            version: 'trial',
+            label: 'Stable 1K Channel 2',
+            model: 'gpt-image-2-all',
+            maxRefs: 5,
+            resolutions: ['1k'],
+            supportsAdvanced: false,
+            encode: {
+                image: {
+                    mode: 'network',
+                    maxBytes: 1536 * 1024,
+                    maxEdge: 1280,
+                    maxPixels: 1280 * 1280,
+                    forceResize: true,
+                    outputType: 'image/jpeg',
+                    quality: 0.78
+                },
+                mask: {
+                    mode: 'network',
+                    maxBytes: 2 * 1024 * 1024,
+                    maxEdge: 1280,
+                    maxPixels: 1280 * 1280,
+                    forceResize: true,
+                    keepPng: true,
+                    outputType: 'image/png'
+                }
+            }
+        },
+        pro: {
+            aliases: ['professional', 'gpt-image-2', 'gptimage2', 'yunwu_pro', 'ai666', 'ai_ai666', 'ai666_gpt_image_2', 'ai666-gpt-image-2'],
+            suffix: '',
+            mode: 'stable',
+            channel: 'channel_1',
+            version: 'pro',
+            label: 'Pro GPT Image 2',
+            model: 'gpt-image-2',
+            maxRefs: 5,
+            resolutions: ['1k', '2k', '4k'],
+            supportsAdvanced: true,
+            encode: {
+                image: {
+                    mode: 'network',
+                    maxBytes: 8 * 1024 * 1024,
+                    maxEdge: 2048
+                },
+                mask: {
+                    mode: 'network',
+                    maxBytes: 8 * 1024 * 1024,
+                    maxEdge: 2048,
                     keepPng: true,
                     outputType: 'image/png'
                 }

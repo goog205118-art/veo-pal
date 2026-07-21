@@ -203,6 +203,7 @@
                 writeTask.timestamp = Date.now();
                 if (!getImgGenPendingCount(writeTask)) writeTask.genTaskId = null;
                 const billingInfo = calculateImgGenBilling(writeTask, rawData);
+                const billingRoute = normalizeImgGenRoute(writeTask.state.providerSort || writeTask.state.routeMode || writeTask.state.modelSuffix);
                 writeTask.state.lastUsageCost = billingInfo.cost;
                 writeTask.state.lastUsageDetail = billingInfo.detail;
                 writeTask.state.lastUsageAt = Date.now();
@@ -215,7 +216,7 @@
                     detail: billingInfo.detail,
                     inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
                     outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
-                    version: 'pro'
+                    version: billingRoute.version === 'pro' ? 'pro' : 'trial'
                 });
                 updateBillingUI();
                 setTaskShadow(writeTask);

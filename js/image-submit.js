@@ -10,7 +10,6 @@ async function submitImgGen(taskId) {
     if (!task) return;
     ensureImgGenState(task);
     if (!task.state.prompt) return showToast("请输入生图提示词", "error");
-    const version = 'pro';
     const now = Date.now();
     const nextSubmitAt = toFiniteNumber(task.state.nextSubmitAt, 0);
     if (now < nextSubmitAt) {
@@ -71,6 +70,7 @@ async function submitImgGen(taskId) {
     task.state.size = resolvedSize;
     const sizeToSend = resolvedSize;
     const route = normalizeImgGenRoute(task.state.providerSort);
+    const version = route.version === 'pro' ? 'pro' : 'trial';
     enforceImgGenRouteReferenceLimit(task);
     const maxImageCount = getImgGenMaxReferenceCount(task);
     const imagesForSubmit = limitImgGenReferencesForRoute(task, task.state.images);
@@ -85,12 +85,12 @@ async function submitImgGen(taskId) {
     const maskBase64 = maskSource ? await blobToBase64(maskSource, maskEncodeOptions) : null;
     const imagePayloadFields = buildImgGenImagePayloadFields(imagesBase64, maskBase64, maxImageCount);
     const encodedImageBytes = window.VeoImageRequest.measureEncodedPayloadBytes(imagesBase64, maskBase64);
-    if (route.key === 'ai666' && encodedImageBytes > 10 * 1024 * 1024) {
-        markImgGenPreviewFailed(task, previewItemId, 'AI666 垫图请求体仍然过大，请减少参考图或先裁切压缩');
+    if (route.version === 'trial' && encodedImageBytes > 10 * 1024 * 1024) {
+        markImgGenPreviewFailed(task, previewItemId, 'Stable image request is still too large. Reduce references or crop/compress first.');
         await saveTaskDB(task);
         renderCard(taskId, task);
         forceRenderImgGenPreviewPanel(task, previewItemId);
-        return showToast('AI666 通道垫图体积过大，请减少参考图或先裁切压缩', 'error');
+        return showToast('Stable 通道垫图体积过大，请减少参考图或先裁切压缩', 'error');
     }
     const referenceControls = buildImgGenRefControlPayload(task);
     const clientRequestId = `${task.id}_${previewItemId}`;
@@ -164,7 +164,7 @@ async function submitImgGen(taskId) {
                     detail: billingInfo.detail,
                     inputTokens: billingInfo.usage ? billingInfo.usage.inputTokens : 0,
                     outputTokens: billingInfo.usage ? billingInfo.usage.outputTokens : 0,
-                    version: 'pro'
+                    version
                 });
                 updateBillingUI();
                 setTaskShadow(writeTask);

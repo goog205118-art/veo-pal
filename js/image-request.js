@@ -30,10 +30,10 @@
     function buildUnifiedPayload(options = {}) {
         const task = options.task || {};
         const state = task.state && typeof task.state === 'object' ? task.state : {};
-        const version = 'pro';
         const route = options.route && typeof options.route === 'object'
             ? options.route
-            : window.VeoImageCore.normalizeRoute(state.providerSort || state.routeMode || state.modelSuffix || 'ai666');
+            : window.VeoImageCore.normalizeRoute(state.providerSort || state.routeMode || state.modelSuffix);
+        const version = route.version === 'pro' ? 'pro' : 'trial';
         const referenceControls = Array.isArray(options.referenceControls) ? options.referenceControls : [];
         const imagePayloadFields = options.imagePayloadFields && typeof options.imagePayloadFields === 'object' ? options.imagePayloadFields : {};
         const promptContext = options.promptContext || resolvePromptContext(task);
@@ -41,7 +41,7 @@
         const outputCompression = normalizeOutputCompression(state);
         const imageModel = options.imageModel || window.VeoImageCore.getModelForRoute(route);
         const ratio = state.proRatio || '1:1';
-        const resolution = state.proResolution || '1k';
+        const resolution = version === 'pro' ? (state.proResolution || '1k') : '1k';
         const lockedSeed = state.seedLocked && state.seed !== '' ? parseInt(state.seed, 10) : null;
 
         return {
@@ -51,11 +51,15 @@
             imageModel,
             modelSuffix: route.suffix,
             routeMode: route.mode,
+            channel: route.channel || state.channel || 'channel_1',
+            routeChannel: route.channel || state.channel || 'channel_1',
+            route_channel: route.channel || state.channel || 'channel_1',
             ratio,
             aspect_ratio: ratio,
             resolution,
             proRatio: state.proRatio || '1:1',
-            proResolution: state.proResolution || '1k',
+            proResolution: resolution,
+            pro_resolution: resolution,
             prompt: promptContext.finalPrompt,
             size: options.sizeToSend || state.size || '1024x1024',
             providerSort: route.key,

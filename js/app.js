@@ -767,7 +767,7 @@ function resolveImgGenSize(state) {
     return window.VeoImageCore.resolveSize(state);
 }
 
-function normalizeImgGenRoute(raw = 'ai666') {
+function normalizeImgGenRoute(raw = '') {
     return window.VeoImageNormalize.normalizeRoute(raw);
 }
 

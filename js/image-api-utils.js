@@ -232,9 +232,9 @@ function resolveImgGenPollDelayMs(rawData, fallback = 3500) {
 }
 
 function buildImgGenPollPayload(task, remoteTaskId) {
-    const version = 'pro';
     const mode = task && task.state ? resolveImgGenMode(task.state) : 'text2img';
-    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix || 'ai666') : normalizeImgGenRoute();
+    const route = task && task.state ? normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix) : normalizeImgGenRoute();
+    const version = route.version === 'pro' ? 'pro' : 'trial';
     const core = {
         action: 'poll',
         poll: true,
@@ -245,6 +245,9 @@ function buildImgGenPollPayload(task, remoteTaskId) {
         provider_key: route.key,
         routeMode: route.mode,
         route_mode: route.mode,
+        channel: route.channel || 'channel_1',
+        routeChannel: route.channel || 'channel_1',
+        route_channel: route.channel || 'channel_1',
         taskId: remoteTaskId,
         task_id: remoteTaskId,
         request_id: remoteTaskId

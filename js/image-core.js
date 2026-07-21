@@ -195,7 +195,7 @@
         return enforceProSizeRules('1024x1024').size;
     }
 
-    function normalizeRoute(raw = 'ai666') {
+    function normalizeRoute(raw = '') {
         return window.VeoMedia.normalizeImgGenRoute(raw);
     }
 
