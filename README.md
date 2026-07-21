@@ -48,7 +48,7 @@ Veo Studio 是一个面向个人 AIGC 生产的轻量工作台。前端采用静
 videoSubmit: 'https://api.wallyai.top/webhook/proxy-submit'
 videoPoll: 'https://api.wallyai.top/webhook/proxy-poll'
 imageUnified: 'https://api.wallyai.top/webhook/proxy-image-unified'
-balanceQuery: 'https://api.wallyai.top/webhook/proxy-image-unified'
+balanceQuery: 'https://api.wallyai.top/webhook/proxy-balance'
 ```
 
 入口 HTML 可以覆盖生图接口：
@@ -60,7 +60,7 @@ window.VEO_BALANCE_WEBHOOK = window.VEO_BALANCE_WEBHOOK || '';
 window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 ```
 
-余额查询默认复用 `proxy-image-unified`，由 payload 中的 `action: 'balance'` 进入 n8n 余额分支，避免单独 `proxy-balance` 入口缺少 CORS 预检响应。新增或替换后端接口时，优先在 `js/api-client.js` 的命名端点中注册，再让业务模块调用 `postEndpoint(...)`。新增或下线模型时，优先改 `js/model-registry.js`，再检查 UI、payload、轮询解析和账单。
+余额查询默认走独立 `proxy-balance`，生图默认走 `proxy-image-unified`，两条链路在 n8n 中硬隔离，避免余额分支误接收生图 payload。新增或替换后端接口时，优先在 `js/api-client.js` 的命名端点中注册，再让业务模块调用 `postEndpoint(...)`。新增或下线模型时，优先改 `js/model-registry.js`，再检查 UI、payload、轮询解析和账单。
 
 ## 本地运行
 

@@ -69,10 +69,10 @@
 videoSubmit: 'https://api.wallyai.top/webhook/proxy-submit'
 videoPoll: 'https://api.wallyai.top/webhook/proxy-poll'
 imageUnified: 'https://api.wallyai.top/webhook/proxy-image-unified'
-balanceQuery: 'https://api.wallyai.top/webhook/proxy-image-unified'
+balanceQuery: 'https://api.wallyai.top/webhook/proxy-balance'
 ```
 
-`window.VeoApi` 现在提供命名端点注册表，业务模块优先使用 `postEndpoint('video.submit' | 'video.poll' | 'image.unified' | 'balance.query', payload)`。余额查询默认复用 `proxy-image-unified`，由 `action: 'balance'` 进入 n8n 余额分支，避免独立 `proxy-balance` 入口缺少 CORS 预检响应。旧的 `videoSubmit`、`videoPoll`、`imageSubmit` 和 `imagePoll` 只作为兼容适配保留。后续增加模型或后端入口时，先通过 `registerEndpoint(...)` 或 `api-client.js` 的 `endpointRegistry` 接入，再更新对应模型/任务模块。
+`window.VeoApi` 现在提供命名端点注册表，业务模块优先使用 `postEndpoint('video.submit' | 'video.poll' | 'image.unified' | 'balance.query', payload)`。余额查询默认走独立 `proxy-balance`，生图默认走 `proxy-image-unified`，两条链路在 n8n 中硬隔离，避免余额分支误接收生图 payload。旧的 `videoSubmit`、`videoPoll`、`imageSubmit` 和 `imagePoll` 只作为兼容适配保留。后续增加模型或后端入口时，先通过 `registerEndpoint(...)` 或 `api-client.js` 的 `endpointRegistry` 接入，再更新对应模型/任务模块。
 
 入口 HTML 支持覆盖图像接口：
 
