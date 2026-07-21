@@ -8,8 +8,8 @@
         '1:1': Object.freeze({ '1k': '1024x1024', '2k': '2048x2048', '4k': '4096x4096' }),
         '3:2': Object.freeze({ '1k': '1536x1024', '2k': '3072x2048', '4k': '3840x2560' }),
         '2:3': Object.freeze({ '1k': '1024x1536', '2k': '2048x3072', '4k': '2560x3840' }),
-        '16:9': Object.freeze({ '1k': '1024x576', '2k': '2048x1152', '4k': '3840x2160' }),
-        '9:16': Object.freeze({ '1k': '576x1024', '2k': '1152x2048', '4k': '2160x3840' })
+        '16:9': Object.freeze({ '1k': '1280x720', '2k': '2048x1152', '4k': '3840x2160' }),
+        '9:16': Object.freeze({ '1k': '720x1280', '2k': '1152x2048', '4k': '2160x3840' })
     });
 
     const PRO_SIZE_RULES = Object.freeze({
@@ -32,6 +32,69 @@
     function snapToGrid(value, grid) {
         const safeGrid = Math.max(1, parseInt(grid, 10) || 1);
         return Math.max(safeGrid, Math.round(value / safeGrid) * safeGrid);
+    }
+
+    function gcd(a, b) {
+        let x = Math.abs(parseInt(a, 10) || 0);
+        let y = Math.abs(parseInt(b, 10) || 0);
+        while (y) {
+            const t = y;
+            y = x % y;
+            x = t;
+        }
+        return x || 1;
+    }
+
+    function lcm(a, b) {
+        const safeA = Math.max(1, parseInt(a, 10) || 1);
+        const safeB = Math.max(1, parseInt(b, 10) || 1);
+        return (safeA / gcd(safeA, safeB)) * safeB;
+    }
+
+    function isValidProSize(width, height, rules = PRO_SIZE_RULES) {
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return false;
+        const ratio = Math.max(width / height, height / width);
+        const area = width * height;
+        return (
+            Math.max(width, height) <= rules.MAX_SIDE &&
+            width % rules.GRID === 0 &&
+            height % rules.GRID === 0 &&
+            ratio <= rules.MAX_RATIO &&
+            area >= rules.MIN_PIXELS &&
+            area <= rules.MAX_PIXELS
+        );
+    }
+
+    function buildExactRatioSize(ratioW, ratioH, targetSize) {
+        const rules = PRO_SIZE_RULES;
+        let widthRatio = Math.max(1, parseInt(ratioW, 10) || 1);
+        let heightRatio = Math.max(1, parseInt(ratioH, 10) || 1);
+        if (widthRatio / heightRatio > rules.MAX_RATIO) widthRatio = heightRatio * rules.MAX_RATIO;
+        if (heightRatio / widthRatio > rules.MAX_RATIO) heightRatio = widthRatio * rules.MAX_RATIO;
+
+        const reducedBy = gcd(widthRatio, heightRatio);
+        widthRatio = Math.max(1, Math.round(widthRatio / reducedBy));
+        heightRatio = Math.max(1, Math.round(heightRatio / reducedBy));
+
+        const widthStep = rules.GRID / gcd(widthRatio, rules.GRID);
+        const heightStep = rules.GRID / gcd(heightRatio, rules.GRID);
+        const scaleStep = lcm(widthStep, heightStep);
+        const target = parseSizeValue(targetSize) || { width: 1024, height: 1024 };
+        let best = null;
+        const maxScale = Math.floor(rules.MAX_SIDE / Math.max(widthRatio, heightRatio));
+        for (let scale = scaleStep; scale <= maxScale; scale += scaleStep) {
+            const width = widthRatio * scale;
+            const height = heightRatio * scale;
+            if (!isValidProSize(width, height, rules)) continue;
+            const widthScore = Math.abs(Math.log(width / target.width));
+            const heightScore = Math.abs(Math.log(height / target.height));
+            const areaScore = Math.abs((width * height) - (target.width * target.height)) / rules.MAX_PIXELS;
+            const score = widthScore + heightScore + areaScore;
+            if (!best || score < best.score || (score === best.score && width * height < best.width * best.height)) {
+                best = { width, height, score };
+            }
+        }
+        return best ? `${best.width}x${best.height}` : enforceProSizeRules(targetSize).size;
     }
 
     function parseSizeValue(sizeStr) {
@@ -84,103 +147,62 @@
         const ratioH = Math.max(1, parseInt(customH, 10) || 1);
         const longSideBase = proResolution === '4k' ? 3840 : (proResolution === '2k' ? 2048 : 1024);
         const scale = longSideBase / Math.max(ratioW, ratioH);
-        const snappedW = Math.max(64, Math.round((ratioW * scale) / 64) * 64);
-        const snappedH = Math.max(64, Math.round((ratioH * scale) / 64) * 64);
-        return `${snappedW}x${snappedH}`;
+        const snappedW = Math.max(PRO_SIZE_RULES.GRID, snapToGrid(ratioW * scale, PRO_SIZE_RULES.GRID));
+        const snappedH = Math.max(PRO_SIZE_RULES.GRID, snapToGrid(ratioH * scale, PRO_SIZE_RULES.GRID));
+        return buildExactRatioSize(ratioW, ratioH, `${snappedW}x${snappedH}`);
     }
 
     function enforceProSizeRules(sizeValue) {
         const rules = PRO_SIZE_RULES;
         const fallback = { width: 1024, height: 1024 };
         const parsed = parseSizeValue(sizeValue) || fallback;
-        let width = parsed.width;
-        let height = parsed.height;
-        const original = `${width}x${height}`;
-
-        for (let i = 0; i < 8; i++) {
-            width = Math.max(rules.GRID, width);
-            height = Math.max(rules.GRID, height);
-
-            const ratio = width / height;
-            if (ratio > rules.MAX_RATIO) width = height * rules.MAX_RATIO;
-            else if (ratio < (1 / rules.MAX_RATIO)) height = width * rules.MAX_RATIO;
-
-            let maxSide = Math.max(width, height);
-            if (maxSide > rules.MAX_SIDE) {
-                const scaleDown = rules.MAX_SIDE / maxSide;
-                width *= scaleDown;
-                height *= scaleDown;
-            }
-
-            let pixels = width * height;
-            if (pixels > rules.MAX_PIXELS) {
-                const scaleDownPixels = Math.sqrt(rules.MAX_PIXELS / pixels);
-                width *= scaleDownPixels;
-                height *= scaleDownPixels;
-            }
-
-            pixels = width * height;
-            if (pixels < rules.MIN_PIXELS) {
-                const scaleUpPixels = Math.sqrt(rules.MIN_PIXELS / Math.max(1, pixels));
-                width *= scaleUpPixels;
-                height *= scaleUpPixels;
-            }
-
-            maxSide = Math.max(width, height);
-            if (maxSide > rules.MAX_SIDE) {
-                const scaleDownAgain = rules.MAX_SIDE / maxSide;
-                width *= scaleDownAgain;
-                height *= scaleDownAgain;
-            }
-
-            width = snapToGrid(width, rules.GRID);
-            height = snapToGrid(height, rules.GRID);
+        const original = `${parsed.width}x${parsed.height}`;
+        const rawRatio = parsed.width / parsed.height;
+        const targetRatio = clampNumber(rawRatio, 1 / rules.MAX_RATIO, rules.MAX_RATIO);
+        let targetArea = clampNumber(parsed.width * parsed.height, rules.MIN_PIXELS, rules.MAX_PIXELS);
+        let targetWidth = Math.sqrt(targetArea * targetRatio);
+        let targetHeight = Math.sqrt(targetArea / targetRatio);
+        let maxTargetSide = Math.max(targetWidth, targetHeight);
+        if (maxTargetSide > rules.MAX_SIDE) {
+            const scale = rules.MAX_SIDE / maxTargetSide;
+            targetWidth *= scale;
+            targetHeight *= scale;
+            targetArea = targetWidth * targetHeight;
+        }
+        if (targetArea > rules.MAX_PIXELS) {
+            const scale = Math.sqrt(rules.MAX_PIXELS / targetArea);
+            targetWidth *= scale;
+            targetHeight *= scale;
+            targetArea = targetWidth * targetHeight;
         }
 
-        width = clampNumber(snapToGrid(width, rules.GRID), rules.GRID, rules.MAX_SIDE);
-        height = clampNumber(snapToGrid(height, rules.GRID), rules.GRID, rules.MAX_SIDE);
-
-        if (width / height > rules.MAX_RATIO) width = snapToGrid(height * rules.MAX_RATIO, rules.GRID);
-        if (height / width > rules.MAX_RATIO) height = snapToGrid(width * rules.MAX_RATIO, rules.GRID);
-
-        width = clampNumber(width, rules.GRID, rules.MAX_SIDE);
-        height = clampNumber(height, rules.GRID, rules.MAX_SIDE);
-
-        let area = width * height;
-        if (area > rules.MAX_PIXELS) {
-            const scale = Math.sqrt(rules.MAX_PIXELS / area);
-            width = clampNumber(snapToGrid(width * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
-            height = clampNumber(snapToGrid(height * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
-            area = width * height;
-        }
-        if (area < rules.MIN_PIXELS) {
-            const scale = Math.sqrt(rules.MIN_PIXELS / Math.max(1, area));
-            width = clampNumber(snapToGrid(width * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
-            height = clampNumber(snapToGrid(height * scale, rules.GRID), rules.GRID, rules.MAX_SIDE);
-            area = width * height;
-        }
-
-        if (area < rules.MIN_PIXELS) {
-            if (width >= height) {
-                height = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, width / height)), rules.GRID), rules.GRID, rules.MAX_SIDE);
-                width = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, height * (width / height)), rules.GRID), rules.GRID, rules.MAX_SIDE);
-            } else {
-                width = clampNumber(snapToGrid(Math.sqrt(rules.MIN_PIXELS / Math.max(1, height / width)), rules.GRID), rules.GRID, rules.MAX_SIDE);
-                height = clampNumber(snapToGrid(Math.min(rules.MAX_SIDE, width * (height / width)), rules.GRID), rules.GRID, rules.MAX_SIDE);
+        let best = null;
+        const maxUnits = Math.floor(rules.MAX_SIDE / rules.GRID);
+        for (let wu = 1; wu <= maxUnits; wu++) {
+            const width = wu * rules.GRID;
+            const minHeight = Math.max(rules.GRID, Math.ceil(rules.MIN_PIXELS / width / rules.GRID) * rules.GRID);
+            const maxHeightByPixels = Math.floor(rules.MAX_PIXELS / width / rules.GRID) * rules.GRID;
+            const maxHeight = Math.min(rules.MAX_SIDE, maxHeightByPixels);
+            for (let height = minHeight; height <= maxHeight; height += rules.GRID) {
+                if (!isValidProSize(width, height, rules)) continue;
+                const ratioScore = Math.abs(Math.log((width / height) / targetRatio));
+                const widthScore = Math.abs(Math.log(width / targetWidth));
+                const heightScore = Math.abs(Math.log(height / targetHeight));
+                const areaScore = Math.abs((width * height) - targetArea) / rules.MAX_PIXELS;
+                const score = ratioScore * 4 + widthScore + heightScore + areaScore;
+                if (!best || score < best.score || (score === best.score && width * height < best.width * best.height)) {
+                    best = { width, height, score };
+                }
             }
-            area = width * height;
         }
 
+        const width = best ? best.width : 1024;
+        const height = best ? best.height : 1024;
         const normalized = `${width}x${height}`;
         return {
             size: normalized,
             changed: normalized !== original,
-            isValid:
-                Math.max(width, height) <= rules.MAX_SIDE &&
-                (width % rules.GRID === 0) &&
-                (height % rules.GRID === 0) &&
-                (Math.max(width / height, height / width) <= rules.MAX_RATIO) &&
-                (area >= rules.MIN_PIXELS && area <= rules.MAX_PIXELS)
+            isValid: isValidProSize(width, height, rules)
         };
     }
 
@@ -191,7 +213,13 @@
         if (ratio === 'auto') return 'auto';
         if (ratio === 'custom') return enforceProSizeRules(buildCustomSizeByResolution(state.customW, state.customH, resolution)).size;
         const preset = PRO_SIZE_PRESETS[ratio];
-        if (preset && preset[resolution]) return enforceProSizeRules(preset[resolution]).size;
+        if (preset && preset[resolution]) {
+            const ratioParts = ratio.split(':').map((part) => parseInt(part, 10));
+            if (ratioParts.length === 2 && ratioParts.every((part) => Number.isFinite(part) && part > 0)) {
+                return buildExactRatioSize(ratioParts[0], ratioParts[1], preset[resolution]);
+            }
+            return enforceProSizeRules(preset[resolution]).size;
+        }
         return enforceProSizeRules('1024x1024').size;
     }
 

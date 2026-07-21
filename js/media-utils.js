@@ -11,7 +11,7 @@
             channel: 'channel_1',
             version: 'trial',
             label: 'Stable 1K Channel 1',
-            model: 'gpt-image-2-all',
+            model: 'gpt-image-2-c',
             maxRefs: 5,
             resolutions: ['1k'],
             supportsAdvanced: false
@@ -24,7 +24,7 @@
             channel: 'channel_2',
             version: 'trial',
             label: 'Stable 1K Channel 2',
-            model: 'gpt-image-2-all',
+            model: 'gpt-image-2-c',
             maxRefs: 5,
             resolutions: ['1k'],
             supportsAdvanced: false

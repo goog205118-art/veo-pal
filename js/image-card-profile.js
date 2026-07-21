@@ -21,7 +21,7 @@
                 providerSort: 'stable_channel_1',
                 modelSuffix: '',
                 routeMode: 'stable',
-                imageModel: 'gpt-image-2-all',
+                imageModel: 'gpt-image-2-c',
                 channel: 'channel_1',
                 quality: 'auto',
                 format: 'png',
