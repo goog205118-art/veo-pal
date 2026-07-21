@@ -8,6 +8,7 @@
         videoPoll: 'https://api.wallyai.top/webhook/proxy-poll',
         imageUnified: trimOverride(window.VEO_IMAGE_UNIFIED_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-image-unified',
         imagePoll: trimOverride(window.VEO_IMAGE_POLL_WEBHOOK),
+        balanceQuery: trimOverride(window.VEO_BALANCE_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-balance',
         imageAuth: trimOverride(window.VEO_WEBHOOK_AUTH)
     };
 
@@ -15,7 +16,8 @@
         'video.submit': { key: 'video.submit', urlKey: 'videoSubmit', auth: 'session' },
         'video.poll': { key: 'video.poll', urlKey: 'videoPoll', auth: 'session' },
         'image.unified': { key: 'image.unified', urlKey: 'imageUnified', auth: 'image' },
-        'image.poll': { key: 'image.poll', urlKey: 'imagePoll', auth: 'image', optional: true }
+        'image.poll': { key: 'image.poll', urlKey: 'imagePoll', auth: 'image', optional: true },
+        'balance.query': { key: 'balance.query', urlKey: 'balanceQuery', auth: 'session' }
     };
 
     function normalizeEndpoint(rawUrl) {
@@ -164,11 +166,16 @@
         return postEndpoint(url, payload, { ...options, includeImageAuth: true });
     }
 
+    function balanceQuery(payload = {}, options = {}) {
+        return postEndpoint('balance.query', payload, options);
+    }
+
     window.VeoApi = {
         config,
         endpoints: config,
         endpointRegistry,
         authHeaders,
+        balanceQuery,
         getEndpointMeta,
         imagePoll,
         imageSubmit,

@@ -284,6 +284,9 @@
                         });
                         task.isBilled = true;
                         updateBillingUI();
+                        if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
+                            window.VeoBilling.refreshBalanceAfterUsage();
+                        }
                     }
                     await saveTaskDB(task);
                     renderCard(taskId);

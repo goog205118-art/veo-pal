@@ -167,6 +167,9 @@ async function submitImgGen(taskId) {
                     version
                 });
                 updateBillingUI();
+                if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
+                    window.VeoBilling.refreshBalanceAfterUsage();
+                }
                 setTaskShadow(writeTask);
                 await saveTaskDB(writeTask);
                 renderCard(taskId, writeTask);

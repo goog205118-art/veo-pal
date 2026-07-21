@@ -2,6 +2,7 @@
 // Core app shell, login gate, theme, and route transition
 // ==========================================
 let loginAnimationId = null;
+let appShellBalanceBootRefreshed = false;
 
 const styleInj = document.createElement('style');
 styleInj.innerHTML = `
@@ -198,6 +199,10 @@ function openLightbox(src) {
 function markAppShellReady() {
     document.body.classList.remove('app-shell-init');
     document.body.classList.add('app-shell-ready');
+    if (!appShellBalanceBootRefreshed && window.VeoBilling && typeof window.VeoBilling.refreshBalance === 'function') {
+        appShellBalanceBootRefreshed = true;
+        window.VeoBilling.refreshBalance({ force: true, silent: true }).catch(() => {});
+    }
 }
 
 window.navigateWithTransition = function(url, options = {}) {
