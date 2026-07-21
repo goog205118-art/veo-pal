@@ -45,6 +45,7 @@
         const lockedSeed = state.seedLocked && state.seed !== '' ? parseInt(state.seed, 10) : null;
 
         return {
+            action: 'generate',
             version,
             mode: options.mode || window.VeoImageCore.resolveMode(state),
             model: imageModel,
