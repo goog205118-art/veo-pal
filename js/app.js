@@ -3,7 +3,6 @@
 // ==========================================
 const IMG_GEN_PREVIEW_LIMIT = 6;
 const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
-const RETIRED_NODE_TYPES = new Set(['frame', 'note', 'tool_generator', 'tool_cropper']);
 function normalizeWebhookEndpointForCompare(rawUrl) {
     return window.VeoApi.normalizeEndpoint(rawUrl);
 }
@@ -203,7 +202,7 @@ const minimap = window.VeoMinimap.configure({
     hooks: {
         animateCameraTo: (target, options) => animateCameraTo(target, options),
         getAllTasks: () => getAllTasksDB(),
-        getRetiredNodeTypes: () => RETIRED_NODE_TYPES
+        getRetiredNodeTypes: () => window.VeoMigrationGuards.getRetiredNodeTypes()
     }
 });
 window.VeoWorkspaceIO.configure({
@@ -219,7 +218,7 @@ window.VeoWorkspaceIO.configure({
         blobsToBase64Sequential: (blobs, options) => blobsToBase64Sequential(blobs, options),
         confirmImport: (count) => confirm(`导入解析成功，共 ${count} 个节点。是否合并到当前画布？`),
         getAllTasks: () => getAllTasksDB(),
-        getRetiredNodeTypes: () => RETIRED_NODE_TYPES,
+        getRetiredNodeTypes: () => window.VeoMigrationGuards.getRetiredNodeTypes(),
         saveTasks: async (tasks) => {
             if (typeof saveTaskBatchDB === 'function') await saveTaskBatchDB(tasks);
             else for (const task of tasks) await saveTaskDB(task);
@@ -368,7 +367,7 @@ window.VeoCanvasRenderer.configure({
         getTask: (taskId) => getTaskDB(taskId),
         getTaskElement: (taskId) => document.getElementById('card-' + taskId),
         hasImagePolling: (taskId, previewItemId) => hasImgGenPolling(taskId, previewItemId),
-        isRetiredTaskType: (taskType) => RETIRED_NODE_TYPES.has(taskType),
+        isRetiredTaskType: (taskType) => window.VeoMigrationGuards.isRetiredTaskType(taskType),
         mergeImageTaskWithShadow: (task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }),
         morphCardDOM: (cardEl, html) => morphCardDOM(cardEl, html),
         normalizeTaskPosition: (task) => normalizeTaskPosition(task),
@@ -816,19 +815,3 @@ function forceRenderImgGenPreviewPanel(task, focusItemId = '') {
 function scrollImgGenPreviewToItem(taskId, itemId) {
     return window.VeoImageRender.scrollPreviewToItem(taskId, itemId);
 }
-
-// ==========================================
-// ⏱️ 动态秒表引擎 (Vanilla JS DOM 侧渲染，不触发重绘)
-// ==========================================
-setInterval(() => {
-    document.querySelectorAll('.veo-dynamic-timer').forEach(el => {
-        const startTime = parseInt(el.getAttribute('data-start-time'));
-        if (!startTime) return;
-
-        const diff = Math.floor((Date.now() - startTime) / 1000);
-        const m = String(Math.floor(diff / 60)).padStart(2, '0');
-        const s = String(diff % 60).padStart(2, '0');
-
-        el.innerText = `${m}:${s}`;
-    });
-}, 1000);

@@ -29,6 +29,7 @@ Veo Studio 是一个面向个人 AIGC 生产的轻量工作台。前端采用静
 - `js/app-bootstrap.js`：启动流程、DB 初始化、首屏渲染和全局事件绑定。
 - `js/api-client.js`：统一封装 n8n/webhook 请求。
 - `js/model-registry.js`：集中注册图像路由、视频模型、质量档位和计费元数据。
+- `js/migration-guards.js`：集中维护旧工程退役节点过滤规则。
 - `js/db.js`：IndexedDB、Blob 本地缓存、任务保存队列和旧数据迁移保护。
 - `js/canvas-*.js`：无限画布相机、布局、渲染、选择、裁剪、小地图和交互。
 - `js/image-*.js`：GPT Image 2 生图状态、请求、参考图、预览、蒙版、提交和轮询。
@@ -36,6 +37,7 @@ Veo Studio 是一个面向个人 AIGC 生产的轻量工作台。前端采用静
 - `js/workspace-*.js`：`.veo` 工程导入导出、拖拽和剪贴板输入。
 - `js/material-library.js`：全局素材库。
 - `js/billing.js`：生成账单统计。
+- `js/dynamic-timer.js`：任务卡片运行秒表的轻量 DOM 更新。
 
 ## 后端对接
 

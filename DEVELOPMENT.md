@@ -28,6 +28,7 @@
 │   ├── app-bootstrap.js    # 启动流程、DB 初始化、首屏渲染
 │   ├── api-client.js       # n8n/webhook 请求封装和命名端点注册表
 │   ├── model-registry.js   # 图像路由、视频模型、质量档位和计费元数据
+│   ├── migration-guards.js # 旧工程退役节点过滤规则
 │   ├── db.js               # IndexedDB、本地 Blob 缓存、任务保存队列
 │   ├── store.js            # 视频控制台的轻量状态和事件总线
 │   ├── canvas-*.js         # 画布相机、选择、布局、渲染、交互
@@ -36,6 +37,7 @@
 │   ├── workspace-*.js      # .veo 导入导出、剪贴板和拖拽输入
 │   ├── material-library.js # 全局素材库
 │   ├── billing.js          # 账单统计 UI
+│   ├── dynamic-timer.js    # 任务卡片运行秒表
 │   └── launch-c.js         # 展示入口动效
 └── ARCH_REFACTOR_NOTES.md  # 历史重构记录
 ```
@@ -47,7 +49,7 @@
 关键加载阶段：
 
 1. `db.js`、`store.js`、`api-client.js` 先加载，提供 IndexedDB、`globalStore`、`sysBus` 和 `window.VeoApi`。
-2. `model-registry.js` 加载模型和路由元数据，提供 `window.VeoModelRegistry`。
+2. `model-registry.js` 和 `migration-guards.js` 加载模型元数据与旧工程迁移保护。
 3. `dom-utils.js`、`task-cache.js`、`media-utils.js`、`image-core.js` 加载通用工具和生图基础规则。
 4. `material-library.js`、`video-models.js`、`billing.js`、`video-console.js`、`video-tasks.js` 加载素材、账单和视频链路。
 5. `image-api-utils.js` 到 `image-submit.js` 加载生图解析、状态、蒙版、UI、请求和提交链路。
@@ -126,7 +128,7 @@ window.VEO_WEBHOOK_AUTH = window.VEO_WEBHOOK_AUTH || '';
 迁移保护：
 
 - `flow_workspaces` 在升级时会被删除，这是旧工作流分区的清理逻辑。
-- `RETIRED_NODE_TYPES` 保留在 `app.js`，用于过滤旧工程里的 `frame`、`note`、`tool_generator`、`tool_cropper` 等退役节点。
+- `window.VeoMigrationGuards` 保留退役节点类型，用于过滤旧工程里的 `frame`、`note`、`tool_generator`、`tool_cropper` 等数据。
 
 任务保存使用 100ms 批量缓冲，避免拖拽、输入和轮询频繁写库造成卡顿。读任务时会合并尚未落库的缓冲数据。
 
@@ -244,7 +246,7 @@ git diff --check
 - 不要在业务模块里直接散落新的 webhook 地址，统一走 `window.VeoApi` 的命名端点和 `postEndpoint(...)`。
 - 不要在业务模块里直接散落新的模型元数据，统一放进 `window.VeoModelRegistry`。
 - 不要把旧 apimart 官方通道、旧节点工作流分区、旧 frame/cropper 节点重新接回主 UI。
-- 需要保留迁移保护：`flow_workspaces` 删除逻辑和 `RETIRED_NODE_TYPES` 过滤逻辑不要随手移除。
+- 需要保留迁移保护：`flow_workspaces` 删除逻辑和 `window.VeoMigrationGuards` 过滤逻辑不要随手移除。
 - 新增模块尽量暴露为 `window.VeoXxx`，并提供 `configure({ hooks })`，让 `app.js` 做连接，不让模块互相硬耦合太深。
 - 涉及 IndexedDB 的字段变更，要同步考虑旧任务兼容和 `.veo` 导入导出。
 - 涉及生成请求时，要同时检查提交 payload、轮询解析、失败兜底、账单记录和 UI 状态。
@@ -265,6 +267,6 @@ git diff --check
 - apimart 官方通道入口：已删除。
 - 旧节点工作流分区：已删除。
 - 旧工作流 IndexedDB 表：升级时删除。
-- 旧节点数据：通过退役类型过滤，避免历史工程导入后污染画布。
+- 旧节点数据：通过 `window.VeoMigrationGuards` 过滤，避免历史工程导入后污染画布。
 - 主工作台能力：保留 GPT Image 2 生图、Veo 3.1 视频、无限画布、素材库、账单和 .veo 工程文件。
 - 模型接口：已集中到 `js/model-registry.js` 和 `js/api-client.js`，新增/删除模型时优先改这两处。
