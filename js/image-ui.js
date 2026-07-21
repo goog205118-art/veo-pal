@@ -1,11 +1,12 @@
 function renderImgGenParams(task) {
     ensureImgGenState(task);
     const state = task.state;
+    const cardView = window.VeoImageCardProfile ? window.VeoImageCardProfile.viewModel(task) : { routeLabel: 'GPT Image 2' };
     const paramsCollapsed = state.paramsCollapsed === true;
     const resolvedSize = resolveImgGenSize(state);
     const ratioValue = state.proRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const routeLabel = `GPT Image 2 · ${resolvedSize}`;
+    const routeLabel = `${cardView.routeLabel || 'GPT Image 2'} · ${resolvedSize}`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
         <label class="img-gen-field img-gen-seed-field">
@@ -315,6 +316,13 @@ function openImgGenHelp(e, taskId = '') {
 
 function renderImgGenCardHTML(task) {
     ensureImgGenState(task);
+    const cardView = window.VeoImageCardProfile ? window.VeoImageCardProfile.viewModel(task) : {
+        title: 'AI 多模生图',
+        modelBadge: 'GPT Image 2',
+        helperTip: '用于生成、重绘和参考图融合的 AI 节点',
+        uploadNote: '第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。',
+        promptPlaceholder: '输入画面提示词，可垫入 1-5 张图配合描述...'
+    };
     const isFailed = task.status === 'failed';
     const previewCollapsed = task.state.previewCollapsed === true;
     const lastUsageCost = toFiniteNumber(task.state.lastUsageCost, NaN);
@@ -351,7 +359,7 @@ function renderImgGenCardHTML(task) {
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
 
-    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> AI 多模生图</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="用于生成、重绘和参考图融合的 AI 节点"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
+    return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> ${escapeHtml(cardView.title)}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="${escapeAttr(cardView.helperTip)}"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
         <div class="img-gen-split ${previewCollapsed ? 'preview-collapsed' : ''}">
             <div class="img-gen-left">
@@ -363,16 +371,16 @@ function renderImgGenCardHTML(task) {
                 </div>
                 <div class="img-gen-input-body">
                     <div class="img-gen-statusbar">
-                        <span class="img-gen-status-badge is-pro">GPT Image 2</span>
+                        <span class="img-gen-status-badge is-pro">${escapeHtml(cardView.modelBadge)}</span>
                         <span class="img-gen-size-chip">${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}</span>
                     </div>
                     ${renderImgGenSlots(task)}
-                    <div class="img-gen-upload-note">第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。</div>
+                    <div class="img-gen-upload-note">${escapeHtml(cardView.uploadNote)}</div>
                     ${renderImgGenParams(task)}
                     ${renderImgGenMiniToolDock(task)}
                     ${renderImgGenMaskPanel(task)}
                     ${renderImgGenPromptChips(task)}
-                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="输入画面提示词，可垫入 1-5 张图配合描述...">${safePrompt}</textarea>
+                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="${escapeAttr(cardView.promptPlaceholder)}">${safePrompt}</textarea>
                     <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''} ${isFailed && pendingCount === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
                 </div>
             </div>

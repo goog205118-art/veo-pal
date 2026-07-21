@@ -44,6 +44,7 @@
     function ensureState(task) {
         if (!task || task.type !== 'tool_image_gen') return;
         if (!task.state || typeof task.state !== 'object') task.state = {};
+        if (window.VeoImageCardProfile) window.VeoImageCardProfile.applyDefaults(task.state, task);
         if (!Array.isArray(task.state.images)) task.state.images = [];
         task.state.version = 'pro';
         const route = normalizeRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'ai666');

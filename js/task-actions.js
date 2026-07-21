@@ -23,14 +23,9 @@
     }
 
     function createDefaultImageGenTask(spawnX, spawnY) {
-        return {
-            id: 'tool_img_' + Date.now(),
-            type: 'tool_image_gen',
-            x: toFiniteNumber(spawnX, 0),
-            y: toFiniteNumber(spawnY, 0),
-            timestamp: Date.now(),
-            status: 'idle',
-            state: {
+        const imageState = window.VeoImageCardProfile
+            ? window.VeoImageCardProfile.createDefaultState()
+            : {
                 version: 'pro',
                 providerSort: 'ai666',
                 modelSuffix: '',
@@ -66,7 +61,15 @@
                 cardWidthCollapsed: 360,
                 cardHeight: 520,
                 autoRetry: false
-            },
+            };
+        return {
+            id: 'tool_img_' + Date.now(),
+            type: 'tool_image_gen',
+            x: toFiniteNumber(spawnX, 0),
+            y: toFiniteNumber(spawnY, 0),
+            timestamp: Date.now(),
+            status: 'idle',
+            state: imageState,
             retryCount: 0
         };
     }
@@ -121,7 +124,10 @@
     function sanitizeImgGenCloneState(clone) {
         if (!clone || clone.type !== 'tool_image_gen') return clone;
         callHook('ensureImageState', clone);
-        const previewLimit = toFiniteNumber(callHook('getImagePreviewLimit'), 12);
+        const profilePreviewLimit = window.VeoImageCardProfile
+            ? window.VeoImageCardProfile.getPreviewLimit()
+            : undefined;
+        const previewLimit = toFiniteNumber(profilePreviewLimit || callHook('getImagePreviewLimit'), 12);
         const successHistory = Array.isArray(clone.state.previewHistory)
             ? clone.state.previewHistory
                 .filter((item) => item && item.status === 'success' && item.image)

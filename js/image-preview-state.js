@@ -56,7 +56,9 @@ function normalizeImgGenPreviewHistory(task) {
     const successImages = task.state.previewHistory
         .filter((item) => item.status === 'success' && item.image)
         .map((item) => item.image);
-    const previewLimit = window.VeoImageConfig.previewLimit;
+    const previewLimit = window.VeoImageCardProfile
+        ? window.VeoImageCardProfile.getPreviewLimit()
+        : window.VeoImageConfig.previewLimit;
     if (successImages.length > previewLimit) {
         let dropCount = successImages.length - previewLimit;
         const trimmed = [];
