@@ -8,7 +8,7 @@
         videoPoll: 'https://api.wallyai.top/webhook/proxy-poll',
         imageUnified: trimOverride(window.VEO_IMAGE_UNIFIED_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-image-unified',
         imagePoll: trimOverride(window.VEO_IMAGE_POLL_WEBHOOK),
-        balanceQuery: trimOverride(window.VEO_BALANCE_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-balance',
+        balanceQuery: trimOverride(window.VEO_BALANCE_WEBHOOK) || trimOverride(window.VEO_IMAGE_UNIFIED_WEBHOOK) || 'https://api.wallyai.top/webhook/proxy-image-unified',
         imageAuth: trimOverride(window.VEO_WEBHOOK_AUTH)
     };
 
