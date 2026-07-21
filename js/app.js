@@ -143,6 +143,19 @@ const canvasCamera = window.VeoCanvasCamera.configure({
 });
 const canvasSelection = window.VeoCanvasSelection.configure({ marquee });
 let transform = canvasCamera.transform;
+window.VeoSelectionToolbar.configure({
+    hooks: {
+        getSelectedTaskIds: () => Array.from(selectedTasks),
+        isPanning: () => window.VeoCanvasInteractions.isPanning(),
+        isSelecting: () => canvasSelection.isSelecting
+    },
+    actions: {
+        focus: focusSelectedTasks,
+        duplicate: duplicateSelectedTasks,
+        delete: deleteSelectedTasks,
+        clear: clearSelection
+    }
+});
 window.VeoCanvasLayout.configure({
     hooks: {
         addSelectedTask: (taskId) => selectedTasks.add(taskId),
@@ -537,34 +550,20 @@ function scheduleViewportCulling(delay = 120) {
     return window.VeoViewportCulling.scheduleViewportCulling(delay);
 }
 
-function getSelectionToolbarContext() {
-    return {
-        selectedTaskIds: Array.from(selectedTasks),
-        isPanning: window.VeoCanvasInteractions.isPanning(),
-        isSelecting: canvasSelection.isSelecting,
-        actions: {
-            focus: focusSelectedTasks,
-            duplicate: duplicateSelectedTasks,
-            delete: deleteSelectedTasks,
-            clear: clearSelection
-        }
-    };
-}
-
 function getSelectedCanvasElements() {
-    return window.VeoSelectionToolbar.getSelectedCanvasElements(Array.from(selectedTasks));
+    return window.VeoSelectionToolbar.getSelectedCanvasElements();
 }
 
 function ensureSelectionToolbar() {
-    return window.VeoSelectionToolbar.ensureSelectionToolbar(getSelectionToolbarContext().actions);
+    return window.VeoSelectionToolbar.ensureSelectionToolbar();
 }
 
 function updateSelectionToolbar() {
-    return window.VeoSelectionToolbar.updateSelectionToolbar(getSelectionToolbarContext());
+    return window.VeoSelectionToolbar.updateSelectionToolbar();
 }
 
 function requestSelectionToolbarUpdate() {
-    return window.VeoSelectionToolbar.requestSelectionToolbarUpdate(getSelectionToolbarContext());
+    return window.VeoSelectionToolbar.requestSelectionToolbarUpdate();
 }
 
 function buildSelectionCandidates() {

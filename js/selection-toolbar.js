@@ -4,9 +4,26 @@
 
     let toolbarFrame = 0;
     let pendingContext = null;
+    const state = {
+        hooks: {},
+        actions: {}
+    };
+
+    function configure(options = {}) {
+        state.hooks = { ...state.hooks, ...(options.hooks || {}) };
+        state.actions = { ...state.actions, ...(options.actions || {}) };
+        return api;
+    }
+
+    function callHook(name, ...args) {
+        const fn = state.hooks && state.hooks[name];
+        if (typeof fn !== 'function') return undefined;
+        return fn(...args);
+    }
 
     function getSelectedCanvasElements(selectedTaskIds) {
-        return Array.from(selectedTaskIds || [])
+        const ids = selectedTaskIds || callHook('getSelectedTaskIds') || [];
+        return Array.from(ids)
             .map((id) => document.getElementById('card-' + id))
             .filter((el) => el && !el.classList.contains('hidden-in-frame'));
     }
@@ -15,10 +32,14 @@
         return actions && typeof actions === 'object' ? actions : {};
     }
 
-    function ensureSelectionToolbar(actions = {}) {
+    function resolveActions(actions) {
+        return actions ? normalizeActions(actions) : normalizeActions(state.actions);
+    }
+
+    function ensureSelectionToolbar(actions = null) {
         let toolbar = document.getElementById('canvas-selection-toolbar');
         if (toolbar) {
-            toolbar.__veoSelectionActions = normalizeActions(actions);
+            toolbar.__veoSelectionActions = resolveActions(actions);
             return toolbar;
         }
 
@@ -31,7 +52,7 @@
             <button type="button" data-action="delete" data-tip="删除选中节点"><span class="material-symbols-outlined">delete</span></button>
             <button type="button" data-action="clear" data-tip="取消选择"><span class="material-symbols-outlined">close</span></button>
         `;
-        toolbar.__veoSelectionActions = normalizeActions(actions);
+        toolbar.__veoSelectionActions = resolveActions(actions);
         toolbar.addEventListener('mousedown', (event) => event.stopPropagation());
         toolbar.addEventListener('click', async (event) => {
             const button = event.target.closest('button[data-action]');
@@ -48,13 +69,26 @@
         return toolbar;
     }
 
+    function buildContext(context = {}) {
+        return {
+            selectedTaskIds: context.selectedTaskIds || callHook('getSelectedTaskIds') || [],
+            isPanning: typeof context.isPanning === 'boolean' ? context.isPanning : !!callHook('isPanning'),
+            isSelecting: typeof context.isSelecting === 'boolean' ? context.isSelecting : !!callHook('isSelecting'),
+            actions: {
+                ...state.actions,
+                ...(context.actions || {})
+            }
+        };
+    }
+
     function updateSelectionToolbar(context = {}) {
-        const selectedTaskIds = context.selectedTaskIds || [];
-        const toolbar = ensureSelectionToolbar(context.actions);
+        const toolbarContext = buildContext(context);
+        const selectedTaskIds = toolbarContext.selectedTaskIds || [];
+        const toolbar = ensureSelectionToolbar(toolbarContext.actions);
         const elements = getSelectedCanvasElements(selectedTaskIds)
             .filter((el) => !el.classList.contains('is-viewport-culled'));
 
-        if (elements.length === 0 || context.isPanning || context.isSelecting) {
+        if (elements.length === 0 || toolbarContext.isPanning || toolbarContext.isSelecting) {
             toolbar.classList.remove('show');
             return toolbar;
         }
@@ -79,7 +113,7 @@
     }
 
     function requestSelectionToolbarUpdate(context = {}) {
-        pendingContext = context;
+        pendingContext = buildContext(context);
         if (toolbarFrame) return;
         toolbarFrame = requestAnimationFrame(() => {
             toolbarFrame = 0;
@@ -88,10 +122,13 @@
         });
     }
 
-    window.VeoSelectionToolbar = {
+    const api = {
+        configure,
         getSelectedCanvasElements,
         ensureSelectionToolbar,
         updateSelectionToolbar,
         requestSelectionToolbarUpdate
     };
+
+    window.VeoSelectionToolbar = api;
 })(window);
