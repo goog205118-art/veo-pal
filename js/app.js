@@ -1,8 +1,6 @@
 // ==========================================
 // Task board orchestration and legacy global adapters (Veo Studio)
 // ==========================================
-const IMG_GEN_PREVIEW_LIMIT = 6;
-const IMG_GEN_CLICK_COOLDOWN_MS = 3000;
 function normalizeWebhookEndpointForCompare(rawUrl) {
     return window.VeoApi.normalizeEndpoint(rawUrl);
 }
@@ -23,17 +21,6 @@ function resolveImgGenPollEndpoint() {
     return window.VeoApi.resolveImagePollEndpoint();
 }
 
-const IMG_GEN_REF_INTENTS = window.VeoMedia.refIntents;
-const IMG_GEN_PROMPT_TAGS = [
-    { group: '环境', label: '高山岩地', text: 'rugged alpine terrain, weathered rocks, expedition campsite' },
-    { group: '环境', label: '沙漠硬光', text: 'remote desert plateau, dust in the air, hard sunlight' },
-    { group: '光影', label: '金色电影光', text: 'cinematic golden hour lighting, long shadows, premium outdoor commercial look' },
-    { group: '光影', label: '阴天轮廓光', text: 'dramatic overcast sky, high contrast rim light, volumetric atmosphere' },
-    { group: '镜头', label: '35mm 主视觉', text: '35mm product hero shot, shallow depth of field, realistic perspective' },
-    { group: '镜头', label: '微距细节', text: 'macro detail shot, tactile material texture, crisp industrial design' },
-    { group: '材质', label: '硬核工业材质', text: 'matte black anodized aluminum, reinforced nylon, rugged utilitarian finish' },
-    { group: '社媒', label: '海报留白', text: 'clean negative space for headline, premium e-commerce hero composition' }
-];
 async function blobsToBase64Sequential(blobs, options = {}) {
     return window.VeoMedia.blobsToBase64Sequential(blobs, options);
 }
@@ -302,7 +289,7 @@ window.VeoTaskActions.configure({
         cloneTask: (task) => cloneTaskDeep(task),
         createImagePreviewId: () => createImgGenPreviewId(),
         ensureImageState: (task) => ensureImgGenState(task),
-        getImagePreviewLimit: () => IMG_GEN_PREVIEW_LIMIT,
+        getImagePreviewLimit: () => window.VeoImageConfig.previewLimit,
         getPointerState: () => window.VeoCanvasInteractions.getPointerState(),
         getSelectedTaskIds: () => Array.from(selectedTasks),
         getTask: (taskId) => getTaskDB(taskId),

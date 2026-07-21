@@ -32,6 +32,7 @@
 │   ├── db.js               # IndexedDB、本地 Blob 缓存、任务保存队列
 │   ├── store.js            # 视频控制台的轻量状态和事件总线
 │   ├── canvas-*.js         # 画布相机、选择、布局、渲染、交互
+│   ├── image-config.js     # 生图快捷提示词、参考图意图和运行参数
 │   ├── image-*.js          # GPT Image 2 生图状态、UI、请求、轮询
 │   ├── video-*.js          # Veo 3.1 视频模型、控制台、任务提交和轮询
 │   ├── workspace-*.js      # .veo 导入导出、剪贴板和拖拽输入
@@ -50,7 +51,7 @@
 
 1. `db.js`、`store.js`、`api-client.js` 先加载，提供 IndexedDB、`globalStore`、`sysBus` 和 `window.VeoApi`。
 2. `model-registry.js` 和 `migration-guards.js` 加载模型元数据与旧工程迁移保护。
-3. `dom-utils.js`、`task-cache.js`、`media-utils.js`、`image-core.js` 加载通用工具和生图基础规则。
+3. `dom-utils.js`、`task-cache.js`、`media-utils.js`、`image-config.js`、`image-core.js` 加载通用工具和生图基础规则。
 4. `material-library.js`、`video-models.js`、`billing.js`、`video-console.js`、`video-tasks.js` 加载素材、账单和视频链路。
 5. `image-api-utils.js` 到 `image-submit.js` 加载生图解析、状态、蒙版、UI、请求和提交链路。
 6. `app-shell.js` 加载登录、主题、toast、弹窗和 lightbox。
@@ -261,6 +262,18 @@ git diff --check
 4. 做一次 HTML 中文编码和重复入口核对，确保 `index.html`、`studio.html`、`js/index.html` 内容一致且展示正常。
 5. 如果后续要引入更多模型，先扩展统一模型注册表，再从 UI、payload、轮询、计费四处接入。
 6. 如果前端复杂度继续上升，再考虑迁移到 Vite/ESM；当前阶段先保持静态部署简单。
+
+## 方案 C 收尾验收口径
+
+准备判定“大重构版”进入收尾时，至少要逐项确认：
+
+1. `app.js` 只保留旧 inline handler 适配、模块 `configure(...)` 接线和极少量跨模块桥接，不再持有核心业务配置或独立业务循环。
+2. UI 主路径只保留高频生产能力：无限画布、生图卡片、视频控制台、素材库、账单、导入导出和帮助；旧 apimart 通道、旧工作流分区、退役大型节点不再出现在运行界面。
+3. 接口层统一经过 `window.VeoApi.postEndpoint(...)` 和命名端点；模型、质量、计费和路由元数据统一从 `window.VeoModelRegistry` / `window.VeoImageConfig` 读取。
+4. 旧工程兼容保护可验证：`flow_workspaces` 升级删除逻辑存在，退役节点通过 `window.VeoMigrationGuards` 被过滤。
+5. 三个主入口 `index.html`、`studio.html`、`js/index.html` 的脚本加载顺序一致，新增模块均已同步。
+6. 基础验证通过：全量 JS 语法检查、`git diff --check`、旧通道残留扫描、模型注册表烟测、迁移保护烟测。
+7. 浏览器手测通过：登录进入、双击新建生图卡片、编辑/提交生图、视频控制台切换模式、素材库打开、账单打开、`.veo` 导入导出。
 
 ## 当前收尾状态
 

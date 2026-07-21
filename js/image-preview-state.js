@@ -56,8 +56,9 @@ function normalizeImgGenPreviewHistory(task) {
     const successImages = task.state.previewHistory
         .filter((item) => item.status === 'success' && item.image)
         .map((item) => item.image);
-    if (successImages.length > IMG_GEN_PREVIEW_LIMIT) {
-        let dropCount = successImages.length - IMG_GEN_PREVIEW_LIMIT;
+    const previewLimit = window.VeoImageConfig.previewLimit;
+    if (successImages.length > previewLimit) {
+        let dropCount = successImages.length - previewLimit;
         const trimmed = [];
         for (const item of task.state.previewHistory) {
             if (item.status === 'success' && item.image && dropCount > 0) {
@@ -73,7 +74,7 @@ function normalizeImgGenPreviewHistory(task) {
     const finalSuccessImages = task.state.previewHistory
         .filter((item) => item.status === 'success' && item.image)
         .map((item) => item.image)
-        .slice(-IMG_GEN_PREVIEW_LIMIT);
+        .slice(-previewLimit);
     task.state.resultBlobs = finalSuccessImages;
     task.state.resultBlob = finalSuccessImages.length ? finalSuccessImages[finalSuccessImages.length - 1] : null;
 }

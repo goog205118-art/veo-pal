@@ -27,7 +27,8 @@ function getImgGenDefaultRefIntent(index) {
 }
 
 function createImgGenRefControl(index, existing = {}) {
-    const allowed = new Set(IMG_GEN_REF_INTENTS.map((item) => item.value));
+    const refIntents = window.VeoImageConfig.getRefIntents();
+    const allowed = new Set(refIntents.map((item) => item.value));
     const intent = allowed.has(existing.intent) ? existing.intent : getImgGenDefaultRefIntent(index);
     const fallbackWeight = index === 0 ? 0.9 : (intent === 'style' ? 0.62 : 0.55);
     const weight = clampImgGenRefWeight(typeof existing.weight === 'undefined' ? fallbackWeight : existing.weight);
@@ -47,7 +48,7 @@ function normalizeImgGenRefControls(task) {
 }
 
 function renderImgGenRefIntentOptions(selected) {
-    return IMG_GEN_REF_INTENTS.map((item) => (
+    return window.VeoImageConfig.getRefIntents().map((item) => (
         `<option value="${escapeAttr(item.value)}" ${selected === item.value ? 'selected' : ''}>${escapeHtml(item.label)}</option>`
     )).join('');
 }
@@ -56,7 +57,8 @@ function renderImgGenRefControl(task, index) {
     const controls = normalizeImgGenRefControls(task);
     const control = createImgGenRefControl(index, controls[index] || {});
     const percent = Math.round(control.weight * 100);
-    const hint = (IMG_GEN_REF_INTENTS.find((item) => item.value === control.intent) || IMG_GEN_REF_INTENTS[0]).hint;
+    const refIntents = window.VeoImageConfig.getRefIntents();
+    const hint = (refIntents.find((item) => item.value === control.intent) || refIntents[0] || {}).hint || '';
     return `
         <div class="img-gen-ref-control" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()" data-tip="${escapeAttr(hint)}">
             <select class="img-gen-ref-intent" onchange="updateImgGenRefControl('${task.id}', ${index}, 'intent', this.value)">
@@ -85,7 +87,7 @@ function buildImgGenRefControlPayload(task) {
 function renderImgGenPromptChips(task) {
     ensureImgGenState(task);
     const collapsed = task.state.promptToolsCollapsed === true;
-    const chips = IMG_GEN_PROMPT_TAGS.map((tag, index) => {
+    const chips = window.VeoImageConfig.promptTags.map((tag, index) => {
         const label = tag.label || tag.text.split(',')[0] || tag.text;
         return `
         <button class="img-gen-prompt-chip" type="button" onclick="appendImgGenPromptTag(event, '${task.id}', ${index})" data-tip="${escapeAttr(`点击填入英文提示词：${tag.text}`)}">

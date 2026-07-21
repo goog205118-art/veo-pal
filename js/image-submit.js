@@ -24,7 +24,7 @@ async function submitImgGen(taskId) {
         await captureImgMaskFromEditor(taskId, task, { clearIfEmpty: true });
     } catch (err) {}
 
-    task.state.nextSubmitAt = now + IMG_GEN_CLICK_COOLDOWN_MS;
+    task.state.nextSubmitAt = now + window.VeoImageConfig.clickCooldownMs;
     task.retryCount = 0;
     task.isBilled = false;
     task.state.startTime = now;
@@ -49,7 +49,7 @@ async function submitImgGen(taskId) {
             await renderCard(taskId, next);
             forceRenderImgGenPreviewPanel(next, previewItemId);
         } catch (err) {}
-    }, IMG_GEN_CLICK_COOLDOWN_MS + 40);
+    }, window.VeoImageConfig.clickCooldownMs + 40);
 
     let resolvedSize = resolveImgGenSize(task.state);
     const promptContext = window.VeoImageRequest.resolvePromptContext(task);

@@ -217,7 +217,7 @@ async function updateImgGenRefControl(taskId, index, key, value) {
         normalizeImgGenRefControls(task);
         if (!task.state.refControls[slotIndex]) return;
         if (key === 'intent') {
-            const allowed = new Set(IMG_GEN_REF_INTENTS.map((item) => item.value));
+            const allowed = new Set(window.VeoImageConfig.getRefIntents().map((item) => item.value));
             task.state.refControls[slotIndex].intent = allowed.has(value) ? value : getImgGenDefaultRefIntent(slotIndex);
         } else if (key === 'weight') {
             task.state.refControls[slotIndex].weight = clampImgGenRefWeight(value);
@@ -239,8 +239,9 @@ async function appendImgGenPromptTag(event, taskId, text) {
         event.stopPropagation();
     }
     const tagIndex = parseInt(text, 10);
-    const tag = Number.isFinite(tagIndex) && IMG_GEN_PROMPT_TAGS[tagIndex]
-        ? IMG_GEN_PROMPT_TAGS[tagIndex].text
+    const promptTags = window.VeoImageConfig.promptTags;
+    const tag = Number.isFinite(tagIndex) && promptTags[tagIndex]
+        ? promptTags[tagIndex].text
         : String(text || '').trim();
     if (!tag) return;
     const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
