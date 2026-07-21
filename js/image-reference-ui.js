@@ -181,7 +181,7 @@ function renderImgGenSlots(task) {
             ${slots.join('')}
             <div class="img-gen-drop-overlay">
                 <span class="material-symbols-outlined">move_to_inbox</span>
-                <strong>${isSingleRefRoute ? 'AI666 通道仅保留 1 张参考图，拖入新图会自动替换' : '释放图片，吸附到生图节点'}</strong>
+                <strong>${isSingleRefRoute ? 'Current route keeps 1 reference; dropping a new image replaces it' : '释放图片，吸附到生图节点'}</strong>
             </div>
         </div>
     `;

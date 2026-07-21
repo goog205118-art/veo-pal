@@ -10,7 +10,7 @@
         return window.VeoMedia.limitImgGenReferencesForRoute(task, incomingImages);
     }
 
-    function normalizeRoute(raw = 'ai666') {
+    function normalizeRoute(raw = '') {
         return window.VeoImageCore.normalizeRoute(raw);
     }
 
@@ -46,11 +46,12 @@
         if (!task.state || typeof task.state !== 'object') task.state = {};
         if (window.VeoImageCardProfile) window.VeoImageCardProfile.applyDefaults(task.state, task);
         if (!Array.isArray(task.state.images)) task.state.images = [];
-        task.state.version = 'pro';
-        const route = normalizeRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode || 'ai666');
+        const route = normalizeRoute(task.state.providerSort || task.state.modelSuffix || task.state.routeMode);
+        task.state.version = route.version === 'pro' ? 'pro' : 'trial';
         task.state.providerSort = route.key;
         task.state.modelSuffix = route.suffix;
         task.state.routeMode = route.mode;
+        task.state.channel = route.channel || (route.key === 'stable_channel_2' ? 'channel_2' : 'channel_1');
         task.state.imageModel = getModelForRoute(route);
         enforceRouteReferenceLimit(task);
         if (!task.state.quality) task.state.quality = 'auto';
@@ -61,6 +62,7 @@
         if (!task.state.size && task.state.size !== '') task.state.size = '1024x1024';
         if (!task.state.proRatio) task.state.proRatio = '1:1';
         if (!task.state.proResolution) task.state.proResolution = '1k';
+        if (task.state.version !== 'pro') task.state.proResolution = '1k';
         const ratioCustomW = parseInt(task.state.customW, 10);
         const ratioCustomH = parseInt(task.state.customH, 10);
         if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
@@ -113,6 +115,7 @@
         const detected = window.VeoImageCore.detectProPresetFromSize(task.state.size);
         if (!task.state.proRatio || task.state.proRatio === 'auto') task.state.proRatio = detected.proRatio;
         if (!task.state.proResolution) task.state.proResolution = detected.proResolution;
+        if (task.state.version !== 'pro') task.state.proResolution = '1k';
         task.state.size = window.VeoImageCore.resolveSize(task.state);
         window.recalcImgGenTaskStatus(task);
     }

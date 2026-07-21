@@ -6,6 +6,15 @@ function renderImgGenParams(task) {
     const resolvedSize = resolveImgGenSize(state);
     const ratioValue = state.proRatio;
     const showCustomRatio = ratioValue === 'custom';
+    const route = cardView.route || normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix);
+    const routeValue = route.key || 'stable_channel_1';
+    const isProRoute = route.version === 'pro';
+    const resolutionValue = isProRoute ? (state.proResolution || '1k') : '1k';
+    const routeOptionsHtml = [
+        ['stable_channel_1', 'Stable 1K - Channel 1'],
+        ['stable_channel_2', 'Stable 1K - Channel 2'],
+        ['pro', 'Pro - GPT Image 2']
+    ].map(([value, label]) => `<option value="${value}" ${routeValue === value ? 'selected' : ''}>${label}</option>`).join('');
     const routeLabel = `${cardView.routeLabel || 'GPT Image 2'} · ${resolvedSize}`;
     const seedValue = String(state.seed || '');
     const seedControlHtml = `
@@ -37,9 +46,9 @@ function renderImgGenParams(task) {
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="GPT Image 2 分辨率档位">
-                    <option value="1k" ${state.proResolution === '1k' ? 'selected' : ''}>1K</option>
-                    <option value="2k" ${state.proResolution === '2k' ? 'selected' : ''}>2K</option>
-                    <option value="4k" ${state.proResolution === '4k' ? 'selected' : ''}>4K</option>
+                    <option value="1k" ${resolutionValue === '1k' ? 'selected' : ''}>1K</option>
+                    <option value="2k" ${resolutionValue === '2k' ? 'selected' : ''} ${isProRoute ? '' : 'disabled'}>2K</option>
+                    <option value="4k" ${resolutionValue === '4k' ? 'selected' : ''} ${isProRoute ? '' : 'disabled'}>4K</option>
                 </select>
             </label>
             <label class="img-gen-field">
@@ -87,6 +96,12 @@ function renderImgGenParams(task) {
 
     return `
         <div class="img-gen-primary-panel">
+            <label class="img-gen-field">
+                <span>Route</span>
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="Stable keeps 1K output; Pro unlocks GPT Image 2 full controls">
+                    ${routeOptionsHtml}
+                </select>
+            </label>
             <label class="img-gen-field">
                 <span>画幅</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proRatio', this.value)" data-tip="GPT Image 2 画幅比例">

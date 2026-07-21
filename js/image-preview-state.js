@@ -150,6 +150,7 @@ function recalcImgGenTaskStatus(task) {
 function pushImgGenPendingItem(task) {
     normalizeImgGenPreviewHistory(task);
     const itemId = createImgGenPreviewId();
+    const route = normalizeImgGenRoute(task.state.providerSort || task.state.routeMode || task.state.modelSuffix);
     const pendingItem = {
         id: itemId,
         status: 'pending',
@@ -163,7 +164,7 @@ function pushImgGenPendingItem(task) {
         layout: '',
         seed: task.state.seedLocked ? task.state.seed : '',
         prompt: task.state.prompt || '',
-        version: 'pro',
+        version: route.version === 'pro' ? 'pro' : 'trial',
         size: task.state.size || '',
         referenceControls: buildImgGenRefControlPayload(task),
         hidden: false

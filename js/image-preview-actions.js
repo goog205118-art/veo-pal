@@ -11,10 +11,8 @@ async function sendImgGenPreviewToMask(event, taskId, itemId) {
     ensureImgGenState(sourceTask);
     const item = findImgGenPreviewItem(sourceTask, itemId);
     if (!item || !item.image) return showToast('没有可送入蒙版的图片', 'warning');
-    sourceTask.state.version = 'pro';
-    sourceTask.state.images = getImgGenMaxReferenceCount(sourceTask) === 1
-        ? [item.image]
-        : [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, 4) : [])].slice(0, 5);
+    const maxReferenceCount = getImgGenMaxReferenceCount(sourceTask);
+    sourceTask.state.images = [item.image, ...(Array.isArray(sourceTask.state.images) ? sourceTask.state.images.slice(0, maxReferenceCount - 1) : [])].slice(0, maxReferenceCount);
     sourceTask.state.refControls = sourceTask.state.images.map((_, index) => createImgGenRefControl(index, { intent: index === 0 ? 'structure' : getImgGenDefaultRefIntent(index) }));
     sourceTask.state.maskBlob = null;
     sourceTask.state.maskImage = null;

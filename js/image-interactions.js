@@ -157,17 +157,22 @@ async function updateImgGenState(taskId, key, val) {
         if (key === 'n') {
             task.state.n = 1;
         } else if (key === 'proResolution') {
-            task.state.proResolution = ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
+            const route = normalizeImgGenRoute(task.state.providerSort);
+            task.state.proResolution = route.version === 'pro' && ['1k', '2k', '4k'].includes(String(val)) ? String(val) : '1k';
             if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
         } else if (key === 'proRatio') {
             task.state.proRatio = String(val || '1:1');
-            if (task.state.version === 'pro') task.state.size = resolveImgGenSize(task.state);
+            task.state.size = resolveImgGenSize(task.state);
         } else if (key === 'providerSort') {
             const route = normalizeImgGenRoute(val);
+            task.state.version = route.version === 'pro' ? 'pro' : 'trial';
             task.state.providerSort = route.key;
             task.state.modelSuffix = route.suffix;
             task.state.routeMode = route.mode;
+            task.state.channel = route.channel || 'channel_1';
             task.state.imageModel = getImgGenModelForRoute(route);
+            if (task.state.version !== 'pro') task.state.proResolution = '1k';
+            task.state.size = resolveImgGenSize(task.state);
         } else if (key === 'maskBrushSize') {
             task.state.maskBrushSize = clampImgMaskBrushSize(val);
         } else if (key === 'maskStageHeight') {
@@ -269,17 +274,11 @@ async function handleGenImageUpload(input, taskId) {
     ensureImgGenState(task);
     const maxImageCount = getImgGenMaxReferenceCount(task);
     const files = Array.from(input.files);
-    const filesToUse = maxImageCount === 1 ? files.slice(-1) : files;
-    if (maxImageCount === 1 && files.length > 1) {
-        showToast('AI666 通道仅支持 1 张参考图，已使用最后选择的图片', 'info');
-    }
+    const filesToUse = files.slice(0, Math.max(0, maxImageCount - task.state.images.length));
+    if (files.length > filesToUse.length) showToast(`最多只能上传 ${maxImageCount} 张图，已自动截断`, 'info');
     for (let file of filesToUse) {
         const blob = await compressImageToBlob(file, 1024);
-        if (maxImageCount === 1) {
-            task.state.images = [blob];
-            break;
-        }
-        if (task.state.images.length >= 5) break;
+        if (task.state.images.length >= maxImageCount) break;
         task.state.images.push(blob);
     }
     enforceImgGenRouteReferenceLimit(task);
@@ -308,22 +307,10 @@ async function handleGenImageDrop(e, taskId) {
     ensureImgGenState(task);
 
     const maxImageCount = getImgGenMaxReferenceCount(task);
-    if (maxImageCount === 1) {
-        task.state.images = [srcToUse];
-        task.state.maskBlob = null;
-        task.state.maskImage = null;
-        task.state.maskEditMode = false;
-        revokeBlobPrefixSafe(`${taskId}_mask_preview_`);
-        revokeBlobPrefixSafe(`${taskId}_mask_studio_`);
-        destroyImgMaskStudio(taskId);
-        destroyImgMaskEditor(taskId);
-        showToast('AI666 通道仅保留 1 张参考图，已替换为新图', 'info');
-    } else {
-        if (task.state.images.length >= 5) {
-            return showToast('最多只能垫入 5 张图', 'error');
-        }
-        task.state.images.push(srcToUse);
+    if (task.state.images.length >= maxImageCount) {
+        return showToast(`最多只能垫入 ${maxImageCount} 张图`, 'error');
     }
+    task.state.images.push(srcToUse);
 
     enforceImgGenRouteReferenceLimit(task);
     normalizeImgGenRefControls(task);

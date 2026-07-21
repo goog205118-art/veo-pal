@@ -7,21 +7,22 @@
     const profiles = {
         [DEFAULT_PROFILE_KEY]: {
             key: DEFAULT_PROFILE_KEY,
-            title: 'AI 多模态生图',
-            modelBadge: 'GPT Image 2',
-            routeLabel: 'GPT Image 2',
-            helperTip: '用于生成、重绘和参考图融合的 AI 节点',
-            uploadNote: '第 1 张为 Base 图，右侧参考位用于风格、角色、产品或构图约束。',
-            promptPlaceholder: '输入画面提示词，可垫入 1-5 张图配合描述...',
+            title: 'AI Image Node',
+            modelBadge: 'Stable 1K',
+            routeLabel: 'Stable 1K Channel 1',
+            helperTip: 'Generate, edit, and blend up to 5 image references',
+            uploadNote: 'Image 1 is Base. The other slots are references for style, product, detail, or layout.',
+            promptPlaceholder: 'Describe the image. You can attach 1-5 reference images.',
             maxReferenceSlots: 5,
             previewLimit: 6,
             supportsMask: true,
             defaults: {
-                version: 'pro',
-                providerSort: 'ai666',
+                version: 'trial',
+                providerSort: 'stable_channel_1',
                 modelSuffix: '',
-                routeMode: 'ai666',
-                imageModel: 'gpt-image-2',
+                routeMode: 'stable',
+                imageModel: 'gpt-image-2-all',
+                channel: 'channel_1',
                 quality: 'auto',
                 format: 'png',
                 n: 1,
@@ -106,24 +107,25 @@
         const state = (task && task.state) || {};
         const route = window.VeoImageCore && typeof window.VeoImageCore.normalizeRoute === 'function'
             ? window.VeoImageCore.normalizeRoute(state.providerSort || state.routeMode || profile.defaults.providerSort)
-            : { label: profile.routeLabel, key: state.providerSort || profile.defaults.providerSort };
+            : { label: profile.routeLabel, key: state.providerSort || profile.defaults.providerSort, version: state.version || 'trial' };
+        const routeVersion = route.version === 'pro' ? 'pro' : 'trial';
         const model = state.imageModel || route.model || profile.defaults.imageModel;
-        const maxReferenceSlots = Math.max(1, Number(route.maxRefs || profile.maxReferenceSlots || 1));
-        const referenceText = maxReferenceSlots <= 1
-            ? '当前通道支持 1 张 Base 图；需要多参考图时先切换到支持多图的模型通道。'
-            : `第 1 张为 Base 图，右侧 ${maxReferenceSlots - 1} 格为 Reference。拖拽图片到此处会自动吸附。`;
-        const promptPlaceholder = maxReferenceSlots <= 1
-            ? '输入画面提示词，可搭配 1 张 Base 图进行生成或局部重绘...'
-            : `输入画面提示词，可垫入 1-${maxReferenceSlots} 张图配合描述...`;
+        const maxReferenceSlots = Math.max(1, Math.min(5, Number(route.maxRefs || profile.maxReferenceSlots || 5)));
+        const uploadNote = routeVersion === 'pro'
+            ? `Pro: GPT Image 2 full controls, up to ${maxReferenceSlots} uploaded images.`
+            : `Stable: ${route.label || '1K channel'}, 1K output only, up to ${maxReferenceSlots} uploaded images.`;
+        const promptPlaceholder = routeVersion === 'pro'
+            ? 'Pro GPT Image 2 prompt. Supports 1K/2K/4K, edit, mask, quality, format, and up to 5 images.'
+            : 'Stable prompt. 1K output only. Attach up to 5 images for reference.';
         return {
             ...profile,
             route,
             model,
-            modelBadge: profile.modelBadge,
+            modelBadge: routeVersion === 'pro' ? 'Pro GPT Image 2' : 'Stable 1K',
             maxReferenceSlots,
             routeLabel: route.label || profile.routeLabel,
             previewLimit: getPreviewLimit(),
-            uploadNote: referenceText,
+            uploadNote,
             promptPlaceholder
         };
     }

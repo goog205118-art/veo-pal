@@ -26,11 +26,12 @@
         const imageState = window.VeoImageCardProfile
             ? window.VeoImageCardProfile.createDefaultState()
             : {
-                version: 'pro',
-                providerSort: 'ai666',
+                version: 'trial',
+                providerSort: 'stable_channel_1',
                 modelSuffix: '',
-                routeMode: 'ai666',
-                imageModel: 'gpt-image-2',
+                routeMode: 'stable',
+                imageModel: 'gpt-image-2-all',
+                channel: 'channel_1',
                 quality: 'auto',
                 format: 'png',
                 n: 1,
