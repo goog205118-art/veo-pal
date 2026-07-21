@@ -81,6 +81,12 @@ Get-ChildItem js -Filter *.js | Sort-Object Name | ForEach-Object { node --check
 git diff --check
 ```
 
+## 当前验证状态
+
+2026-07-21 收尾验收已完成基础自动化检查：全量 JS 语法检查、`git diff --check`、模型注册表烟测、迁移保护烟测、生图配置烟测、旧通道残留扫描和 Chrome 页面烟测均通过。
+
+受本地沙箱网络限制，Google Fonts、Tailwind CDN 和 Ionicons CDN 在自动化环境中会被拦截；真实登录、真实图片/视频提交仍需要使用 n8n 密钥做人工联调。
+
 ## 开发文档
 
 完整架构说明见 [DEVELOPMENT.md](DEVELOPMENT.md)，里面包含：

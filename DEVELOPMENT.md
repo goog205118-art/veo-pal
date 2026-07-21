@@ -283,3 +283,34 @@ git diff --check
 - 旧节点数据：通过 `window.VeoMigrationGuards` 过滤，避免历史工程导入后污染画布。
 - 主工作台能力：保留 GPT Image 2 生图、Veo 3.1 视频、无限画布、素材库、账单和 .veo 工程文件。
 - 模型接口：已集中到 `js/model-registry.js` 和 `js/api-client.js`，新增/删除模型时优先改这两处。
+
+## 2026-07-21 自动化验收记录
+
+已完成的基础验收：
+
+- 全量 JS 语法检查通过：`Get-ChildItem js -Filter *.js | Sort-Object Name | ForEach-Object { node --check $_.FullName }`。
+- `git diff --check` 通过，仅有 Windows 换行提示。
+- 模型注册表烟测通过：图像路由 `ai666`、Veo 3.1 4K 参考图模型映射、计费元数据可解析。
+- 迁移保护烟测通过：`frame`、`note`、`tool_generator`、`tool_cropper` 被识别为退役节点，`tool_image_gen` 仍为有效节点。
+- 生图配置烟测通过：预览上限、点击冷却、参考图意图和快捷提示词均从 `window.VeoImageConfig` 读取。
+- 旧通道残留扫描通过：运行时代码中未发现 apimart 官方通道、旧工作流分区入口或退役大型节点 UI。
+- Chrome 页面烟测通过：`index.html` 可完成加载，`#canvas-viewport`、`#canvas-board`、`#floating-console`、素材库、账单弹窗和核心全局模块均存在，`pageerror` 为空。
+- 画布交互烟测通过：已登录会话恢复路径下双击画布可创建 1 个 `tool_image_gen` 生图卡片，提示词输入区、视频控制台模式和模型文案正常。
+
+当前自动化环境限制：
+
+- Playwright 自带浏览器二进制未缓存，验收时使用系统 Chrome：`C:\Program Files\Google\Chrome\Application\chrome.exe`。
+- 当前沙箱禁止访问外部网络，Google Fonts、Tailwind CDN 和 Ionicons CDN 会出现 `ERR_NETWORK_ACCESS_DENIED`，这属于环境限制，不是项目本地资源缺失。
+- 自动化未使用真实 n8n API Key，因此只验证了会话恢复和前端交互路径；真实登录、真实生图提交、真实视频提交仍需要人工带密钥联调。
+
+## 收尾重构目标
+
+当前“大重构版”已经进入收尾阶段，下一轮建议只做低风险、边界清晰的收尾动作：
+
+1. `app.js` 继续瘦身到 500 行以内：只保留 inline handler 兼容、模块 wiring 和少量桥接，把剩余纯逻辑迁移到对应模块。
+2. `store.js` 做事件总线收口：补齐 `off`、`once`、错误隔离，并把视频控制台 action 名称整理成稳定枚举。
+3. 生图链路继续拆薄：把轮询状态机、预览历史保护、失败兜底和账单记录拆成更清楚的小模块。
+4. HTML 入口一致性核对：每次新增模块都同步 `index.html`、`studio.html`、`js/index.html`，并保持脚本顺序一致。
+5. 接口扩展只走注册表：新增模型或删除模型时，先改 `api-client.js` 和 `model-registry.js`，再检查 UI、payload、轮询解析和账单。
+6. 真实链路联调：用真实 n8n 密钥验证登录、图片提交、图片轮询、视频提交、视频轮询和鉴权失败回退。
+7. 暂不引入构建系统：在 `app.js` 继续下降、业务边界更稳定前，保持静态部署；如果后续模块数量继续增长，再评估 Vite/ESM 迁移。
