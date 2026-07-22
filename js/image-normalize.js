@@ -68,10 +68,9 @@
         if (!Number.isFinite(ratioCustomW) || ratioCustomW < 1) task.state.customW = 9;
         if (!Number.isFinite(ratioCustomH) || ratioCustomH < 1) task.state.customH = 16;
         if (!task.state.prompt) task.state.prompt = '';
-        if (typeof task.state.autoRetry !== 'boolean') task.state.autoRetry = false;
-        if (typeof task.state.seedLocked !== 'boolean') task.state.seedLocked = false;
-        const parsedSeed = parseInt(task.state.seed, 10);
-        task.state.seed = Number.isFinite(parsedSeed) && parsedSeed >= 0 ? parsedSeed : '';
+        delete task.state.autoRetry;
+        delete task.state.seedLocked;
+        delete task.state.seed;
         window.normalizeImgGenRefControls(task);
         if (typeof task.state.previewCollapsed !== 'boolean') task.state.previewCollapsed = false;
         if (task.state.imgGenUiV2 !== true) {

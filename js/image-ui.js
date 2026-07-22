@@ -15,19 +15,7 @@ function renderImgGenParams(task) {
         ['stable_channel_2', 'Stable 1K - Channel 2'],
         ['pro', 'Pro - GPT Image 2']
     ].map(([value, label]) => `<option value="${value}" ${routeValue === value ? 'selected' : ''}>${label}</option>`).join('');
-    const routeLabel = `${cardView.routeLabel || 'GPT Image 2'} · ${resolvedSize}`;
-    const seedValue = String(state.seed || '');
-    const seedControlHtml = `
-        <label class="img-gen-field img-gen-seed-field">
-            <span>Seed</span>
-            <div class="img-gen-seed-row">
-                <button class="img-gen-seed-lock ${state.seedLocked ? 'is-locked' : ''}" type="button" onclick="updateImgGenState('${task.id}', 'seedLocked', ${state.seedLocked ? 'false' : 'true'})" data-tip="${state.seedLocked ? '解除种子锁定' : '锁定种子，便于复现'}">
-                    <span class="material-symbols-outlined">${state.seedLocked ? 'lock' : 'lock_open'}</span>
-                </button>
-                <input class="img-gen-select img-gen-seed-input" type="number" placeholder="auto" value="${escapeAttr(seedValue)}" onchange="updateImgGenState('${task.id}', 'seed', this.value)">
-            </div>
-        </label>
-    `;
+    const routeLabel = `${cardView.routeLabel || 'GPT Image 2'} 路 ${resolvedSize}`;
 
     const customRatioHtml = showCustomRatio ? `
         <div class="img-gen-custom-ratio">
@@ -42,7 +30,6 @@ function renderImgGenParams(task) {
 
     const advancedHtml = `
         <div class="img-gen-controls img-gen-controls-pro">
-            ${seedControlHtml}
             <label class="img-gen-field">
                 <span>分辨率</span>
                 <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'proResolution', this.value)" data-tip="GPT Image 2 分辨率档位">
@@ -83,13 +70,6 @@ function renderImgGenParams(task) {
                     <option value="low" ${state.moderation === 'low' ? 'selected' : ''}>low</option>
                 </select>
             </label>
-            <label class="img-gen-field">
-                <span>重试</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'autoRetry', this.value === 'true')">
-                    <option value="false" ${!state.autoRetry ? 'selected' : ''}>单次</option>
-                    <option value="true" ${state.autoRetry ? 'selected' : ''}>自动重试</option>
-                </select>
-            </label>
             <div class="img-gen-size-chip">输出尺寸: ${escapeHtml(resolvedSize)}</div>
         </div>
     `;
@@ -98,7 +78,7 @@ function renderImgGenParams(task) {
         <div class="img-gen-primary-panel">
             <label class="img-gen-field">
                 <span>Route</span>
-                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="Stable keeps 1K output; Pro unlocks GPT Image 2 full controls">
+                <select class="img-gen-select" onchange="updateImgGenState('${task.id}', 'providerSort', this.value)" data-tip="Stable 保持 1K 输出；Pro 开放 GPT Image 2 全部能力">
                     ${routeOptionsHtml}
                 </select>
             </label>
@@ -124,7 +104,6 @@ function renderImgGenParams(task) {
         </div>
     `;
 }
-
 function renderImgGenMaskPanel(task) {
     ensureImgGenState(task);
     const imageList = Array.isArray(task.state.images) ? task.state.images : [];
@@ -175,7 +154,6 @@ function renderImgGenMaskPanel(task) {
         </div>
     `;
 }
-
 function renderImgGenHelpContent() {
     return `
         <section class="img-gen-help-section">
@@ -234,7 +212,6 @@ function renderImgGenHelpContent() {
                 <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前支持项，如果需要抠图请后续走单独抠图/去背工具。</span></div>
                 <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
                 <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
-                <div><strong>Seed</strong><span>锁定后会尽量复现构图与随机性，适合在同一张产品图上连续做细节微调。</span></div>
             </div>
         </section>
         <section class="img-gen-help-section">
@@ -336,7 +313,7 @@ function renderImgGenCardHTML(task) {
         modelBadge: 'GPT Image 2',
         helperTip: '用于生成、重绘和参考图融合的 AI 节点',
         uploadNote: '第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。',
-        promptPlaceholder: '输入画面提示词，可垫入 1-5 张图配合描述...'
+        promptPlaceholder: '输入画面提示词，可放 1-5 张图配合描述...'
     };
     const isFailed = task.status === 'failed';
     const previewCollapsed = task.state.previewCollapsed === true;
@@ -347,7 +324,6 @@ function renderImgGenCardHTML(task) {
     const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
     const cooldownSec = Math.ceil(cooldownMs / 1000);
     const isBtnCooling = cooldownSec > 0;
-    const retryTxt = task.retryCount ? ` (重试 ${task.retryCount})` : '';
     const safePrompt = escapeHtml(task.state.prompt || '');
 
     let btnContent = `<span class="material-symbols-outlined">draw</span> 生成 <span class="img-gen-btn-price">${currentCost}</span>`;
@@ -357,7 +333,7 @@ function renderImgGenCardHTML(task) {
                 <div class="img-gen-processing-head">
                     <div class="img-gen-processing-left">
                         <svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>
-                        生成中 ${pendingCount} 项${retryTxt}
+                        生成中 ${pendingCount} 项
                     </div>
                     <div class="img-gen-runtime">${cooldownSec > 0 ? `冷却 ${cooldownSec}s` : '可再次生成'}</div>
                 </div>
@@ -395,7 +371,7 @@ function renderImgGenCardHTML(task) {
                     ${renderImgGenMiniToolDock(task)}
                     ${renderImgGenMaskPanel(task)}
                     ${renderImgGenPromptChips(task)}
-                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" placeholder="${escapeAttr(cardView.promptPlaceholder)}">${safePrompt}</textarea>
+                    <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" onkeydown="return handleImgGenPromptKeydown(event, '${task.id}')" placeholder="${escapeAttr(cardView.promptPlaceholder)}">${safePrompt}</textarea>
                     <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''} ${isFailed && pendingCount === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
                 </div>
             </div>
@@ -419,3 +395,4 @@ function renderImgGenCardHTML(task) {
         </div>
     </div>`;
 }
+

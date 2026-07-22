@@ -42,8 +42,6 @@
         const imageModel = options.imageModel || window.VeoImageCore.getModelForRoute(route);
         const ratio = state.proRatio || '1:1';
         const resolution = version === 'pro' ? (state.proResolution || '1k') : '1k';
-        const lockedSeed = state.seedLocked && state.seed !== '' ? parseInt(state.seed, 10) : null;
-
         return {
             action: 'generate',
             version,
@@ -81,9 +79,6 @@
             preview_item_id: options.previewItemId || '',
             requestId: clientRequestId,
             request_id: clientRequestId,
-            seed: Number.isFinite(lockedSeed) ? lockedSeed : undefined,
-            seedLocked: state.seedLocked === true,
-            seed_locked: state.seedLocked === true,
             referenceControls,
             reference_controls: referenceControls,
             imageControls: referenceControls,

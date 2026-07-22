@@ -36,19 +36,19 @@ function renderImgGenFailedItem(item, task) {
             <button class="img-gen-preview-delete" type="button" onclick="removeImgGenPreviewItem(event, '${task.id}', '${itemId}')" data-tip="删除这条失败记录">
                 <span class="material-symbols-outlined">close</span>
             </button>
+            <div class="img-gen-preview-actions" onmousedown="event.stopPropagation()" onclick="event.stopPropagation()">
+                <button type="button" onclick="submitImgGen('${task.id}')" data-tip="重新发起这次生图">
+                    <span class="material-symbols-outlined">refresh</span>
+                </button>
+            </div>
             <div class="img-gen-preview-pending-inner">
                 <span class="material-symbols-outlined">warning</span>
                 <div class="img-gen-preview-placeholder-title">本次失败</div>
                 <div class="img-gen-preview-placeholder-sub">${escapeHtml(reason)}</div>
-                <button class="img-gen-retry-route-btn" type="button" onclick="retryImgGenPreviewItem(event, '${task.id}')">
-                    <span class="material-symbols-outlined">refresh</span>
-                    重试
-                </button>
             </div>
         </div>
     `;
 }
-
 function renderImgGenPreviewFeed(task, previewEntries) {
     const entries = Array.isArray(previewEntries) ? previewEntries.filter((item) => item && item.hidden !== true) : [];
     if (entries.length === 0) {

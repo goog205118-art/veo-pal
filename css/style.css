@@ -1,4 +1,4 @@
-:root {
+﻿:root {
     --bg: #03050a;
     --surface: #131924;
     --surface-hover: #202a38;
@@ -2230,16 +2230,6 @@ body.app-shell-init .minimap-container{
 }
 .img-gen-btn .img-gen-btn-price { font-family: monospace; opacity: 0.92; margin-left: 4px; }
 .img-gen-runtime { font-family: monospace; opacity: 0.85; margin-left: auto; }
-.img-gen-btn.is-running::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -40%;
-    width: 40%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
-    animation: imgBtnScan 1.8s linear infinite;
-}
 
 .img-gen-processing-wrap { display: flex; flex-direction: column; width: 100%; gap: 7px; }
 .img-gen-processing-head { display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 12px; }
@@ -2254,26 +2244,6 @@ body.app-shell-init .minimap-container{
     animation: fakeImgProgress 60s cubic-bezier(0.1, 0.8, 0.2, 1) forwards;
 }
 
-.img-gen-running-fx {
-    margin: 0 12px;
-    margin-top: -4px;
-    height: 10px;
-    border-radius: 999px;
-    background: rgba(94,156,255,0.08);
-    border: 1px solid rgba(94,156,255,0.2);
-    overflow: hidden;
-    position: relative;
-}
-.img-gen-running-beam {
-    position: absolute;
-    top: -4px;
-    left: -18%;
-    width: 16%;
-    height: 18px;
-    background: linear-gradient(90deg, transparent, rgba(94,156,255,0.65), transparent);
-    animation: runningBeam 1.6s ease-in-out infinite;
-}
-.img-gen-running-beam.beam-2 { animation-delay: 0.8s; opacity: 0.75; }
 
 .img-gen-result-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:8px; padding: 0 12px 0 12px; }
 .img-gen-result {
@@ -2297,12 +2267,8 @@ body.app-shell-init .minimap-container{
     82% { width: 83%; }
     100% { width: 94%; }
 }
-@keyframes runningBeam {
-    0% { left: -18%; }
     100% { left: 108%; }
 }
-@keyframes imgBtnScan {
-    0% { left: -40%; }
     100% { left: 120%; }
 }
 
@@ -2315,10 +2281,6 @@ body.app-shell-init .minimap-container{
 :root[data-theme='light'] .img-gen-status-badge.is-pro {
     border-color: rgba(43, 99, 216, 0.35);
     background: rgba(43, 99, 216, 0.1);
-}
-:root[data-theme='light'] .img-gen-running-fx {
-    background: rgba(43, 99, 216, 0.08);
-    border-color: rgba(43, 99, 216, 0.2);
 }
 
 /* ===== Image Gen Right Preview Dock (Aligned Layout) ===== */
@@ -4004,3 +3966,5 @@ body.app-shell-init .minimap-container{
         width: 100vw;
     }
 }
+
+

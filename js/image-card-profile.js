@@ -36,8 +36,6 @@
                 prompt: '',
                 images: [],
                 refControls: [],
-                seedLocked: false,
-                seed: '',
                 maskImage: null,
                 maskBlob: null,
                 maskEditMode: false,
@@ -55,7 +53,6 @@
                 cardWidthOpen: 680,
                 cardWidthCollapsed: 360,
                 cardHeight: 520,
-                autoRetry: false,
                 nextSubmitAt: 0,
                 lastUsageCost: null,
                 lastUsageDetail: ''

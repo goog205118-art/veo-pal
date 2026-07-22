@@ -110,7 +110,7 @@ async function submitImgGen(taskId) {
 
     let success = false;
     let attempts = 0;
-    const maxAttempts = task.state.autoRetry ? 3 : 1;
+    const maxAttempts = 1;
     let lastError = null;
 
     while (attempts < maxAttempts && !success) {

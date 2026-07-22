@@ -14,29 +14,6 @@ async function toggleImgGenPreviewPanel(e, taskId) {
     await saveTaskDB(task);
 }
 
-async function retryImgGenPreviewItem(e, taskId) {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    await queueImgGenTaskUpdate(taskId, async () => {
-        const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
-        if (!baseTask) return;
-        const task = cloneTaskDeep(baseTask) || { ...baseTask };
-        ensureImgGenState(task);
-        task.state.nextSubmitAt = 0;
-        task.state.previewCollapsed = false;
-        task.retryCount = 0;
-        task.timestamp = Date.now();
-        setTaskShadow(task);
-        renderCard(taskId, task);
-        await saveTaskDB(task);
-    }).catch(() => {
-        showToast('重试准备失败，请再点一次', 'error');
-    });
-    setTimeout(() => submitImgGen(taskId), 80);
-}
-
 async function removeImgGenPreviewItem(e, taskId, itemId) {
     if (e) {
         e.preventDefault();
@@ -146,6 +123,14 @@ async function toggleImgGenMaskTools(e, taskId) {
     });
 }
 
+async function handleImgGenPromptKeydown(event, taskId) {
+    if (!event || event.isComposing) return true;
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return true;
+    event.preventDefault();
+    await submitImgGen(taskId);
+    return false;
+}
+
 async function updateImgGenState(taskId, key, val) {
     await queueImgGenTaskUpdate(taskId, async () => {
         const baseTask = getTaskShadow(taskId) || await getTaskDB(taskId);
@@ -177,19 +162,13 @@ async function updateImgGenState(taskId, key, val) {
             task.state.maskBrushSize = clampImgMaskBrushSize(val);
         } else if (key === 'maskStageHeight') {
             task.state.maskStageHeight = clampImgMaskStageHeight(val);
-        } else if (key === 'seedLocked') {
-            task.state.seedLocked = val === true || val === 'true';
-            if (task.state.seedLocked && task.state.seed === '') {
-                task.state.seed = Math.floor(Math.random() * 2147483647);
-            }
-        } else if (key === 'seed') {
-            const parsedSeed = parseInt(val, 10);
-            task.state.seed = Number.isFinite(parsedSeed) && parsedSeed >= 0 ? parsedSeed : '';
-            if (task.state.seed !== '') task.state.seedLocked = true;
         } else if (key === 'customW' || key === 'customH') {
             const parsed = parseInt(val, 10);
             task.state[key] = Number.isFinite(parsed) && parsed > 0 ? parsed : (key === 'customW' ? 9 : 16);
             if (task.state.proRatio === 'custom') task.state.size = resolveImgGenSize(task.state);
+        } else if (key === 'seedLocked' || key === 'seed') {
+            delete task.state.seedLocked;
+            delete task.state.seed;
         } else if (key === 'size') {
             task.state.size = val;
             const detected = detectProPresetFromSize(val);

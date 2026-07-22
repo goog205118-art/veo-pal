@@ -45,8 +45,6 @@
                 prompt: '',
                 images: [],
                 refControls: [],
-                seedLocked: false,
-                seed: '',
                 maskImage: null,
                 maskBlob: null,
                 maskEditMode: false,
@@ -60,8 +58,7 @@
                 imgGenUiV2: true,
                 cardWidthOpen: 680,
                 cardWidthCollapsed: 360,
-                cardHeight: 520,
-                autoRetry: false
+                cardHeight: 520
             };
         return {
             id: 'tool_img_' + Date.now(),
