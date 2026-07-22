@@ -4,7 +4,7 @@
     'use strict';
 
     const BALANCE_ACCOUNT_ID = String(window.VEO_BALANCE_ACCOUNT_ID || '338769');
-    const BALANCE_SCALE = Number(window.VEO_BALANCE_SCALE || 500000) || 500000;
+    const BALANCE_SCALE = Number(window.VEO_BALANCE_SCALE || 1000000) || 1000000;
     const BALANCE_COOLDOWN_MS = Number(window.VEO_BALANCE_COOLDOWN_MS || 30000) || 30000;
     const BALANCE_CACHE_KEY = `veo_balance_cache_${BALANCE_ACCOUNT_ID}`;
 

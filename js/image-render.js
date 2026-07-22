@@ -70,13 +70,9 @@
         const splitEl = cardEl.querySelector('.img-gen-split');
         const panelEl = cardEl.querySelector('.img-gen-preview-panel');
         const bodyEl = cardEl.querySelector('.img-gen-preview-body');
-        const pendingCount = toFiniteNumber(callHook('getVisiblePendingCount', task), 0);
 
         if (splitEl) splitEl.classList.remove('preview-collapsed');
-        if (panelEl) {
-            panelEl.classList.remove('is-collapsed');
-            panelEl.classList.toggle('is-running', pendingCount > 0);
-        }
+        if (panelEl) panelEl.classList.remove('is-collapsed');
         if (bodyEl) {
             bodyEl.innerHTML = callHook('renderPreviewFeed', task, task.state.previewHistory || []) || '';
         }

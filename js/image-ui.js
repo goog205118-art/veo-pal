@@ -6,7 +6,7 @@ function renderImgGenParams(task) {
     const resolvedSize = resolveImgGenSize(state);
     const ratioValue = state.proRatio;
     const showCustomRatio = ratioValue === 'custom';
-    const route = cardView.route || normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix);
+    const route = cardView.route || normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix || state.channel);
     const routeValue = route.key || 'stable_channel_1';
     const isProRoute = route.version === 'pro';
     const resolutionValue = isProRoute ? (state.proResolution || '1k') : '1k';
@@ -104,6 +104,7 @@ function renderImgGenParams(task) {
         </div>
     `;
 }
+
 function renderImgGenMaskPanel(task) {
     ensureImgGenState(task);
     const imageList = Array.isArray(task.state.images) ? task.state.images : [];
@@ -154,100 +155,32 @@ function renderImgGenMaskPanel(task) {
         </div>
     `;
 }
+
 function renderImgGenHelpContent() {
     return `
         <section class="img-gen-help-section">
             <p class="img-gen-help-kicker">Veo Studio AI 生图指南</p>
             <h3>这个节点能做什么</h3>
-            <p>AI 多模生图节点是工作台里的“图像发动机”：既能文生图，也能用参考图做变体，还能用蒙版局部重绘。当前一次点击只生成 1 张，右侧预览会保留最近 6 张结果，方便你连续试稿。</p>
-            <div class="img-gen-help-tag-row">
-                <span class="img-gen-help-tag">文生图</span>
-                <span class="img-gen-help-tag">垫图变体</span>
-                <span class="img-gen-help-tag">蒙版重绘</span>
-                <span class="img-gen-help-tag">参考权重</span>
-            </div>
+            <p>支持文生图、垫图变体和蒙版局部重绘。单次生成 1 张，右侧预览最多保留最近 6 张结果。</p>
         </section>
         <section class="img-gen-help-section">
             <h3>模型版本</h3>
-            <div class="img-gen-help-grid">
-                <div class="img-gen-help-card">
-                    <strong>GPT Image 2</strong>
-                    <p>GPT Image 2 面向正式图、产品海报、局部重绘和多参考图融合。支持高保真图片输入、1K/2K/4K 分辨率档位、质量和格式控制。</p>
-                </div>
-            </div>
-            <p class="img-gen-help-note">使用边界：GPT Image 2 支持文字和图片输入并输出图片；透明背景目前不支持，背景建议使用 auto 或 opaque。</p>
+            <p><strong>GPT Image 2</strong> 面向正式图、产品海报、局部重绘和多参考图融合。</p>
         </section>
         <section class="img-gen-help-section">
-            <h3>价格体系</h3>
-            <div class="img-gen-help-table">
-                <div><strong>输入</strong><span>￥5.0000 / 1M tokens。</span></div>
-                <div><strong>输出</strong><span>￥30.0000 / 1M tokens。</span></div>
-                <div><strong>中转折扣</strong><span>按上述 token 价格计算后再 × 1/2 入账。</span></div>
-                <div><strong>计费方式</strong><span>按返回的 usage 里的 input_tokens / output_tokens 实时计费；示例：1643 + 1413 tokens 原价约 ￥0.0506，半价入账约 ￥0.0253。</span></div>
-            </div>
-        </section>
-        <section class="img-gen-help-section">
-            <h3>输入图槽位怎么用</h3>
+            <h3>参数说明</h3>
             <ul>
-                        <li><strong>底图 / 蒙版源</strong>：第一张主控图。做蒙版重绘时，蒙版会作用在这张图上，也是最强的结构参考。</li>
-                <li><strong>REF 1-4</strong>：参考图槽。适合放产品细节、材质、风格、配色、版式灵感。它们会帮助 AI 理解“感觉”和“元素”，但不等于像素级复制。</li>
-                <li><strong>参考意图 / 权重</strong>：每张垫图悬停后可设置“结构、风格、色彩、细节、版式”和 0-100 权重。产品白底图建议结构 85-95；环境图建议风格 45-70；配色板建议色彩 35-60。</li>
-                <li><strong>拖放规则</strong>：可以从电脑、素材库或生成结果直接拖入槽位。第一张建议放要保留主体的图，其余放风格或局部细节参考。</li>
+                <li>Stable 仅保留 1K 输出。</li>
+                <li>Pro 开放 GPT Image 2 的全部能力。</li>
+                <li>推荐按比例 + 分辨率来控制最终尺寸。</li>
             </ul>
         </section>
         <section class="img-gen-help-section">
-            <h3>高频参数</h3>
-            <div class="img-gen-help-table">
-                <div><strong>画幅比例</strong><span>决定横竖构图，例如 16:9 适合 YouTube 横版封面，9:16 适合 Shorts / Reels，1:1 适合社媒方图。</span></div>
-                <div><strong>分辨率</strong><span>可选 1K/2K/4K。1K 适合快速试稿，2K 适合正式发布，4K 适合产品细节但更慢更贵。</span></div>
-                <div><strong>Prompt</strong><span>建议写清主体、场景、风格、构图、光线、用途。做改图时要写“保留什么”和“只修改什么”。</span></div>
-            </div>
-            <p class="img-gen-help-note">后台会按“比例 + 分辨率档位”自动换算到 GPT Image 2 的有效尺寸范围，避免无效尺寸导致请求失败。</p>
-        </section>
-        <section class="img-gen-help-section">
-                    <h3>高级参数字典</h3>
-            <div class="img-gen-help-table">
-                <div><strong>质量</strong><span>low 适合草稿和缩略图，medium 是速度/画质平衡，high 适合终稿。高质量 + 4K 会显著增加等待时间。</span></div>
-                <div><strong>格式</strong><span>PNG 适合图文、UI、清晰边缘和后续再编辑；JPEG 速度快、体积小；WebP 适合网页展示和压缩存储。</span></div>
-                <div><strong>背景</strong><span>GPT Image 2 建议 auto 或 opaque。透明背景不是 GPT Image 2 当前支持项，如果需要抠图请后续走单独抠图/去背工具。</span></div>
-                <div><strong>审核</strong><span>auto 是标准安全过滤；low 更宽松但不能绕过安全策略。若被拦截，优先改 Prompt 的敏感描述。</span></div>
-                <div><strong>重试</strong><span>单次适合避免重复扣费；失败面板里的“重试”会使用当前参数重新提交一次，不再自动切换通道。</span></div>
-            </div>
-        </section>
-        <section class="img-gen-help-section">
-            <h3>结果图快捷流转</h3>
+            <h3>计费说明</h3>
             <ul>
-                <li><strong>蒙版</strong>：点击手势按钮会把该结果图送回当前节点作为 Base，并自动打开蒙版工作室，用于局部修瑕或换背景。</li>
-            </ul>
-        </section>
-        <section class="img-gen-help-section">
-            <h3>蒙版工作室</h3>
-            <ol>
-                <li>把要修改的底图拖入左侧 Base 大格。</li>
-                <li>切换到 Pro 版本，点击 <strong>编辑蒙版</strong> 打开大画布工作室。</li>
-                <li>在绘画模式下用<strong>左键涂抹</strong>需要修改的区域。</li>
-                <li><strong>右键单击</strong>切换绘画模式 / 抓手模式；抓手模式下用左键拖动画布。</li>
-                <li>用<strong>鼠标滚轮</strong>缩放视图，用 <strong>Ctrl+Z</strong> 回退上一笔。</li>
-                <li>在 Prompt 里写清楚希望涂抹区域变成什么，再点击生成。</li>
-            </ol>
-            <p class="img-gen-help-note">重要：GPT Image 的蒙版是“提示词引导式”蒙版。模型会优先参考红色区域，但不保证像传统 PS 选区一样完全硬边精确；如果要更稳，请在 Prompt 里明确写“只修改蒙版区域，保留未涂抹区域”。</p>
-        </section>
-        <section class="img-gen-help-section">
-            <h3>实战玩法：产品图与社媒图</h3>
-            <ul>
-                <li><strong>产品海报</strong>：Base 放产品实拍，REF 放品牌版式或竞品构图，Prompt 写清“保留产品结构、Logo、接口位置，生成高级商业海报”。</li>
-                <li><strong>局部换物</strong>：只涂抹要换的物体，Prompt 用“replace the masked area with...”并补充材质、光影和透视。</li>
-                <li><strong>版式变体</strong>：把上一张成功图拖回参考槽，Prompt 要求“same product, new layout, clean spacing, readable headline”。</li>
-                <li><strong>连续试稿</strong>：先用 1K + low 快速找方向，满意后切 2K/4K + high 出终稿。右侧预览保留最近 6 张，方便回看和拖拽复用。</li>
-            </ul>
-        </section>
-        <section class="img-gen-help-section">
-            <h3>已知边界</h3>
-            <ul>
-                <li><strong>文字排版</strong>：GPT Image 2 的文字能力更强，但复杂小字、严密表格和品牌字体仍可能漂移。</li>
-                <li><strong>主体一致性</strong>：多轮生成能保持大体风格，但人脸、Logo、精密产品结构仍建议用 Base 图和明确 Prompt 约束。</li>
-                <li><strong>等待时间</strong>：复杂 Prompt、参考图、4K 和 high 质量会更慢，复杂请求可能需要较长处理时间。</li>
-                <li><strong>成本意识</strong>：Pro 的参考图会按高保真输入处理，参考图越多、分辨率越高，成本和延迟越容易上升。</li>
+                <li>Pro 按 token 计费。</li>
+                <li>stable_channel_1 固定 0.06。</li>
+                <li>stable_channel_2 固定 0.084。</li>
             </ul>
         </section>
     `;
@@ -308,6 +241,7 @@ function openImgGenHelp(e, taskId = '') {
 
 function renderImgGenCardHTML(task) {
     ensureImgGenState(task);
+    const state = task.state;
     const cardView = window.VeoImageCardProfile ? window.VeoImageCardProfile.viewModel(task) : {
         title: 'AI 多模生图',
         modelBadge: 'GPT Image 2',
@@ -315,40 +249,31 @@ function renderImgGenCardHTML(task) {
         uploadNote: '第 1 张为 Base 图，右侧 4 格为 Reference。拖拽图片到此处会自动吸附。',
         promptPlaceholder: '输入画面提示词，可放 1-5 张图配合描述...'
     };
+    const route = cardView.route || normalizeImgGenRoute(state.providerSort || state.routeMode || state.modelSuffix || state.channel);
+    const routePrice = route.version === 'pro'
+        ? null
+        : (route.key === 'stable_channel_1' ? 0.06 : (route.key === 'stable_channel_2' ? 0.084 : null));
     const isFailed = task.status === 'failed';
-    const previewCollapsed = task.state.previewCollapsed === true;
-    const lastUsageCost = toFiniteNumber(task.state.lastUsageCost, NaN);
-    const currentCost = Number.isFinite(lastUsageCost) && lastUsageCost > 0 ? formatImgGenMoney(lastUsageCost) : 'Token计费';
-    const previewEntries = Array.isArray(task.state.previewHistory) ? task.state.previewHistory : [];
-    const pendingCount = previewEntries.filter((item) => item && item.status === 'pending' && item.hidden !== true).length;
-    const cooldownMs = Math.max(0, toFiniteNumber(task.state.nextSubmitAt, 0) - Date.now());
+    const previewCollapsed = state.previewCollapsed === true;
+    const lastUsageCost = toFiniteNumber(state.lastUsageCost, NaN);
+    const currentCost = Number.isFinite(routePrice)
+        ? formatImgGenMoney(routePrice)
+        : (Number.isFinite(lastUsageCost) && lastUsageCost > 0 ? formatImgGenMoney(lastUsageCost) : 'Token计费');
+    const previewEntries = Array.isArray(state.previewHistory) ? state.previewHistory : [];
+    const cooldownMs = Math.max(0, toFiniteNumber(state.nextSubmitAt, 0) - Date.now());
     const cooldownSec = Math.ceil(cooldownMs / 1000);
     const isBtnCooling = cooldownSec > 0;
-    const safePrompt = escapeHtml(task.state.prompt || '');
-
-    let btnContent = `<span class="material-symbols-outlined">draw</span> 生成 <span class="img-gen-btn-price">${currentCost}</span>`;
-    if (pendingCount > 0) {
-        btnContent = `
-            <div class="img-gen-processing-wrap">
-                <div class="img-gen-processing-head">
-                    <div class="img-gen-processing-left">
-                        <svg class="spinner" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"></circle></svg>
-                        生成中 ${pendingCount} 项
-                    </div>
-                    <div class="img-gen-runtime">${cooldownSec > 0 ? `冷却 ${cooldownSec}s` : '可再次生成'}</div>
-                </div>
-                <div class="img-gen-progress"><div class="img-gen-progress-bar"></div></div>
-            </div>
-        `;
-    } else if (cooldownSec > 0) {
-        btnContent = `<span class="material-symbols-outlined">schedule</span> 冷却中 ${cooldownSec}s`;
-    }
-    if (isFailed && pendingCount === 0 && cooldownSec === 0) {
-        btnContent = `<span class="material-symbols-outlined">refresh</span> 失败，点击重试`;
-    }
-
+    const safePrompt = escapeHtml(state.prompt || '');
     const dockToggleIcon = previewCollapsed ? 'keyboard_arrow_right' : 'keyboard_arrow_left';
     const dockToggleTip = previewCollapsed ? '展开右侧预览面板' : '收纳右侧预览面板';
+
+    let btnContent = `<span class="material-symbols-outlined">draw</span> 生成 <span class="img-gen-btn-price">${currentCost}</span>`;
+    if (cooldownSec > 0) {
+        btnContent = `<span class="material-symbols-outlined">schedule</span> 冷却中 ${cooldownSec}s`;
+    }
+    if (isFailed && cooldownSec === 0) {
+        btnContent = `<span class="material-symbols-outlined">refresh</span> 失败，点击重试`;
+    }
 
     return `<div class="card-header img-gen-card-header"><span class="img-gen-card-title"><span class="material-symbols-outlined">brush</span> ${escapeHtml(cardView.title)}</span><div class="img-gen-card-actions"><button class="img-gen-help-trigger" type="button" onclick="openImgGenHelp(event, '${task.id}')" data-tip="${escapeAttr(cardView.helperTip)}"><span class="material-symbols-outlined">info</span></button><button class="img-gen-card-close" onclick="removeTask('${task.id}')" data-tip="删除该组件"><span class="material-symbols-outlined">close</span></button></div></div>
     <div class="img-gen-shell">
@@ -363,7 +288,7 @@ function renderImgGenCardHTML(task) {
                 <div class="img-gen-input-body">
                     <div class="img-gen-statusbar">
                         <span class="img-gen-status-badge is-pro">${escapeHtml(cardView.modelBadge)}</span>
-                        <span class="img-gen-size-chip">${(task.state.proRatio === 'custom') ? `${task.state.customW}:${task.state.customH}` : task.state.proRatio} / ${(task.state.proResolution || '1k').toUpperCase()}</span>
+                        <span class="img-gen-size-chip">${(state.proRatio === 'custom') ? `${state.customW}:${state.customH}` : state.proRatio} / ${(state.proResolution || '1k').toUpperCase()}</span>
                     </div>
                     ${renderImgGenSlots(task)}
                     <div class="img-gen-upload-note">${escapeHtml(cardView.uploadNote)}</div>
@@ -372,10 +297,10 @@ function renderImgGenCardHTML(task) {
                     ${renderImgGenMaskPanel(task)}
                     ${renderImgGenPromptChips(task)}
                     <textarea class="img-gen-prompt" oninput="updateImgGenPromptDraft('${task.id}', this.value)" onkeydown="return handleImgGenPromptKeydown(event, '${task.id}')" placeholder="${escapeAttr(cardView.promptPlaceholder)}">${safePrompt}</textarea>
-                    <button class="img-gen-btn ${(pendingCount > 0 || isBtnCooling) ? 'is-running' : ''} ${isFailed && pendingCount === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
+                    <button class="img-gen-btn ${isFailed && cooldownSec === 0 ? 'is-failed' : ''}" onclick="submitImgGen('${task.id}')" ${isBtnCooling ? 'disabled' : ''}>${btnContent}</button>
                 </div>
             </div>
-            <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''} ${pendingCount > 0 ? 'is-running' : ''}">
+            <aside class="img-gen-preview-panel ${previewCollapsed ? 'is-collapsed' : ''}">
                 <div class="img-gen-preview-head">
                     <div class="img-gen-preview-head-main">
                         <span class="img-gen-preview-title">OUTPUT</span>
@@ -395,4 +320,3 @@ function renderImgGenCardHTML(task) {
         </div>
     </div>`;
 }
-
