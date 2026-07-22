@@ -2,6 +2,10 @@
     const PRO_INPUT_PRICE_PER_1M = 5;
     const PRO_OUTPUT_PRICE_PER_1M = 30;
     const PROXY_RECHARGE_FACTOR = 0.5;
+    const STABLE_FIXED_COST_BY_ROUTE = Object.freeze({
+        stable_channel_1: 0.06,
+        stable_channel_2: 0.084
+    });
     const PRO_FALLBACK_COST = 0.12;
 
     const PRO_SIZE_PRESETS = Object.freeze({
@@ -321,6 +325,18 @@
     }
 
     function calculateBilling(task, rawData) {
+        const route = normalizeRoute(task && task.state ? (task.state.providerSort || task.state.routeMode || task.state.modelSuffix || task.state.channel || '') : '');
+        if (route.version !== 'pro') {
+            const fixedCost = STABLE_FIXED_COST_BY_ROUTE[route.key] ?? null;
+            if (Number.isFinite(fixedCost)) {
+                return {
+                    cost: fixedCost,
+                    detail: `AI生图 ${route.label || route.key} 固定计费`,
+                    usage: null
+                };
+            }
+        }
+
         const usage = extractUsage(rawData);
         if (usage && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
             const meteredCost = ((usage.inputTokens * PRO_INPUT_PRICE_PER_1M) + (usage.outputTokens * PRO_OUTPUT_PRICE_PER_1M)) / 1000000;
