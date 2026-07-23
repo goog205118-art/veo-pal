@@ -20,6 +20,22 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     const MAX_IMAGE_PROMPTS = 3;
     const SETTINGS_KEY = 'socialMediaEngineSettings';
     const DEFAULT_WORKSPACE_COUNT = 1;
+    const DEFAULT_IMAGE_RATIO = '1:1';
+
+    const SOCIAL_IMAGE_RATIOS = Object.freeze([
+        { value: '1:1', label: '1:1 正方形 / Instagram Feed', size: '1024x1024' },
+        { value: '4:5', label: '4:5 竖版 Feed / Instagram', size: '1024x1280' },
+        { value: '9:16', label: '9:16 Story / Reels / TikTok', size: '720x1280' },
+        { value: '16:9', label: '16:9 横版 / YouTube / Facebook', size: '1280x720' },
+        { value: '2:3', label: '2:3 Pinterest Pin', size: '1024x1536' },
+        { value: '3:2', label: '3:2 横版商品图', size: '1536x1024' }
+    ]);
+
+    const FRONTEND_DYNAMIC_PROMPT_TEMPLATE = `商品描述: {{productDesc || "无"}}
+节日/场景: {{contextDesc || "常规发贴"}}
+贴文引导链接: {{guidanceLink || "无"}}
+
+请根据提供的图片和上述信息，执行任务。`;
 
     const defaultSettings = {
         textApiUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -68,6 +84,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             productDesc: '',
             contextDesc: '',
             guidanceLink: '',
+            imageRatio: DEFAULT_IMAGE_RATIO,
             textResult: null,
             imagePrompts: [],
             imageResults: [],
@@ -101,9 +118,11 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         const productDesc = byId('social-tool-product-desc');
         const contextDesc = byId('social-tool-context-desc');
         const guidanceLink = byId('social-tool-guidance-link');
+        const imageRatio = byId('social-tool-image-ratio');
         if (productDesc) workspace.productDesc = productDesc.value;
         if (contextDesc) workspace.contextDesc = contextDesc.value;
         if (guidanceLink) workspace.guidanceLink = guidanceLink.value;
+        if (imageRatio) workspace.imageRatio = imageRatio.value || DEFAULT_IMAGE_RATIO;
     }
 
     function restoreActiveForm() {
@@ -111,9 +130,11 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         const productDesc = byId('social-tool-product-desc');
         const contextDesc = byId('social-tool-context-desc');
         const guidanceLink = byId('social-tool-guidance-link');
+        const imageRatio = byId('social-tool-image-ratio');
         if (productDesc) productDesc.value = workspace.productDesc || '';
         if (contextDesc) contextDesc.value = workspace.contextDesc || '';
         if (guidanceLink) guidanceLink.value = workspace.guidanceLink || '';
+        if (imageRatio) imageRatio.value = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
     }
 
     function getWorkspaceStatus(workspace) {
@@ -121,6 +142,42 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         if (workspace.imageResults.some((item) => item && item.status === 'failed')) return 'failed';
         if (workspace.textResult || workspace.imageResults.some((item) => item && item.status === 'success')) return 'done';
         return 'idle';
+    }
+
+    function getSocialRatioConfig(ratio) {
+        return SOCIAL_IMAGE_RATIOS.find((item) => item.value === ratio) || SOCIAL_IMAGE_RATIOS[0];
+    }
+
+    function resolveSocialImageSize(ratio) {
+        const config = getSocialRatioConfig(ratio);
+        const state = {
+            proRatio: config.value,
+            proResolution: '1k',
+            size: config.size,
+            customW: Number(config.value.split(':')[0]) || 1,
+            customH: Number(config.value.split(':')[1]) || 1
+        };
+        if (typeof window.resolveImgGenSize === 'function') {
+            const resolved = window.resolveImgGenSize(state);
+            if (resolved && resolved !== 'auto' && resolved !== '1024x1024') return resolved;
+            if (config.value === '1:1' && resolved === '1024x1024') return resolved;
+        }
+        return config.size;
+    }
+
+    function getAspectRatioStyle(ratio) {
+        const config = getSocialRatioConfig(ratio);
+        const parts = String(config.value || DEFAULT_IMAGE_RATIO).split(':').map((part) => parseInt(part, 10));
+        if (parts.length !== 2 || parts.some((part) => !Number.isFinite(part) || part <= 0)) return '1 / 1';
+        return `${parts[0]} / ${parts[1]}`;
+    }
+
+    function buildDynamicPrompt(productDesc, contextDesc, guidanceLink) {
+        return `商品描述: ${productDesc || '无'}
+节日/场景: ${contextDesc || '常规发贴'}
+贴文引导链接: ${guidanceLink || '无'}
+
+请根据提供的图片和上述信息，执行任务。`;
     }
 
     function getImageRoute() {
@@ -182,6 +239,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 .social-tool-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .social-tool-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-height: 156px; position: relative; }
 .social-tool-image-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: rgba(255,255,255,0.05); position: relative; }
+.social-tool-image-item.success { cursor: zoom-in; min-height: 120px; }
 .social-tool-image-item a { position: absolute; right: 7px; bottom: 7px; border-radius: 8px; background: rgba(0,0,0,.62); color: #fff; padding: 5px 7px; font-size: 11px; text-decoration: none; }
 .social-tool-image-item.pending, .social-tool-image-item.failed { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--text-sub); }
 .social-tool-image-item.pending { border-style: dashed; }
@@ -195,13 +253,24 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 .social-tool-settings { display: none; border-top: 1px solid var(--border); padding: 18px; background: rgba(0,0,0,0.12); }
 .social-tool-settings.show { display: block; }
 .social-tool-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.social-tool-risk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.social-tool-risk-field { border: 1px solid rgba(255,183,77,.28); border-radius: 8px; padding: 12px; background: rgba(255,183,77,.06); }
+.social-tool-risk-field label { color: #ffb74d; }
+.social-tool-risk-textarea { min-height: 150px; font-family: Consolas, Monaco, monospace; font-size: 11px; background: rgba(0,0,0,.18); }
+.social-tool-risk-textarea[readonly] { cursor: text; opacity: .92; }
+.social-tool-image-viewer { position: fixed; inset: 0; z-index: 10090; display: none; align-items: center; justify-content: center; padding: 28px; background: rgba(0,0,0,.78); }
+.social-tool-image-viewer.show { display: flex; }
+.social-tool-image-viewer-inner { position: relative; width: min(96vw, 1120px); height: min(92vh, 880px); display: flex; align-items: center; justify-content: center; }
+.social-tool-image-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 18px 56px rgba(0,0,0,.42); background: rgba(255,255,255,.04); }
+.social-tool-image-viewer-close { position: absolute; top: 10px; right: 10px; width: 38px; height: 38px; border: 1px solid rgba(255,255,255,.28); border-radius: 8px; background: rgba(0,0,0,.58); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.social-tool-image-viewer-open { position: absolute; right: 10px; bottom: 10px; border: 1px solid rgba(255,255,255,.28); border-radius: 8px; background: rgba(0,0,0,.58); color: #fff; padding: 8px 10px; font-size: 12px; text-decoration: none; }
 .social-tool-toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(14px); opacity: 0; pointer-events: none; z-index: 10080; border: 1px solid var(--border); background: var(--chrome-bg-strong); color: var(--text-main); border-radius: 8px; padding: 10px 14px; font-size: 13px; box-shadow: var(--panel-shadow); transition: opacity .2s ease, transform .2s ease; }
 .social-tool-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .social-tool-toast.error { border-color: rgba(255,94,89,.35); color: var(--danger); }
 @media (max-width: 860px) {
   .social-tool-body { grid-template-columns: 48px minmax(0, 1fr); }
   .social-tool-body > .social-tool-grid { grid-column: 2; }
-  .social-tool-settings-grid { grid-template-columns: 1fr; }
+  .social-tool-settings-grid, .social-tool-risk-grid { grid-template-columns: 1fr; }
   .social-tool-gallery, .social-tool-image-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .social-tool-head { align-items: flex-start; }
 }
@@ -263,6 +332,12 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                                 <label for="social-tool-guidance-link">贴文引导链接</label>
                                 <input class="social-tool-input" id="social-tool-guidance-link" type="url" placeholder="https://... 可选，用作贴文 CTA 或活动落点">
                             </div>
+                            <div class="social-tool-field">
+                                <label for="social-tool-image-ratio">配图比例</label>
+                                <select class="social-tool-select" id="social-tool-image-ratio">
+                                    ${SOCIAL_IMAGE_RATIOS.map((item) => `<option value="${item.value}" ${item.value === DEFAULT_IMAGE_RATIO ? 'selected' : ''}>${item.label}</option>`).join('')}
+                                </select>
+                            </div>
                             <button class="top-btn top-btn-primary social-tool-main-btn" id="social-tool-generate-btn" type="button">
                                 <span class="material-symbols-outlined">auto_awesome</span>
                                 <span id="social-tool-generate-text">一键生成社媒内容 & 图片</span>
@@ -319,8 +394,20 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                         </div>
                     </div>
                     <div class="social-tool-field">
-                        <label for="social-tool-system-prompt">文本引擎人设 & 风格提示词</label>
+                        <label for="social-tool-system-prompt">可直接更改：内容风格提示词</label>
                         <textarea class="social-tool-textarea" id="social-tool-system-prompt"></textarea>
+                    </div>
+                    <div class="social-tool-risk-grid">
+                        <div class="social-tool-field social-tool-risk-field">
+                            <label for="social-tool-schema-prompt">高危只读：前台 JSON 输出协议</label>
+                            <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-schema-prompt" readonly></textarea>
+                            <p class="social-tool-muted">该段直接关联前台文案、标签、生图提示词解析，误改会导致页面无法读取模型输出。</p>
+                        </div>
+                        <div class="social-tool-field social-tool-risk-field">
+                            <label for="social-tool-dynamic-prompt">高危只读：前台动态输入模板</label>
+                            <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-dynamic-prompt" readonly></textarea>
+                            <p class="social-tool-muted">该段展示商品描述、场景说明、引导链接如何拼接进大模型请求。</p>
+                        </div>
                     </div>
                     <div style="display:flex; justify-content:flex-end; gap:10px;">
                         <button class="top-btn" id="social-tool-settings-cancel" type="button">取消</button>
@@ -336,6 +423,21 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         toast.id = 'social-tool-toast';
         toast.className = 'social-tool-toast';
         document.body.appendChild(toast);
+
+        const viewer = document.createElement('div');
+        viewer.id = 'social-tool-image-viewer';
+        viewer.className = 'social-tool-image-viewer';
+        viewer.innerHTML = `
+            <div class="social-tool-image-viewer-inner" onclick="event.stopPropagation()">
+                <button class="social-tool-image-viewer-close" id="social-tool-image-viewer-close" type="button" title="关闭预览">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+                <img id="social-tool-image-viewer-img" alt="生成配图预览">
+                <a class="social-tool-image-viewer-open" id="social-tool-image-viewer-open" target="_blank" rel="noopener noreferrer">新窗口打开</a>
+            </div>
+        `;
+        viewer.addEventListener('click', closeImagePreview);
+        document.body.appendChild(viewer);
     }
 
     function bindEvents() {
@@ -348,6 +450,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         byId('social-tool-settings-save').addEventListener('click', saveSettings);
         byId('social-tool-generate-btn').addEventListener('click', handleGenerate);
         byId('social-tool-copy-btn').addEventListener('click', copyText);
+        byId('social-tool-image-viewer-close').addEventListener('click', closeImagePreview);
+        byId('social-tool-image-ratio').addEventListener('change', () => saveActiveForm());
         byId('social-tool-workspace-add').addEventListener('click', addWorkspace);
         byId('social-tool-workspace-list').addEventListener('click', (event) => {
             const button = event.target.closest('.social-tool-workspace-btn');
@@ -358,6 +462,9 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             if (button) retryImage(Number(button.dataset.socialRetryIndex), button.dataset.workspaceId || activeWorkspaceId);
         });
         byId('social-tool-image-input').addEventListener('change', handleImageSelect);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') closeImagePreview();
+        });
 
         const upload = byId('social-tool-upload');
         upload.addEventListener('dragover', (event) => {
@@ -391,6 +498,26 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     function close() {
         const modal = byId('social-tool-modal');
         if (modal) modal.classList.remove('show');
+        closeImagePreview();
+    }
+
+    function openImagePreview(url) {
+        if (!url) return;
+        const viewer = byId('social-tool-image-viewer');
+        const img = byId('social-tool-image-viewer-img');
+        const link = byId('social-tool-image-viewer-open');
+        if (!viewer || !img || !link) return;
+        img.src = url;
+        link.href = url;
+        viewer.classList.add('show');
+    }
+
+    function closeImagePreview() {
+        const viewer = byId('social-tool-image-viewer');
+        const img = byId('social-tool-image-viewer-img');
+        if (!viewer) return;
+        viewer.classList.remove('show');
+        if (img) img.removeAttribute('src');
     }
 
     function addWorkspace() {
@@ -448,7 +575,9 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             'social-tool-text-model': settings.textModelName,
             'social-tool-text-key': settings.textApiKey,
             'social-tool-image-route': settings.imageRoute,
-            'social-tool-system-prompt': settings.systemPrompt
+            'social-tool-system-prompt': settings.systemPrompt,
+            'social-tool-schema-prompt': HIDDEN_JSON_SCHEMA_PROMPT.trim(),
+            'social-tool-dynamic-prompt': FRONTEND_DYNAMIC_PROMPT_TEMPLATE
         };
         Object.entries(fieldMap).forEach(([id, value]) => {
             const el = byId(id);
@@ -549,6 +678,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         workspace.productDesc = (workspace.productDesc || '').trim();
         workspace.contextDesc = (workspace.contextDesc || '').trim();
         workspace.guidanceLink = (workspace.guidanceLink || '').trim();
+        workspace.imageRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
         workspace.textResult = null;
         workspace.imagePrompts = [];
         workspace.imageResults = [];
@@ -572,18 +702,20 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 logDebug('模型未提供生图提示词，跳过生图步骤。', workspaceId);
             } else {
                 logDebug(`准备通过 n8n 生成 ${prompts.length} 张图片...`, workspaceId);
-                workspace.imageResults = prompts.map((prompt, index) => ({ index, prompt, status: 'pending', url: '', error: '' }));
+                const selectedRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
+                const selectedSize = resolveSocialImageSize(selectedRatio);
+                workspace.imageResults = prompts.map((prompt, index) => ({ index, prompt, status: 'pending', url: '', error: '', ratio: selectedRatio, size: selectedSize }));
                 if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
                 const results = await Promise.allSettled(prompts.map((prompt, index) => generateImage(prompt, index, workspaceId)));
                 results.forEach((result, index) => {
                     if (result.status === 'rejected' || !result.value) {
                         const message = result.reason && result.reason.message ? result.reason.message : 'Unknown image error';
-                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'failed', url: '', error: message };
+                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
                     }
                 });
                 results.forEach((result, index) => {
                     if (result.status === 'fulfilled' && result.value) {
-                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'success', url: result.value, error: '' };
+                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'success', url: result.value, error: '', ratio: selectedRatio, size: selectedSize };
                     } else {
                         const message = result.reason && result.reason.message ? result.reason.message : '未知错误';
                         logDebug(`第 ${index + 1} 张图片生成失败: ${escapeHtml(message)}`, workspaceId);
@@ -614,15 +746,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         let baseUrl = String(settings.textApiUrl || defaultSettings.textApiUrl).replace(/\/$/, '');
         let url = `${baseUrl}/models/${settings.textModelName || defaultSettings.textModelName}:generateContent?key=${settings.textApiKey || ''}`;
 
-        let promptText = `
-商品描述: ${productDesc || '无'}
-节日/场景: ${contextDesc || '常规发贴'}
-
-请根据提供的图片和上述信息，执行任务。
-`;
-        if (guidanceLink) {
-            promptText += `\n贴文引导链接: ${guidanceLink}`;
-        }
+        const promptText = buildDynamicPrompt(productDesc, contextDesc, guidanceLink);
 
         let parts = [];
         parts.push({ text: settings.systemPrompt + HIDDEN_JSON_SCHEMA_PROMPT + "\n\n" + promptText });
@@ -685,15 +809,17 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
         const refs = workspace.uploadedImages.map((img) => img.dataUrl).filter(Boolean).slice(0, Math.min(MAX_IMAGES, route.maxRefs || MAX_IMAGES));
         const routeKey = route.key || settings.imageRoute || defaultSettings.imageRoute;
+        const selectedRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
+        const selectedSize = resolveSocialImageSize(selectedRatio);
         const state = {
             prompt: promptText,
             images: refs,
             providerSort: routeKey,
             routeMode: routeKey,
             channel: route.channel || 'channel_1',
-            proRatio: '1:1',
+            proRatio: selectedRatio,
             proResolution: '1k',
-            size: '1024x1024',
+            size: selectedSize,
             quality: 'auto',
             format: 'png',
             background: 'auto',
@@ -717,7 +843,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 route,
                 mode: refs.length > 0 ? 'img2img' : 'text2img',
                 imageModel,
-                sizeToSend: '1024x1024',
+                sizeToSend: selectedSize,
                 previewItemId: `social_img_${index + 1}`,
                 clientRequestId,
                 promptContext: { finalPrompt: promptText },
@@ -731,9 +857,9 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 model: imageModel,
                 imageModel,
                 prompt: promptText,
-                size: '1024x1024',
-                ratio: '1:1',
-                aspect_ratio: '1:1',
+                size: selectedSize,
+                ratio: selectedRatio,
+                aspect_ratio: selectedRatio,
                 resolution: '1k',
                 providerSort: routeKey,
                 providerKey: routeKey,
@@ -883,6 +1009,9 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         grid.querySelectorAll('.social-tool-placeholder').forEach((item) => item.remove());
         const item = document.createElement('div');
         item.className = 'social-tool-image-item';
+        item.classList.add('success');
+        item.style.aspectRatio = DEFAULT_IMAGE_RATIO.replace(':', ' / ');
+        item.addEventListener('dblclick', () => openImagePreview(url));
         const img = document.createElement('img');
         img.src = url;
         img.alt = `生成配图 ${index + 1}`;
@@ -909,6 +1038,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             const status = result && result.status ? result.status : 'pending';
             const item = document.createElement('div');
             item.className = `social-tool-image-item ${status}`;
+            item.style.aspectRatio = getAspectRatioStyle(result && result.ratio);
             if (status === 'success' && result.url) {
                 const img = document.createElement('img');
                 img.src = result.url;
@@ -920,6 +1050,15 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 link.rel = 'noopener noreferrer';
                 link.textContent = '打开';
                 item.append(img, link);
+                item.title = '双击放大查看';
+                item.tabIndex = 0;
+                item.addEventListener('dblclick', (event) => {
+                    if (event.target && typeof event.target.closest === 'function' && event.target.closest('a')) return;
+                    openImagePreview(result.url);
+                });
+                item.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') openImagePreview(result.url);
+                });
             } else if (status === 'failed') {
                 item.innerHTML = `
                     <span class="material-symbols-outlined">error</span>
@@ -947,7 +1086,10 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             showToast('找不到这张图的提示词，无法重试', true);
             return;
         }
-        workspace.imageResults[index] = { index, prompt, status: 'pending', url: '', error: '' };
+        const selectedRatio = workspace.imageRatio || (workspace.imageResults[index] && workspace.imageResults[index].ratio) || DEFAULT_IMAGE_RATIO;
+        const selectedSize = resolveSocialImageSize(selectedRatio);
+        workspace.imageRatio = selectedRatio;
+        workspace.imageResults[index] = { index, prompt, status: 'pending', url: '', error: '', ratio: selectedRatio, size: selectedSize };
         workspace.isLoading = true;
         renderWorkspaceRail();
         if (activeWorkspaceId === workspace.id) {
@@ -956,14 +1098,14 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         }
         try {
             const url = await generateImage(prompt, index, workspace.id);
-            workspace.imageResults[index] = { index, prompt, status: 'success', url, error: '' };
+            workspace.imageResults[index] = { index, prompt, status: 'success', url, error: '', ratio: selectedRatio, size: selectedSize };
             if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
                 window.VeoBilling.refreshBalanceAfterUsage();
             }
             showToast('单图重试完成');
         } catch (error) {
             const message = error && error.message ? error.message : String(error || 'Unknown image error');
-            workspace.imageResults[index] = { index, prompt, status: 'failed', url: '', error: message };
+            workspace.imageResults[index] = { index, prompt, status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
             logDebug(`第 ${index + 1} 张图片重试失败: ${escapeHtml(message)}`, workspace.id);
             showToast('单图重试失败，可再次点击重试', true);
         } finally {
