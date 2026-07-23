@@ -35,3 +35,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed default 3-slot template assignment, prompt-template add flow, old prompt migration, model response without `imagePrompts`, two template-built n8n image payloads, and result badges.
   - Next: run a real hosted n8n test with one poster slot plus multiple scene slots and tune the default prompt-template wording from real outputs.
+
+- 2026-07-23
+  - Goal: move social-media template creation into a complete settings page with standalone template management.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed the main workbench no longer shows the add-template form, settings opens as a full page, templates add/delete correctly, and slot dropdowns sync after template changes.
+  - Next: push to `test/test-main` and test the hosted page with real saved template presets.

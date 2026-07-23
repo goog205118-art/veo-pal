@@ -378,7 +378,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-template-slots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 14px; }
 .social-tool-template-slot { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; align-items: center; }
 .social-tool-template-slot span { color: var(--text-sub); font-size: 12px; font-weight: 650; }
-.social-tool-template-builder { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.035); margin-bottom: 14px; }
+.social-tool-template-builder { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.035); }
 .social-tool-template-builder textarea { min-height: 72px; }
 .social-tool-template-builder-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .social-tool-output { min-height: 220px; max-height: 360px; overflow: auto; white-space: pre-wrap; user-select: text; }
@@ -408,14 +408,31 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 28px; }
 .social-tool-tag { color: var(--accent); background: rgba(94,156,255,0.11); border: 1px solid rgba(94,156,255,0.2); border-radius: 999px; padding: 5px 9px; font-size: 12px; user-select: text; }
 .social-tool-log { min-height: 110px; max-height: 170px; overflow: auto; font-family: Consolas, Monaco, monospace; font-size: 11px; color: var(--text-sub); user-select: text; }
-.social-tool-settings { display: none; border-top: 1px solid var(--border); padding: 18px; background: rgba(0,0,0,0.12); }
+.social-tool-shell.settings-open .social-tool-body { display: none; }
+.social-tool-settings { display: none; flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--border); padding: 20px; background: rgba(0,0,0,0.12); }
 .social-tool-settings.show { display: block; }
+.social-tool-settings-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.social-tool-settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.social-tool-settings-head h3 { margin: 0; font-size: 17px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+.social-tool-settings-section { border: 1px solid var(--border); border-radius: 10px; padding: 16px; background: rgba(255,255,255,.035); }
+.social-tool-settings-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.social-tool-settings-section-title h4 { margin: 0; color: var(--text-main); font-size: 14px; display: flex; align-items: center; gap: 7px; }
 .social-tool-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .social-tool-risk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .social-tool-risk-field { border: 1px solid rgba(255,183,77,.28); border-radius: 8px; padding: 12px; background: rgba(255,183,77,.06); }
 .social-tool-risk-field label { color: #ffb74d; }
 .social-tool-risk-textarea { min-height: 150px; font-family: Consolas, Monaco, monospace; font-size: 11px; background: rgba(0,0,0,.18); }
 .social-tool-risk-textarea[readonly] { cursor: text; opacity: .92; }
+.social-tool-template-manager { display: grid; grid-template-columns: minmax(300px, .92fr) minmax(360px, 1.08fr); gap: 14px; align-items: start; }
+.social-tool-template-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; max-height: 440px; overflow: auto; padding-right: 4px; }
+.social-tool-template-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.04); }
+.social-tool-template-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.social-tool-template-card-title { min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--text-main); font-size: 13px; font-weight: 650; }
+.social-tool-template-pill { flex: 0 0 auto; border-radius: 999px; color: var(--accent); background: rgba(94,156,255,.11); border: 1px solid rgba(94,156,255,.2); padding: 3px 7px; font-size: 11px; }
+.social-tool-template-card-body { color: var(--text-sub); font-size: 11px; line-height: 1.45; max-height: 74px; overflow: auto; user-select: text; white-space: pre-wrap; }
+.social-tool-template-delete { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; border: 1px solid rgba(255,94,89,.3); color: var(--danger); background: rgba(255,94,89,.07); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.social-tool-template-delete[disabled] { opacity: .45; cursor: not-allowed; }
+.social-tool-settings-actions { display: flex; justify-content: flex-end; gap: 10px; position: sticky; bottom: -20px; padding: 14px 0 0; background: linear-gradient(to bottom, transparent, rgba(0,0,0,.2) 35%, rgba(0,0,0,.2)); }
 .social-tool-image-viewer { position: fixed; inset: 0; z-index: 10090; display: none; align-items: center; justify-content: center; padding: 28px; background: rgba(0,0,0,.78); }
 .social-tool-image-viewer.show { display: flex; }
 .social-tool-image-viewer-inner { position: relative; width: min(96vw, 1120px); height: min(92vh, 880px); display: flex; align-items: center; justify-content: center; }
@@ -430,6 +447,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
   .social-tool-body > .social-tool-grid { grid-column: 2; }
   .social-tool-inline-grid { grid-template-columns: 1fr; }
   .social-tool-settings-grid, .social-tool-risk-grid { grid-template-columns: 1fr; }
+  .social-tool-template-manager { grid-template-columns: 1fr; }
   .social-tool-gallery, .social-tool-image-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .social-tool-head { align-items: flex-start; }
 }
@@ -507,31 +525,6 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                                 <label>每张图的提示词模板</label>
                                 <div class="social-tool-template-slots" id="social-tool-template-slots"></div>
                             </div>
-                            <div class="social-tool-template-builder">
-                                <div class="social-tool-inline-grid">
-                                    <div class="social-tool-field" style="margin-bottom:0;">
-                                        <label for="social-tool-new-template-type">模板分区</label>
-                                        <select class="social-tool-select" id="social-tool-new-template-type">
-                                            <option value="scene">场景模板</option>
-                                            <option value="poster">海报模板</option>
-                                        </select>
-                                    </div>
-                                    <div class="social-tool-field" style="margin-bottom:0;">
-                                        <label for="social-tool-new-template-name">模板名称</label>
-                                        <input class="social-tool-input" id="social-tool-new-template-name" type="text" placeholder="例如：户外露营场景">
-                                    </div>
-                                </div>
-                                <div class="social-tool-field" style="margin:10px 0 0;">
-                                    <label for="social-tool-new-template-body">提示词模板</label>
-                                    <textarea class="social-tool-textarea" id="social-tool-new-template-body" placeholder="支持 {{theme}} {{copy}} {{product}} {{context}} {{link}} {{ratio}} 等变量"></textarea>
-                                </div>
-                                <div class="social-tool-template-builder-actions">
-                                    <button class="top-btn" id="social-tool-add-template-btn" type="button">
-                                        <span class="material-symbols-outlined">add</span>
-                                        添加模板
-                                    </button>
-                                </div>
-                            </div>
                             <button class="top-btn top-btn-primary social-tool-main-btn" id="social-tool-generate-btn" type="button">
                                 <span class="material-symbols-outlined">auto_awesome</span>
                                 <span id="social-tool-generate-text">生成文案 & 模板配图</span>
@@ -565,47 +558,105 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                     </section>
                 </div>
                 <div class="social-tool-settings" id="social-tool-settings">
-                    <div class="social-tool-settings-grid">
-                        <div class="social-tool-field">
-                            <label for="social-tool-text-url">文本 API Base URL</label>
-                            <input class="social-tool-input" id="social-tool-text-url" type="text">
+                    <div class="social-tool-settings-page">
+                        <div class="social-tool-settings-head">
+                            <div>
+                                <h3><span class="material-symbols-outlined">tune</span> 社媒引擎设置</h3>
+                                <p class="social-tool-muted" style="margin:6px 0 0;">管理文本模型、n8n 图片通道、前置提示词和模板库。</p>
+                            </div>
+                            <button class="top-btn" id="social-tool-settings-back" type="button">
+                                <span class="material-symbols-outlined">arrow_back</span>
+                                返回工作台
+                            </button>
                         </div>
-                        <div class="social-tool-field">
-                            <label for="social-tool-text-model">文本模型名称</label>
-                            <input class="social-tool-input" id="social-tool-text-model" type="text">
+                        <section class="social-tool-settings-section">
+                            <div class="social-tool-settings-section-title">
+                                <h4><span class="material-symbols-outlined">hub</span> 接口配置</h4>
+                            </div>
+                            <div class="social-tool-settings-grid">
+                                <div class="social-tool-field">
+                                    <label for="social-tool-text-url">文本 API Base URL</label>
+                                    <input class="social-tool-input" id="social-tool-text-url" type="text">
+                                </div>
+                                <div class="social-tool-field">
+                                    <label for="social-tool-text-model">文本模型名称</label>
+                                    <input class="social-tool-input" id="social-tool-text-model" type="text">
+                                </div>
+                                <div class="social-tool-field">
+                                    <label for="social-tool-text-key">文本 API Key</label>
+                                    <input class="social-tool-input" id="social-tool-text-key" type="password">
+                                </div>
+                                <div class="social-tool-field">
+                                    <label for="social-tool-image-route">图片 n8n 通道</label>
+                                    <select class="social-tool-select" id="social-tool-image-route">
+                                        <option value="stable_channel_1">稳定版 Channel 1</option>
+                                        <option value="stable_channel_2">稳定版 Channel 2</option>
+                                        <option value="pro">专业版 GPT Image 2</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="social-tool-settings-section">
+                            <div class="social-tool-settings-section-title">
+                                <h4><span class="material-symbols-outlined">psychology</span> 前置提示词</h4>
+                            </div>
+                            <div class="social-tool-field">
+                                <label for="social-tool-system-prompt">可直接更改：内容风格提示词</label>
+                                <textarea class="social-tool-textarea" id="social-tool-system-prompt"></textarea>
+                            </div>
+                            <div class="social-tool-risk-grid">
+                                <div class="social-tool-field social-tool-risk-field">
+                                    <label for="social-tool-schema-prompt">高危只读：前台 JSON 输出协议</label>
+                                    <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-schema-prompt" readonly></textarea>
+                                    <p class="social-tool-muted">该段直接关联前台文案、标签、主题解析，误改会导致页面无法读取模型输出。</p>
+                                </div>
+                                <div class="social-tool-field social-tool-risk-field">
+                                    <label for="social-tool-dynamic-prompt">高危只读：前台动态输入模板</label>
+                                    <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-dynamic-prompt" readonly></textarea>
+                                    <p class="social-tool-muted">该段展示商品描述、场景说明、引导链接如何拼接进大模型请求。</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="social-tool-settings-section">
+                            <div class="social-tool-settings-section-title">
+                                <h4><span class="material-symbols-outlined">view_list</span> 模板管理</h4>
+                                <span class="social-tool-muted">支持变量：{{theme}} {{copy}} {{hashtags}} {{product}} {{context}} {{link}} {{ratio}} {{size}}</span>
+                            </div>
+                            <div class="social-tool-template-manager">
+                                <div>
+                                    <div class="social-tool-template-list" id="social-tool-template-list"></div>
+                                </div>
+                                <div class="social-tool-template-builder">
+                                    <div class="social-tool-inline-grid">
+                                        <div class="social-tool-field" style="margin-bottom:0;">
+                                            <label for="social-tool-new-template-type">模板分区</label>
+                                            <select class="social-tool-select" id="social-tool-new-template-type">
+                                                <option value="scene">场景模板</option>
+                                                <option value="poster">海报模板</option>
+                                            </select>
+                                        </div>
+                                        <div class="social-tool-field" style="margin-bottom:0;">
+                                            <label for="social-tool-new-template-name">模板名称</label>
+                                            <input class="social-tool-input" id="social-tool-new-template-name" type="text" placeholder="例如：户外露营场景">
+                                        </div>
+                                    </div>
+                                    <div class="social-tool-field" style="margin:10px 0 0;">
+                                        <label for="social-tool-new-template-body">提示词模板</label>
+                                        <textarea class="social-tool-textarea" id="social-tool-new-template-body" placeholder="支持 {{theme}} {{copy}} {{product}} {{context}} {{link}} {{ratio}} 等变量"></textarea>
+                                    </div>
+                                    <div class="social-tool-template-builder-actions">
+                                        <button class="top-btn top-btn-primary" id="social-tool-add-template-btn" type="button">
+                                            <span class="material-symbols-outlined">add</span>
+                                            添加模板
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                        <div class="social-tool-settings-actions">
+                            <button class="top-btn" id="social-tool-settings-cancel" type="button">取消</button>
+                            <button class="top-btn top-btn-primary" id="social-tool-settings-save" type="button">保存设置</button>
                         </div>
-                        <div class="social-tool-field">
-                            <label for="social-tool-text-key">文本 API Key</label>
-                            <input class="social-tool-input" id="social-tool-text-key" type="password">
-                        </div>
-                        <div class="social-tool-field">
-                            <label for="social-tool-image-route">图片 n8n 通道</label>
-                            <select class="social-tool-select" id="social-tool-image-route">
-                                <option value="stable_channel_1">稳定版 Channel 1</option>
-                                <option value="stable_channel_2">稳定版 Channel 2</option>
-                                <option value="pro">专业版 GPT Image 2</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="social-tool-field">
-                        <label for="social-tool-system-prompt">可直接更改：内容风格提示词</label>
-                        <textarea class="social-tool-textarea" id="social-tool-system-prompt"></textarea>
-                    </div>
-                    <div class="social-tool-risk-grid">
-                        <div class="social-tool-field social-tool-risk-field">
-                            <label for="social-tool-schema-prompt">高危只读：前台 JSON 输出协议</label>
-                            <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-schema-prompt" readonly></textarea>
-                            <p class="social-tool-muted">该段直接关联前台文案、标签、生图提示词解析，误改会导致页面无法读取模型输出。</p>
-                        </div>
-                        <div class="social-tool-field social-tool-risk-field">
-                            <label for="social-tool-dynamic-prompt">高危只读：前台动态输入模板</label>
-                            <textarea class="social-tool-textarea social-tool-risk-textarea" id="social-tool-dynamic-prompt" readonly></textarea>
-                            <p class="social-tool-muted">该段展示商品描述、场景说明、引导链接如何拼接进大模型请求。</p>
-                        </div>
-                    </div>
-                    <div style="display:flex; justify-content:flex-end; gap:10px;">
-                        <button class="top-btn" id="social-tool-settings-cancel" type="button">取消</button>
-                        <button class="top-btn top-btn-primary" id="social-tool-settings-save" type="button">保存设置</button>
                     </div>
                 </div>
             </div>
@@ -637,9 +688,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
     function bindEvents() {
         byId('social-tool-close-btn').addEventListener('click', close);
         byId('social-tool-settings-btn').addEventListener('click', toggleSettings);
+        byId('social-tool-settings-back').addEventListener('click', closeSettings);
         byId('social-tool-settings-cancel').addEventListener('click', () => {
             loadSettings();
-            byId('social-tool-settings').classList.remove('show');
+            closeSettings();
         });
         byId('social-tool-settings-save').addEventListener('click', saveSettings);
         byId('social-tool-generate-btn').addEventListener('click', handleGenerate);
@@ -654,6 +706,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             if (event.target && event.target.matches('[data-social-template-slot]')) saveActiveForm();
         });
         byId('social-tool-add-template-btn').addEventListener('click', addPromptTemplate);
+        byId('social-tool-template-list').addEventListener('click', (event) => {
+            const button = event.target.closest('[data-social-template-delete]');
+            if (button) deletePromptTemplate(button.dataset.socialTemplateDelete);
+        });
         byId('social-tool-workspace-add').addEventListener('click', addWorkspace);
         byId('social-tool-workspace-list').addEventListener('click', (event) => {
             const button = event.target.closest('.social-tool-workspace-btn');
@@ -700,7 +756,15 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
     function close() {
         const modal = byId('social-tool-modal');
         if (modal) modal.classList.remove('show');
+        closeSettings();
         closeImagePreview();
+    }
+
+    function closeSettings() {
+        const settingsPanel = byId('social-tool-settings');
+        const shell = document.querySelector('.social-tool-shell');
+        if (settingsPanel) settingsPanel.classList.remove('show');
+        if (shell) shell.classList.remove('settings-open');
     }
 
     function openImagePreview(url) {
@@ -766,7 +830,22 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 
     function toggleSettings() {
         loadSettings();
-        byId('social-tool-settings').classList.toggle('show');
+        const settingsPanel = byId('social-tool-settings');
+        const shell = document.querySelector('.social-tool-shell');
+        const shouldOpen = settingsPanel && !settingsPanel.classList.contains('show');
+        if (!settingsPanel) return;
+        settingsPanel.classList.toggle('show', shouldOpen);
+        if (shell) shell.classList.toggle('settings-open', shouldOpen);
+        if (shouldOpen) renderTemplateManager();
+    }
+
+    function openSettings() {
+        loadSettings();
+        const settingsPanel = byId('social-tool-settings');
+        const shell = document.querySelector('.social-tool-shell');
+        if (settingsPanel) settingsPanel.classList.add('show');
+        if (shell) shell.classList.add('settings-open');
+        renderTemplateManager();
     }
 
     function loadSettings() {
@@ -789,6 +868,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             const el = byId(id);
             if (el) el.value = value || '';
         });
+        renderTemplateManager();
     }
 
     function saveSettings() {
@@ -801,7 +881,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         } catch (err) {}
-        byId('social-tool-settings').classList.remove('show');
+        closeSettings();
         showToast('设置已应用');
     }
 
@@ -891,6 +971,56 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         }).join('');
     }
 
+    function renderTemplateManager() {
+        const list = byId('social-tool-template-list');
+        if (!list) return;
+        const templates = getPromptTemplates();
+        const canDelete = templates.length > 1;
+        list.innerHTML = templates.map((template) => `
+            <article class="social-tool-template-card">
+                <div class="social-tool-template-card-head">
+                    <div class="social-tool-template-card-title">
+                        <span class="social-tool-template-pill">${getTemplateTypeLabel(template.type)}</span>
+                        <span>${escapeHtml(template.name)}</span>
+                    </div>
+                    <button class="social-tool-template-delete" type="button" data-social-template-delete="${escapeHtml(template.id)}" ${canDelete ? '' : 'disabled'} title="${canDelete ? '删除模板' : '至少保留一个模板'}">
+                        <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+                    </button>
+                </div>
+                <div class="social-tool-template-card-body">${escapeHtml(template.body)}</div>
+            </article>
+        `).join('');
+    }
+
+    function persistSettings() {
+        try {
+            window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (err) {}
+    }
+
+    function deletePromptTemplate(templateId) {
+        const templates = getPromptTemplates();
+        if (!templateId) return;
+        if (templates.length <= 1) {
+            showToast('至少需要保留一个模板', true);
+            return;
+        }
+        if (!templates.some((template) => template.id === templateId)) return;
+
+        settings.promptTemplates = normalizePromptTemplates(templates.filter((template) => template.id !== templateId));
+        workspaces.forEach((workspace) => {
+            if (!Array.isArray(workspace.templateSelections)) return;
+            workspace.templateSelections = workspace.templateSelections.map((selectedId, index) => (
+                selectedId === templateId ? getDefaultTemplateId(index) : selectedId
+            ));
+        });
+        persistSettings();
+        saveActiveForm();
+        renderTemplateManager();
+        renderTemplateSlots(getActiveWorkspace());
+        showToast('模板已删除');
+    }
+
     function addPromptTemplate() {
         const typeEl = byId('social-tool-new-template-type');
         const nameEl = byId('social-tool-new-template-name');
@@ -909,12 +1039,11 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             body
         };
         settings.promptTemplates = normalizePromptTemplates([...getPromptTemplates(), template]);
-        try {
-            window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (err) {}
+        persistSettings();
         if (nameEl) nameEl.value = '';
         if (bodyEl) bodyEl.value = '';
         saveActiveForm();
+        renderTemplateManager();
         renderTemplateSlots(getActiveWorkspace());
         showToast('模板已添加');
     }
@@ -932,7 +1061,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         }
         if (!settings.textApiKey) {
             showToast('请先配置文本大模型 API Key', true);
-            byId('social-tool-settings').classList.add('show');
+            openSettings();
             return;
         }
         if (!window.VeoApi || typeof window.VeoApi.postEndpoint !== 'function') {
