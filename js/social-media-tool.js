@@ -1,4 +1,4 @@
-(function (window, document) {
+﻿(function (window, document) {
     'use strict';
 
     const HIDDEN_JSON_SCHEMA_PROMPT = `
@@ -19,6 +19,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     const MAX_IMAGES = 5;
     const MAX_IMAGE_PROMPTS = 3;
     const SETTINGS_KEY = 'socialMediaEngineSettings';
+    const DEFAULT_WORKSPACE_COUNT = 1;
 
     const defaultSettings = {
         textApiUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -29,7 +30,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     };
 
     let settings = { ...defaultSettings };
-    let uploadedImages = [];
+    let workspaces = [];
+    let activeWorkspaceId = '';
     let initialized = false;
     let toastTimer = null;
 
@@ -55,6 +57,70 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 
     function delay(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function createWorkspace() {
+        const id = `social_ws_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        return {
+            id,
+            name: `W${workspaces.length + 1}`,
+            uploadedImages: [],
+            productDesc: '',
+            contextDesc: '',
+            guidanceLink: '',
+            textResult: null,
+            imagePrompts: [],
+            imageResults: [],
+            logs: ['运行日志'],
+            isLoading: false,
+            generationToken: 0
+        };
+    }
+
+    function ensureWorkspaces() {
+        while (workspaces.length < DEFAULT_WORKSPACE_COUNT) {
+            workspaces.push(createWorkspace());
+        }
+        if (!activeWorkspaceId || !getWorkspace(activeWorkspaceId)) {
+            activeWorkspaceId = workspaces[0].id;
+        }
+    }
+
+    function getWorkspace(id) {
+        return workspaces.find((workspace) => workspace.id === id) || null;
+    }
+
+    function getActiveWorkspace() {
+        ensureWorkspaces();
+        return getWorkspace(activeWorkspaceId) || workspaces[0];
+    }
+
+    function saveActiveForm() {
+        const workspace = getActiveWorkspace();
+        if (!workspace) return;
+        const productDesc = byId('social-tool-product-desc');
+        const contextDesc = byId('social-tool-context-desc');
+        const guidanceLink = byId('social-tool-guidance-link');
+        if (productDesc) workspace.productDesc = productDesc.value;
+        if (contextDesc) workspace.contextDesc = contextDesc.value;
+        if (guidanceLink) workspace.guidanceLink = guidanceLink.value;
+    }
+
+    function restoreActiveForm() {
+        const workspace = getActiveWorkspace();
+        const productDesc = byId('social-tool-product-desc');
+        const contextDesc = byId('social-tool-context-desc');
+        const guidanceLink = byId('social-tool-guidance-link');
+        if (productDesc) productDesc.value = workspace.productDesc || '';
+        if (contextDesc) contextDesc.value = workspace.contextDesc || '';
+        if (guidanceLink) guidanceLink.value = workspace.guidanceLink || '';
+    }
+
+    function getWorkspaceStatus(workspace) {
+        if (workspace.isLoading) return 'running';
+        if (workspace.imageResults.some((item) => item && item.status === 'failed')) return 'failed';
+        if (workspace.textResult || workspace.imageResults.some((item) => item && item.status === 'success')) return 'done';
+        return 'idle';
     }
 
     function getImageRoute() {
@@ -84,7 +150,16 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 .social-tool-title h2 { margin: 0; font-size: 20px; }
 .social-tool-title p { color: var(--text-sub); font-size: 13px; margin: 0; }
 .social-tool-head-actions { display: flex; gap: 10px; align-items: center; }
-.social-tool-body { display: grid; grid-template-columns: minmax(320px, 0.92fr) minmax(420px, 1.3fr); gap: 18px; padding: 18px; overflow: auto; }
+.social-tool-head-actions .help-close { position: static; inset: auto; transform: none; flex: 0 0 34px; width: 34px; height: 34px; }
+.social-tool-body { display: grid; grid-template-columns: 52px minmax(320px, 0.92fr) minmax(420px, 1.3fr); gap: 18px; padding: 18px; overflow: auto; }
+.social-tool-workspaces { display: flex; flex-direction: column; align-items: center; gap: 9px; position: sticky; top: 0; align-self: start; }
+.social-tool-workspace-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.social-tool-workspace-btn, .social-tool-workspace-add { width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text-sub); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; position: relative; }
+.social-tool-workspace-btn:hover, .social-tool-workspace-add:hover, .social-tool-workspace-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(94,156,255,0.12); }
+.social-tool-workspace-btn::after { content: ''; position: absolute; right: -2px; top: -2px; width: 9px; height: 9px; border-radius: 50%; background: transparent; border: 1px solid transparent; }
+.social-tool-workspace-btn.running::after { background: #f3b342; border-color: rgba(0,0,0,.18); }
+.social-tool-workspace-btn.failed::after { background: var(--danger); border-color: rgba(0,0,0,.18); }
+.social-tool-workspace-btn.done::after { background: #43c279; border-color: rgba(0,0,0,.18); }
 .social-tool-panel { background: rgba(255,255,255,0.045); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
 :root[data-theme='light'] .social-tool-panel { background: rgba(246,249,255,0.78); }
 .social-tool-panel h3 { color: var(--text-main); font-size: 14px; font-weight: 650; margin: 0 0 12px; display: flex; align-items: center; gap: 7px; }
@@ -108,6 +183,11 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 .social-tool-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-height: 156px; position: relative; }
 .social-tool-image-item { aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: rgba(255,255,255,0.05); position: relative; }
 .social-tool-image-item a { position: absolute; right: 7px; bottom: 7px; border-radius: 8px; background: rgba(0,0,0,.62); color: #fff; padding: 5px 7px; font-size: 11px; text-decoration: none; }
+.social-tool-image-item.pending, .social-tool-image-item.failed { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--text-sub); }
+.social-tool-image-item.pending { border-style: dashed; }
+.social-tool-image-item.failed { border-color: rgba(255,94,89,.42); color: var(--danger); }
+.social-tool-image-item .material-symbols-outlined { font-size: 24px; }
+.social-tool-image-retry { border: 1px solid rgba(255,94,89,.38); color: var(--danger); background: rgba(255,94,89,.08); border-radius: 8px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
 .social-tool-placeholder { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--text-sub); font-size: 13px; text-align: center; grid-column: 1 / -1; border: 1px dashed var(--border); border-radius: 8px; padding: 12px; }
 .social-tool-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 28px; }
 .social-tool-tag { color: var(--accent); background: rgba(94,156,255,0.11); border: 1px solid rgba(94,156,255,0.2); border-radius: 999px; padding: 5px 9px; font-size: 12px; user-select: text; }
@@ -119,7 +199,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 .social-tool-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .social-tool-toast.error { border-color: rgba(255,94,89,.35); color: var(--danger); }
 @media (max-width: 860px) {
-  .social-tool-body { grid-template-columns: 1fr; }
+  .social-tool-body { grid-template-columns: 48px minmax(0, 1fr); }
+  .social-tool-body > .social-tool-grid { grid-column: 2; }
   .social-tool-settings-grid { grid-template-columns: 1fr; }
   .social-tool-gallery, .social-tool-image-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .social-tool-head { align-items: flex-start; }
@@ -150,6 +231,12 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                     </div>
                 </div>
                 <div class="social-tool-body">
+                    <aside class="social-tool-workspaces" aria-label="Social media workspaces">
+                        <div class="social-tool-workspace-list" id="social-tool-workspace-list"></div>
+                        <button class="social-tool-workspace-add" id="social-tool-workspace-add" type="button" title="新增工作区">
+                            <span class="material-symbols-outlined" style="font-size:19px;">add</span>
+                        </button>
+                    </aside>
                     <section class="social-tool-grid">
                         <div class="social-tool-panel">
                             <h3><span class="material-symbols-outlined">image</span> 产品图片</h3>
@@ -172,6 +259,10 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                                 <label for="social-tool-context-desc">活动/场景说明</label>
                                 <input class="social-tool-input" id="social-tool-context-desc" type="text" placeholder="例如：圣诞节促销，强调温馨和送礼属性">
                             </div>
+                            <div class="social-tool-field">
+                                <label for="social-tool-guidance-link">贴文引导链接</label>
+                                <input class="social-tool-input" id="social-tool-guidance-link" type="url" placeholder="https://... 可选，用作贴文 CTA 或活动落点">
+                            </div>
                             <button class="top-btn top-btn-primary social-tool-main-btn" id="social-tool-generate-btn" type="button">
                                 <span class="material-symbols-outlined">auto_awesome</span>
                                 <span id="social-tool-generate-text">一键生成社媒内容 & 图片</span>
@@ -187,7 +278,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                                 <h3 style="margin:0;"><span class="material-symbols-outlined">stylus_note</span> 社媒文案输出</h3>
                                 <button class="top-btn" id="social-tool-copy-btn" type="button">
                                     <span class="material-symbols-outlined">content_copy</span>
-                                    复制
+                                    复制文案+标签
                                 </button>
                             </div>
                             <div class="social-tool-output social-tool-panel" id="social-tool-text-output">等待生成中...</div>
@@ -257,6 +348,15 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         byId('social-tool-settings-save').addEventListener('click', saveSettings);
         byId('social-tool-generate-btn').addEventListener('click', handleGenerate);
         byId('social-tool-copy-btn').addEventListener('click', copyText);
+        byId('social-tool-workspace-add').addEventListener('click', addWorkspace);
+        byId('social-tool-workspace-list').addEventListener('click', (event) => {
+            const button = event.target.closest('.social-tool-workspace-btn');
+            if (button && button.dataset.workspaceId) switchWorkspace(button.dataset.workspaceId);
+        });
+        byId('social-tool-images').addEventListener('click', (event) => {
+            const button = event.target.closest('[data-social-retry-index]');
+            if (button) retryImage(Number(button.dataset.socialRetryIndex), button.dataset.workspaceId || activeWorkspaceId);
+        });
         byId('social-tool-image-input').addEventListener('change', handleImageSelect);
 
         const upload = byId('social-tool-upload');
@@ -277,6 +377,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         ensureStyles();
         ensureShell();
         loadSettings();
+        ensureWorkspaces();
+        renderActiveWorkspace();
         bindEvents();
         initialized = true;
     }
@@ -289,6 +391,48 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     function close() {
         const modal = byId('social-tool-modal');
         if (modal) modal.classList.remove('show');
+    }
+
+    function addWorkspace() {
+        saveActiveForm();
+        const workspace = createWorkspace();
+        workspaces.push(workspace);
+        activeWorkspaceId = workspace.id;
+        renderActiveWorkspace();
+        showToast('已新增工作区');
+    }
+
+    function switchWorkspace(workspaceId) {
+        if (!getWorkspace(workspaceId) || workspaceId === activeWorkspaceId) return;
+        saveActiveForm();
+        activeWorkspaceId = workspaceId;
+        renderActiveWorkspace();
+    }
+
+    function renderWorkspaceRail() {
+        const list = byId('social-tool-workspace-list');
+        if (!list) return;
+        list.innerHTML = '';
+        workspaces.forEach((workspace, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `social-tool-workspace-btn ${workspace.id === activeWorkspaceId ? 'active' : ''} ${getWorkspaceStatus(workspace)}`;
+            button.dataset.workspaceId = workspace.id;
+            button.title = `${workspace.name || `W${index + 1}`} - ${getWorkspaceStatus(workspace)}`;
+            button.textContent = String(index + 1);
+            list.appendChild(button);
+        });
+    }
+
+    function renderActiveWorkspace() {
+        ensureWorkspaces();
+        restoreActiveForm();
+        renderWorkspaceRail();
+        renderGallery();
+        renderTextOutput(getActiveWorkspace().textResult);
+        renderImageResults(getActiveWorkspace());
+        renderLog(getActiveWorkspace());
+        setLoadingState(getActiveWorkspace().isLoading);
     }
 
     function toggleSettings() {
@@ -331,7 +475,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
     }
 
     function processFiles(files) {
-        const availableSlots = MAX_IMAGES - uploadedImages.length;
+        const workspace = getActiveWorkspace();
+        const availableSlots = MAX_IMAGES - workspace.uploadedImages.length;
         if (availableSlots <= 0) {
             showToast('最多只能上传5张图片', true);
             return;
@@ -340,18 +485,18 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             if (!file || !file.type || !file.type.startsWith('image/')) return;
             const reader = new FileReader();
             reader.onload = (event) => {
-                uploadedImages.push({
+                workspace.uploadedImages.push({
                     dataUrl: event.target.result,
                     mimeType: file.type
                 });
-                renderGallery();
+                if (workspace.id === activeWorkspaceId) renderGallery();
             };
             reader.readAsDataURL(file);
         });
     }
 
     function removeImage(index) {
-        uploadedImages.splice(index, 1);
+        getActiveWorkspace().uploadedImages.splice(index, 1);
         renderGallery();
     }
 
@@ -359,7 +504,8 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         const gallery = byId('social-tool-gallery');
         gallery.querySelectorAll('.social-tool-preview').forEach((item) => item.remove());
         const upload = byId('social-tool-upload');
-        uploadedImages.forEach((img, index) => {
+        const workspace = getActiveWorkspace();
+        workspace.uploadedImages.forEach((img, index) => {
             const item = document.createElement('div');
             item.className = 'social-tool-preview';
             const image = document.createElement('img');
@@ -373,11 +519,17 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             item.append(image, remove);
             gallery.insertBefore(item, upload);
         });
-        upload.style.display = uploadedImages.length >= MAX_IMAGES ? 'none' : 'flex';
+        upload.style.display = workspace.uploadedImages.length >= MAX_IMAGES ? 'none' : 'flex';
     }
 
     async function handleGenerate() {
-        if (uploadedImages.length === 0) {
+        saveActiveForm();
+        const workspace = getActiveWorkspace();
+        if (workspace.isLoading) {
+            showToast('当前工作区正在生成中');
+            return;
+        }
+        if (workspace.uploadedImages.length === 0) {
             showToast('请至少上传一张产品图片', true);
             return;
         }
@@ -391,37 +543,54 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             return;
         }
 
-        const productDesc = byId('social-tool-product-desc').value.trim();
-        const contextDesc = byId('social-tool-context-desc').value.trim();
-        setLoadingState(true);
-        clearOutputs();
-        resetLog();
+        const workspaceId = workspace.id;
+        const generationToken = workspace.generationToken + 1;
+        workspace.generationToken = generationToken;
+        workspace.productDesc = (workspace.productDesc || '').trim();
+        workspace.contextDesc = (workspace.contextDesc || '').trim();
+        workspace.guidanceLink = (workspace.guidanceLink || '').trim();
+        workspace.textResult = null;
+        workspace.imagePrompts = [];
+        workspace.imageResults = [];
+        workspace.logs = ['运行日志'];
+        workspace.isLoading = true;
+        renderActiveWorkspace();
 
         try {
-            logDebug('正在调用文本多模态大模型分析图片...');
-            const textResult = await callTextMultimodalModel(productDesc, contextDesc);
+            logDebug('正在调用文本多模态大模型分析图片...', workspaceId);
+            const textResult = await callTextMultimodalModel(workspace.productDesc, workspace.contextDesc, workspace.guidanceLink, workspaceId);
             if (!textResult) throw new Error('文本模型未返回有效数据');
-            logDebug('文本生成成功，正在渲染到界面...');
-            renderTextOutput(textResult);
+            logDebug('文本生成成功，正在渲染到界面...', workspaceId);
+            workspace.textResult = textResult;
+            if (activeWorkspaceId === workspaceId) renderTextOutput(textResult);
 
             const prompts = Array.isArray(textResult.imagePrompts)
                 ? textResult.imagePrompts.filter(Boolean).slice(0, MAX_IMAGE_PROMPTS)
                 : [];
+            workspace.imagePrompts = prompts;
             if (prompts.length === 0) {
-                logDebug('模型未提供生图提示词，跳过生图步骤。');
+                logDebug('模型未提供生图提示词，跳过生图步骤。', workspaceId);
             } else {
-                logDebug(`准备通过 n8n 生成 ${prompts.length} 张图片...`);
-                byId('social-tool-images').innerHTML = '';
-                const results = await Promise.allSettled(prompts.map((prompt, index) => generateImage(prompt, index)));
+                logDebug(`准备通过 n8n 生成 ${prompts.length} 张图片...`, workspaceId);
+                workspace.imageResults = prompts.map((prompt, index) => ({ index, prompt, status: 'pending', url: '', error: '' }));
+                if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
+                const results = await Promise.allSettled(prompts.map((prompt, index) => generateImage(prompt, index, workspaceId)));
                 results.forEach((result, index) => {
-                    if (result.status === 'fulfilled' && result.value) {
-                        renderGeneratedImage(result.value, index);
-                    } else {
-                        const message = result.reason && result.reason.message ? result.reason.message : '未知错误';
-                        logDebug(`第 ${index + 1} 张图片生成失败: ${escapeHtml(message)}`);
+                    if (result.status === 'rejected' || !result.value) {
+                        const message = result.reason && result.reason.message ? result.reason.message : 'Unknown image error';
+                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'failed', url: '', error: message };
                     }
                 });
-                if (!byId('social-tool-images').querySelector('.social-tool-image-item')) {
+                results.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value) {
+                        workspace.imageResults[index] = { index, prompt: prompts[index], status: 'success', url: result.value, error: '' };
+                    } else {
+                        const message = result.reason && result.reason.message ? result.reason.message : '未知错误';
+                        logDebug(`第 ${index + 1} 张图片生成失败: ${escapeHtml(message)}`, workspaceId);
+                    }
+                });
+                if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
+                if (activeWorkspaceId === workspaceId && !byId('social-tool-images').querySelector('.social-tool-image-item')) {
                     byId('social-tool-images').innerHTML = '<div class="social-tool-placeholder">图片生成失败，请查看日志</div>';
                 }
             }
@@ -432,14 +601,16 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             showToast('生成完成');
         } catch (error) {
             console.error(error);
-            logDebug(`<span style="color:var(--danger);">错误: ${escapeHtml(error.message || error)}</span>`);
+            logDebug(`<span style="color:var(--danger);">错误: ${escapeHtml(error.message || error)}</span>`, workspaceId);
             showToast('生成过程发生错误，请查看日志', true);
         } finally {
-            setLoadingState(false);
+            if (workspace.generationToken === generationToken) workspace.isLoading = false;
+            renderWorkspaceRail();
+            if (activeWorkspaceId === workspaceId) setLoadingState(false);
         }
     }
 
-    async function callTextMultimodalModel(productDesc, contextDesc) {
+    async function callTextMultimodalModel(productDesc, contextDesc, guidanceLink, workspaceId) {
         let baseUrl = String(settings.textApiUrl || defaultSettings.textApiUrl).replace(/\/$/, '');
         let url = `${baseUrl}/models/${settings.textModelName || defaultSettings.textModelName}:generateContent?key=${settings.textApiKey || ''}`;
 
@@ -449,10 +620,15 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 
 请根据提供的图片和上述信息，执行任务。
 `;
+        if (guidanceLink) {
+            promptText += `\n贴文引导链接: ${guidanceLink}`;
+        }
+
         let parts = [];
         parts.push({ text: settings.systemPrompt + HIDDEN_JSON_SCHEMA_PROMPT + "\n\n" + promptText });
 
-        uploadedImages.forEach(img => {
+        const sourceWorkspace = getWorkspace(workspaceId) || getActiveWorkspace();
+        sourceWorkspace.uploadedImages.forEach(img => {
             const base64Data = img.dataUrl.split(',')[1];
             parts.push({
                 inlineData: {
@@ -502,11 +678,12 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         return null;
     }
 
-    async function generateImage(promptText, index) {
-        logDebug(`正在发起 n8n 生图请求 ${index + 1}...`);
+    async function generateImage(promptText, index, workspaceId) {
+        logDebug(`正在发起 n8n 生图请求 ${index + 1}...`, workspaceId);
         const route = getImageRoute();
         const imageModel = route.model || (route.version === 'pro' ? 'gpt-image-2' : 'gpt-image-2-c');
-        const refs = uploadedImages.map((img) => img.dataUrl).filter(Boolean).slice(0, Math.min(MAX_IMAGES, route.maxRefs || MAX_IMAGES));
+        const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
+        const refs = workspace.uploadedImages.map((img) => img.dataUrl).filter(Boolean).slice(0, Math.min(MAX_IMAGES, route.maxRefs || MAX_IMAGES));
         const routeKey = route.key || settings.imageRoute || defaultSettings.imageRoute;
         const state = {
             prompt: promptText,
@@ -583,14 +760,14 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         const taskId = extractTaskId(rawData);
         const status = extractStatus(rawData);
         if (taskId && !isFailedStatus(status)) {
-            logDebug(`图片 ${index + 1} 已进入异步队列: ${escapeHtml(taskId)}`);
-            return pollImageResult(taskId, task, index);
+            logDebug(`图片 ${index + 1} 已进入异步队列: ${escapeHtml(taskId)}`, workspaceId);
+            return pollImageResult(taskId, task, index, workspaceId);
         }
         if (isFailedStatus(status)) throw new Error(`n8n 返回失败状态: ${status}`);
         throw new Error('n8n 返回成功但未包含图片或任务ID');
     }
 
-    async function pollImageResult(remoteTaskId, task, index) {
+    async function pollImageResult(remoteTaskId, task, index, workspaceId) {
         const pollEndpoint = window.VeoApi.resolveImagePollEndpoint
             ? window.VeoApi.resolveImagePollEndpoint()
             : { url: window.VeoApi.resolveEndpoint('image.unified') };
@@ -623,7 +800,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 throw new Error('n8n 图片轮询密钥校验失败');
             }
             if (!response.ok) {
-                logDebug(`图片 ${index + 1} 轮询 HTTP ${response.status}，继续等待...`);
+                logDebug(`图片 ${index + 1} 轮询 HTTP ${response.status}，继续等待...`, workspaceId);
                 continue;
             }
             const rawData = await parseImageResponse(response, 'processing');
@@ -633,7 +810,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
             if (nextTaskId) currentTaskId = nextTaskId;
             const status = extractStatus(rawData);
             if (isFailedStatus(status)) throw new Error(`n8n 图片任务失败: ${status}`);
-            if (attempt % 8 === 0) logDebug(`图片 ${index + 1} 仍在生成中...`);
+            if (attempt % 8 === 0) logDebug(`图片 ${index + 1} 仍在生成中...`, workspaceId);
         }
         throw new Error('图片任务轮询超时');
     }
@@ -683,6 +860,11 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
 
     function renderTextOutput(data) {
         const output = byId('social-tool-text-output');
+        if (!data) {
+            output.textContent = '等待生成中...';
+            byId('social-tool-tags').innerHTML = '';
+            return;
+        }
         output.textContent = data.content || '未能生成有效文案';
         const tags = byId('social-tool-tags');
         tags.innerHTML = '';
@@ -714,6 +896,86 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         grid.appendChild(item);
     }
 
+    function renderImageResults(workspace) {
+        const grid = byId('social-tool-images');
+        if (!grid) return;
+        const results = workspace && Array.isArray(workspace.imageResults) ? workspace.imageResults : [];
+        if (results.length === 0) {
+            grid.innerHTML = '<div class="social-tool-placeholder">暂无生成的图片</div>';
+            return;
+        }
+        grid.innerHTML = '';
+        results.forEach((result, index) => {
+            const status = result && result.status ? result.status : 'pending';
+            const item = document.createElement('div');
+            item.className = `social-tool-image-item ${status}`;
+            if (status === 'success' && result.url) {
+                const img = document.createElement('img');
+                img.src = result.url;
+                img.alt = `生成配图 ${index + 1}`;
+                img.draggable = true;
+                const link = document.createElement('a');
+                link.href = result.url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = '打开';
+                item.append(img, link);
+            } else if (status === 'failed') {
+                item.innerHTML = `
+                    <span class="material-symbols-outlined">error</span>
+                    <div>第 ${index + 1} 张生成失败</div>
+                    <button class="social-tool-image-retry" type="button" data-workspace-id="${escapeHtml(workspace.id)}" data-social-retry-index="${index}">重试这张</button>
+                `;
+            } else {
+                item.innerHTML = `
+                    <span class="material-symbols-outlined">hourglass_empty</span>
+                    <div>第 ${index + 1} 张生成中...</div>
+                `;
+            }
+            grid.appendChild(item);
+        });
+    }
+
+    async function retryImage(index, workspaceId) {
+        const workspace = getWorkspace(workspaceId);
+        if (!workspace || workspace.isLoading) {
+            if (workspace && workspace.isLoading) showToast('该工作区正在生成中，请稍候');
+            return;
+        }
+        const prompt = workspace.imagePrompts[index] || (workspace.imageResults[index] && workspace.imageResults[index].prompt);
+        if (!prompt) {
+            showToast('找不到这张图的提示词，无法重试', true);
+            return;
+        }
+        workspace.imageResults[index] = { index, prompt, status: 'pending', url: '', error: '' };
+        workspace.isLoading = true;
+        renderWorkspaceRail();
+        if (activeWorkspaceId === workspace.id) {
+            renderImageResults(workspace);
+            setLoadingState(true);
+        }
+        try {
+            const url = await generateImage(prompt, index, workspace.id);
+            workspace.imageResults[index] = { index, prompt, status: 'success', url, error: '' };
+            if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
+                window.VeoBilling.refreshBalanceAfterUsage();
+            }
+            showToast('单图重试完成');
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error || 'Unknown image error');
+            workspace.imageResults[index] = { index, prompt, status: 'failed', url: '', error: message };
+            logDebug(`第 ${index + 1} 张图片重试失败: ${escapeHtml(message)}`, workspace.id);
+            showToast('单图重试失败，可再次点击重试', true);
+        } finally {
+            workspace.isLoading = false;
+            renderWorkspaceRail();
+            if (activeWorkspaceId === workspace.id) {
+                renderImageResults(workspace);
+                setLoadingState(false);
+            }
+        }
+    }
+
     function clearOutputs() {
         byId('social-tool-text-output').textContent = '生成中，请稍候...';
         byId('social-tool-tags').innerHTML = '';
@@ -731,19 +993,37 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         byId('social-tool-log').innerHTML = '<div>运行日志</div>';
     }
 
-    function logDebug(message) {
+    function renderLog(workspace) {
         const log = byId('social-tool-log');
+        if (!log) return;
+        const entries = workspace && Array.isArray(workspace.logs) && workspace.logs.length ? workspace.logs : ['运行日志'];
+        log.innerHTML = entries.map((entry) => `<div>${entry}</div>`).join('');
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function logDebug(message, workspaceId = activeWorkspaceId) {
+        const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
         const item = document.createElement('div');
         const time = new Date().toLocaleTimeString();
         item.innerHTML = `<span style="opacity:.7;">[${escapeHtml(time)}]</span> ${message}`;
+        workspace.logs.push(item.innerHTML);
+        renderWorkspaceRail();
+        if (workspace.id !== activeWorkspaceId) return;
+        const log = byId('social-tool-log');
         log.appendChild(item);
         log.scrollTop = log.scrollHeight;
     }
 
     async function copyText() {
-        const text = byId('social-tool-text-output').textContent || '';
-        const hashtags = Array.from(byId('social-tool-tags').children).map((item) => item.textContent).join(' ');
-        const fullText = `${text}\n\n${hashtags}`.trim();
+        const workspace = getActiveWorkspace();
+        const text = workspace.textResult && workspace.textResult.content
+            ? workspace.textResult.content
+            : (byId('social-tool-text-output').textContent || '');
+        const tagList = workspace.textResult && Array.isArray(workspace.textResult.hashtags)
+            ? workspace.textResult.hashtags.map((tag) => String(tag || '').startsWith('#') ? String(tag || '') : `#${tag}`)
+            : Array.from(byId('social-tool-tags').children).map((item) => item.textContent);
+        const hashtags = tagList.filter(Boolean).join(' ');
+        const fullText = [text, hashtags].filter(Boolean).join('\n\n').trim();
         if (!fullText || fullText === '等待生成中...') return;
         try {
             if (window.navigator.clipboard && window.isSecureContext) {
@@ -756,7 +1036,7 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
                 document.execCommand('copy');
                 textarea.remove();
             }
-            showToast('文案已复制');
+            showToast('文案和标签已复制');
         } catch (err) {
             showToast('复制失败，当前环境不支持该操作', true);
         }
@@ -782,3 +1062,4 @@ Ensure 'imagePrompts' contains at least 1 and up to 3 prompts optimized for DALL
         getSettings: () => ({ ...settings })
     };
 })(window, document);
+

@@ -17,3 +17,9 @@
   - Status: done.
   - Evidence: added `js/social-media-tool.js`, wired the 社媒 top-bar entry in `index.html`, `studio.html`, and `js/index.html`; verified `node --check js/social-media-tool.js`; browser smoke on `index.html` confirmed `window.VeoSocialMediaTool`, `window.VeoApi`, helper parsers, default `stable_channel_1`, and modal rendering; pushed commit `03b8690` to `test/test-main`.
   - Next: test a real Gemini text key plus n8n image run from the UI, then tune prompt presets if the generated copy/image prompts need a stronger house style.
+
+- 2026-07-23
+  - Goal: optimize the social-media tool modal with non-overlapping header actions, parallel workspaces, per-image retry, guidance-link input, and copy-with-tags behavior.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Playwright smoke on local `index.html` confirmed modal open, workspace count 1 -> 2, workspace input restoration, guidance-link input, retry button rendering, copy button text, and no settings/close overlap.
+  - Next: push the tested update to `test/test-main`, then run a real n8n image-failure retry from the hosted test page.
