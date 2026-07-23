@@ -29,3 +29,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed default `1:1` ratio options, editable content prompt, readonly high-risk JSON/dynamic prompts, generated `4:5` image result rendering, and double-click image preview.
   - Next: push the tested update to `test/test-main` and run a real n8n generation with each selected social ratio.
+
+- 2026-07-23
+  - Goal: restructure the social-media workflow so the text model only generates copy/theme, while image prompts come from user-selected poster/scene templates.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed default 3-slot template assignment, prompt-template add flow, old prompt migration, model response without `imagePrompts`, two template-built n8n image payloads, and result badges.
+  - Next: run a real hosted n8n test with one poster slot plus multiple scene slots and tune the default prompt-template wording from real outputs.
