@@ -121,17 +121,24 @@
         }
 
         const selectedIds = callHook('getSelectedTaskIds') || [];
-        const targetIds = selectedIds.length > 0 ? selectedIds : tasks.map((task) => task && task.id).filter(Boolean);
-        const cardsToAlign = tasks.filter((task) => (
+        const layoutableCards = tasks.filter((task) => (
             task &&
-            targetIds.includes(task.id) &&
             task.type !== 'local_image' &&
             task.type !== 'frame' &&
             !task.parentId
         ));
+        const selectedCards = selectedIds.length > 0
+            ? layoutableCards.filter((task) => selectedIds.includes(task.id))
+            : [];
+        const cardsToAlign = selectedCards.length >= 2 ? selectedCards : layoutableCards;
+        const layoutScope = selectedCards.length >= 2 ? '选中卡片' : '全部卡片';
 
         if (cardsToAlign.length === 0) {
             callHook('showToast', '没有可排版的散落卡片', 'info');
+            return;
+        }
+        if (cardsToAlign.length === 1) {
+            callHook('showToast', '至少需要 2 张卡片才能排版', 'info');
             return;
         }
 
@@ -150,6 +157,7 @@
         cardsToAlign.forEach((task) => sizeCache.set(task.id, measureTaskAABB(task)));
         const widest = Math.max(...cardsToAlign.map((task) => (sizeCache.get(task.id) || { width: 340 }).width), 340);
         const usableWidth = Math.max(widest + gapX, viewportWidthBoard - 120);
+        const updatedAt = Date.now();
 
         let cursorX = minX;
         let cursorY = minY;
@@ -166,13 +174,25 @@
             }
             task.x = cursorX;
             task.y = cursorY;
+            task.timestamp = updatedAt;
             cursorX += size.width + gapX;
             rowMaxHeight = Math.max(rowMaxHeight, size.height);
         }
 
         await callHook('saveTasks', cardsToAlign);
         await callHook('renderBoard');
-        callHook('showToast', '空间清理完成：已按真实尺寸自动排版', 'success');
+        callHook('clearSelection');
+        cardsToAlign.forEach((task) => {
+            callHook('addSelectedTask', task.id);
+            const el = callHook('getTaskElement', task.id);
+            if (el) {
+                el.classList.add('selected');
+                el.classList.remove('is-viewport-culled');
+            }
+        });
+        callHook('updateSelectionToolbar');
+        focusSelectedTasks();
+        callHook('showToast', `空间清理完成：已排版 ${layoutScope} ${cardsToAlign.length} 张`, 'success');
     }
 
     function resolveLinkedNodePosition(sourceTask, targetSize = {}, options = {}) {
