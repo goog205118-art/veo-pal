@@ -23,3 +23,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Playwright smoke on local `index.html` confirmed modal open, workspace count 1 -> 2, workspace input restoration, guidance-link input, retry button rendering, copy button text, and no settings/close overlap.
   - Next: push the tested update to `test/test-main`, then run a real n8n image-failure retry from the hosted test page.
+
+- 2026-07-23
+  - Goal: refine the social-media image workflow with double-click preview, visible prompt configuration, and common social aspect-ratio selection.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed default `1:1` ratio options, editable content prompt, readonly high-risk JSON/dynamic prompts, generated `4:5` image result rendering, and double-click image preview.
+  - Next: push the tested update to `test/test-main` and run a real n8n generation with each selected social ratio.
