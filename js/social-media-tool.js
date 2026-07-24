@@ -399,11 +399,15 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-image-item.success { cursor: zoom-in; min-height: 120px; }
 .social-tool-image-item a { position: absolute; right: 7px; bottom: 7px; border-radius: 8px; background: rgba(0,0,0,.62); color: #fff; padding: 5px 7px; font-size: 11px; text-decoration: none; }
 .social-tool-image-badge { position: absolute; left: 7px; top: 7px; max-width: calc(100% - 14px); border-radius: 8px; background: rgba(0,0,0,.62); color: #fff; padding: 5px 7px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-tool-image-actions { position: absolute; right: 7px; bottom: 7px; display: flex; align-items: center; gap: 6px; }
+.social-tool-image-actions a { position: static; }
 .social-tool-image-item.pending, .social-tool-image-item.failed { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--text-sub); }
 .social-tool-image-item.pending { border-style: dashed; }
 .social-tool-image-item.failed { border-color: rgba(255,94,89,.42); color: var(--danger); }
 .social-tool-image-item .material-symbols-outlined { font-size: 24px; }
 .social-tool-image-retry { border: 1px solid rgba(255,94,89,.38); color: var(--danger); background: rgba(255,94,89,.08); border-radius: 8px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
+.social-tool-image-regenerate { border: 1px solid rgba(94,156,255,.35); color: #d7e7ff; background: rgba(20,55,98,.8); border-radius: 8px; padding: 5px 7px; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.social-tool-image-regenerate:hover { border-color: var(--accent); background: rgba(36,83,141,.9); }
 .social-tool-placeholder { min-height: 120px; display: flex; align-items: center; justify-content: center; color: var(--text-sub); font-size: 13px; text-align: center; grid-column: 1 / -1; border: 1px dashed var(--border); border-radius: 8px; padding: 12px; }
 .social-tool-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 28px; }
 .social-tool-tag { color: var(--accent); background: rgba(94,156,255,0.11); border: 1px solid rgba(94,156,255,0.2); border-radius: 999px; padding: 5px 9px; font-size: 12px; user-select: text; }
@@ -716,8 +720,12 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             if (button && button.dataset.workspaceId) switchWorkspace(button.dataset.workspaceId);
         });
         byId('social-tool-images').addEventListener('click', (event) => {
-            const button = event.target.closest('[data-social-retry-index]');
-            if (button) retryImage(Number(button.dataset.socialRetryIndex), button.dataset.workspaceId || activeWorkspaceId);
+            const button = event.target.closest('[data-social-rerun-index]');
+            if (button) rerunImage(
+                Number(button.dataset.socialRerunIndex),
+                button.dataset.workspaceId || activeWorkspaceId,
+                button.dataset.socialRerunMode || 'retry'
+            );
         });
         byId('social-tool-image-input').addEventListener('change', handleImageSelect);
         document.addEventListener('keydown', (event) => {
@@ -1448,11 +1456,22 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                 link.target = '_blank';
                 link.rel = 'noopener noreferrer';
                 link.textContent = '打开';
-                item.append(img, badge, link);
+                const regenerate = document.createElement('button');
+                regenerate.className = 'social-tool-image-regenerate';
+                regenerate.type = 'button';
+                regenerate.dataset.workspaceId = workspace.id;
+                regenerate.dataset.socialRerunIndex = String(index);
+                regenerate.dataset.socialRerunMode = 'regenerate';
+                regenerate.title = '保留当前模板与比例，重新生成这一张';
+                regenerate.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;">refresh</span>重新生成';
+                const actions = document.createElement('div');
+                actions.className = 'social-tool-image-actions';
+                actions.append(regenerate, link);
+                item.append(img, badge, actions);
                 item.title = '双击放大查看';
                 item.tabIndex = 0;
                 item.addEventListener('dblclick', (event) => {
-                    if (event.target && typeof event.target.closest === 'function' && event.target.closest('a')) return;
+                    if (event.target && typeof event.target.closest === 'function' && event.target.closest('a, button')) return;
                     openImagePreview(result.url);
                 });
                 item.addEventListener('keydown', (event) => {
@@ -1463,7 +1482,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                     <span class="material-symbols-outlined">error</span>
                     <div>第 ${index + 1} 张生成失败</div>
                     <div class="social-tool-muted">${escapeHtml(result.templateName || '')}</div>
-                    <button class="social-tool-image-retry" type="button" data-workspace-id="${escapeHtml(workspace.id)}" data-social-retry-index="${index}">重试这张</button>
+                    <button class="social-tool-image-retry" type="button" data-workspace-id="${escapeHtml(workspace.id)}" data-social-rerun-index="${index}" data-social-rerun-mode="retry">重试这张</button>
                 `;
             } else {
                 item.innerHTML = `
@@ -1476,7 +1495,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         });
     }
 
-    async function retryImage(index, workspaceId) {
+    async function rerunImage(index, workspaceId, mode = 'retry') {
         const workspace = getWorkspace(workspaceId);
         if (!workspace || workspace.isLoading) {
             if (workspace && workspace.isLoading) showToast('该工作区正在生成中，请稍候');
@@ -1484,9 +1503,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         }
         const prompt = workspace.imagePrompts[index] || (workspace.imageResults[index] && workspace.imageResults[index].prompt);
         if (!prompt) {
-            showToast('找不到这张图的提示词，无法重试', true);
+            showToast('找不到这张图的提示词，无法重新生成', true);
             return;
         }
+        const isRegenerate = mode === 'regenerate';
         const previousResult = workspace.imageResults[index] || {};
         const selectedRatio = previousResult.ratio || workspace.imageRatio || DEFAULT_IMAGE_RATIO;
         const selectedSize = resolveSocialImageSize(selectedRatio);
@@ -1504,12 +1524,12 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
                 window.VeoBilling.refreshBalanceAfterUsage();
             }
-            showToast('单图重试完成');
+            showToast(isRegenerate ? '单图重新生成完成' : '单图重试完成');
         } catch (error) {
             const message = error && error.message ? error.message : String(error || 'Unknown image error');
             workspace.imageResults[index] = { ...previousResult, index, prompt, status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
             logDebug(`第 ${index + 1} 张图片重试失败: ${escapeHtml(message)}`, workspace.id);
-            showToast('单图重试失败，可再次点击重试', true);
+            showToast(isRegenerate ? '单图重新生成失败，可再次点击重试' : '单图重试失败，可再次点击重试', true);
         } finally {
             workspace.isLoading = false;
             renderWorkspaceRail();
