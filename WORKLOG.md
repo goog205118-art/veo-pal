@@ -41,3 +41,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; Chrome smoke on local `index.html` confirmed the main workbench no longer shows the add-template form, settings opens as a full page, templates add/delete correctly, and slot dropdowns sync after template changes.
   - Next: push to `test/test-main` and test the hosted page with real saved template presets.
+
+- 2026-07-24
+  - Goal: allow successful social-media images to be regenerated one at a time.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; mocked Chrome smoke generated one image, exposed its regenerate action, and confirmed that clicking it sent one additional image request while retaining a single result card.
+  - Next: test a real n8n single-image regeneration from the hosted test page.
