@@ -367,9 +367,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const successful = workspace && Array.isArray(workspace.imageResults)
             ? workspace.imageResults.find((item) => item && item.status === 'success' && item.url)
             : null;
-        if (successful && successful.url) return successful.url;
-        const uploaded = workspace && Array.isArray(workspace.uploadedImages) ? workspace.uploadedImages[0] : null;
-        return uploaded && uploaded.dataUrl ? uploaded.dataUrl : '';
+        return successful && successful.url ? successful.url : '';
     }
 
     function buildDynamicPrompt(productDesc, contextDesc, guidanceLink) {
@@ -443,6 +441,11 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-post-copy { padding: 0 14px 12px; color: #111827; font-size: 13px; line-height: 1.48; white-space: pre-wrap; }
 .social-tool-post-copy .social-tool-inline-tags { display: block; margin-top: 8px; color: #2563eb; }
 .social-tool-post-media { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #eef2f7; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 12px; overflow: hidden; }
+.social-tool-post-media-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #64748b; background: linear-gradient(180deg, #f7f9fc, #edf2f7); text-align: center; }
+.social-tool-post-media-placeholder .material-symbols-outlined { font-size: 26px; opacity: .7; }
+.social-tool-post-media-placeholder.loading { position: relative; color: #475569; background: linear-gradient(110deg, #edf2f7 18%, #f8fbff 36%, #edf2f7 54%); background-size: 200% 100%; animation: socialToolPreviewSweep 1.4s linear infinite; }
+.social-tool-post-media-placeholder.loading::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.34), transparent); transform: translateX(-100%); animation: socialToolShimmer 1.4s linear infinite; }
+.social-tool-post-media-placeholder.loading > * { position: relative; z-index: 1; }
 .social-tool-post-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .social-tool-post-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 14px; background: #f3f4f6; border-top: 1px solid rgba(15,23,42,.08); }
 .social-tool-post-link-domain { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -471,14 +474,21 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-image-actions { position: absolute; right: 7px; bottom: 7px; display: flex; align-items: center; gap: 6px; }
 .social-tool-image-actions a { position: static; }
 .social-tool-image-item.pending, .social-tool-image-item.failed { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--text-sub); }
-.social-tool-image-item.pending { border-style: dashed; }
+.social-tool-image-item.pending { border-style: dashed; position: relative; background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)); }
 .social-tool-image-item.failed { border-color: rgba(255,94,89,.42); color: var(--danger); }
 .social-tool-image-item .material-symbols-outlined { font-size: 24px; }
-.social-tool-image-loader { width: 100%; height: 100%; min-height: 118px; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 9px; align-items: stretch; color: var(--text-sub); }
+.social-tool-image-loader { width: 100%; height: 100%; min-height: 118px; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 9px; align-items: stretch; color: var(--text-sub); position: relative; z-index: 1; }
+.social-tool-image-item.pending::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; background: linear-gradient(135deg, rgba(94,156,255,.08), rgba(67,194,121,.08)); opacity: .65; }
+.social-tool-image-item.pending::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(110deg, transparent 20%, rgba(255,255,255,.12) 38%, transparent 56%); background-size: 200% 100%; animation: socialToolPendingSweep 1.35s linear infinite; opacity: .8; }
+.social-tool-image-pending-icon { display: inline-flex; font-size: 26px !important; animation: socialToolSpin .95s linear infinite; color: var(--accent); vertical-align: middle; }
 .social-tool-loader-shimmer { position: relative; overflow: hidden; border-radius: 7px; background: linear-gradient(110deg, rgba(255,255,255,.05), rgba(255,255,255,.14), rgba(255,255,255,.05)); }
 .social-tool-loader-shimmer::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent); animation: socialToolShimmer 1.25s linear infinite; }
 .social-tool-loader-copy { font-size: 11px; line-height: 1.35; }
+.social-tool-loader-copy strong { display: block; color: var(--text-main); font-size: 12px; margin-bottom: 2px; }
 @keyframes socialToolShimmer { to { transform: translateX(100%); } }
+@keyframes socialToolPendingSweep { to { background-position: 200% 0; } }
+@keyframes socialToolPreviewSweep { to { background-position: 200% 0; } }
+@keyframes socialToolSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .social-tool-image-retry { border: 1px solid rgba(255,94,89,.38); color: var(--danger); background: rgba(255,94,89,.08); border-radius: 8px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
 .social-tool-image-regenerate { border: 1px solid rgba(94,156,255,.35); color: #d7e7ff; background: rgba(20,55,98,.8); border-radius: 8px; padding: 5px 7px; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
 .social-tool-image-regenerate:hover { border-color: var(--accent); background: rgba(36,83,141,.9); }
@@ -1477,6 +1487,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 
     function renderTextOutput(data) {
         const output = byId('social-tool-text-output');
+        const workspace = getActiveWorkspace();
         if (!data) {
             output.innerHTML = `
                 <div class="social-tool-social-preview">
@@ -1490,7 +1501,12 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                             <span class="material-symbols-outlined" style="font-size:18px; color:#6b7280;">more_horiz</span>
                         </div>
                         <div class="social-tool-post-copy">等待生成社媒文案...</div>
-                        <div class="social-tool-post-media">图片生成后会显示在这里</div>
+                        <div class="social-tool-post-media">
+                            <div class="social-tool-post-media-placeholder ${workspace.isLoading ? 'loading' : ''}">
+                                <span class="material-symbols-outlined">${workspace.isLoading ? 'hourglass_top' : 'image'}</span>
+                                <span>${workspace.isLoading ? '图片生成中...' : '图片生成后会显示在这里'}</span>
+                            </div>
+                        </div>
                         <div class="social-tool-post-engage">
                             <span><span class="material-symbols-outlined">thumb_up</span>Like</span>
                             <span><span class="material-symbols-outlined">mode_comment</span>Comment</span>
@@ -1503,14 +1519,18 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             if (tags) tags.innerHTML = '';
             return;
         }
-        const workspace = getActiveWorkspace();
         const tagsList = normalizeHashtags(data.hashtags);
         const previewImage = getPreviewImage(workspace);
         const host = getPreviewHostname(workspace.guidanceLink);
         const tagText = tagsList.length ? `<span class="social-tool-inline-tags">${escapeHtml(tagsList.join(' '))}</span>` : '';
         const mediaHtml = previewImage
             ? `<img src="${escapeHtml(previewImage)}" alt="社媒配图预览">`
-            : '图片生成后会显示在这里';
+            : `
+                <div class="social-tool-post-media-placeholder ${workspace.isLoading ? 'loading' : ''}">
+                    <span class="material-symbols-outlined">${workspace.isLoading ? 'hourglass_top' : 'image'}</span>
+                    <span>${workspace.isLoading ? '配图生成中...' : '图片生成后会显示在这里'}</span>
+                </div>
+            `;
         const linkHtml = workspace.guidanceLink ? `
             <div class="social-tool-post-link">
                 <div>
@@ -1635,8 +1655,8 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                     <div class="social-tool-image-loader">
                         <div class="social-tool-loader-shimmer"></div>
                         <div class="social-tool-loader-copy">
-                            <div>第 ${index + 1} 张生成中</div>
-                            <div>${escapeHtml(result.templateName || '')}</div>
+                            <strong><span class="material-symbols-outlined social-tool-image-pending-icon">autorenew</span> 第 ${index + 1} 张生成中</strong>
+                            <div>${escapeHtml(result.templateName || '') || '正在匹配模板与比例'}</div>
                         </div>
                     </div>
                 `;
@@ -1736,10 +1756,34 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 
     function setWorkspaceProgress(workspaceId, percent, label) {
         const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
+        const target = clampProgress(percent);
+        const current = workspace.progress && Number.isFinite(workspace.progress.percent)
+            ? clampProgress(workspace.progress.percent)
+            : 0;
         workspace.progress = {
-            percent: clampProgress(percent),
-            label: label || '运行中'
+            percent: current,
+            target,
+            label: label || (workspace.progress && workspace.progress.label) || '运行中'
         };
+        if (workspace.progressTimer) clearTimeout(workspace.progressTimer);
+        const stepTick = () => {
+            const state = workspace.progress || { percent: current, target, label: label || '运行中' };
+            const nextTarget = clampProgress(state.target);
+            const nextCurrent = clampProgress(state.percent);
+            if (nextCurrent === nextTarget) {
+                workspace.progressTimer = null;
+                if (workspace.id === activeWorkspaceId) renderLog(workspace);
+                return;
+            }
+            const delta = Math.max(1, Math.min(4, Math.ceil(Math.abs(nextTarget - nextCurrent) / 6)));
+            state.percent = nextCurrent < nextTarget
+                ? Math.min(nextTarget, nextCurrent + delta)
+                : Math.max(nextTarget, nextCurrent - delta);
+            workspace.progress = state;
+            if (workspace.id === activeWorkspaceId) renderLog(workspace);
+            workspace.progressTimer = window.setTimeout(stepTick, 55);
+        };
+        workspace.progressTimer = window.setTimeout(stepTick, 35);
         if (workspace.id === activeWorkspaceId) renderLog(workspace);
     }
 

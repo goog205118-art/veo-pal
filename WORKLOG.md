@@ -59,3 +59,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; verified `git diff --check`; Chrome smoke on local `index.html` confirmed no `社媒文案输出` heading, no `Hashtags` heading, no separate tags node, no outer panel class on the preview output, and generated copy plus tags rendered inside the simulated post.
   - Next: push to `test-main` for hosted visual hand-check.
+
+- 2026-07-27
+  - Goal: fix the social-media preview so uploaded product reference images do not appear in the post preview while generation is still pending, and make pending progress/images feel streamed.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; verified `git diff --check`; attempted Playwright smoke with bundled runtime, but bundled Chromium was missing and local Chrome run was blocked by the app login overlay before the generate button click.
+  - Next: hand-check the hosted test page while running a real social-media image generation.
