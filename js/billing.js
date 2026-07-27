@@ -3,7 +3,7 @@
 (function (window) {
     'use strict';
 
-    const BALANCE_ACCOUNT_ID = String(window.VEO_BALANCE_ACCOUNT_ID || '338769');
+    const BALANCE_ACCOUNT_ID = String(window.VEO_BALANCE_ACCOUNT_ID || '').trim();
     const BALANCE_SCALE = Number(window.VEO_BALANCE_SCALE || 1000000) || 1000000;
     const BALANCE_COOLDOWN_MS = Number(window.VEO_BALANCE_COOLDOWN_MS || 30000) || 30000;
     const BALANCE_CACHE_KEY = `veo_balance_cache_${BALANCE_ACCOUNT_ID}`;
@@ -180,12 +180,14 @@
     function buildBalancePayload() {
         const payload = {
             action: 'balance',
-            accountId: BALANCE_ACCOUNT_ID,
-            account_id: BALANCE_ACCOUNT_ID,
             balanceScale: BALANCE_SCALE,
             balance_scale: BALANCE_SCALE,
             requestId: `balance_${Date.now()}`
         };
+        if (BALANCE_ACCOUNT_ID) {
+            payload.accountId = BALANCE_ACCOUNT_ID;
+            payload.account_id = BALANCE_ACCOUNT_ID;
+        }
         const runtimeToken = String(window.VEO_BALANCE_SYSTEM_KEY || window.VEO_BALANCE_TOKEN || '').trim();
         if (runtimeToken) {
             payload.systemKey = runtimeToken;
