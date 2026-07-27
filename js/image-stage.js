@@ -321,6 +321,26 @@
         task.y = Math.round(center.y - height / 2);
     }
 
+    async function dockOtherReleasedTasks(activeTaskId) {
+        const rawTasks = await callHook('getAllTasks');
+        const candidates = (Array.isArray(rawTasks) ? rawTasks : [])
+            .filter((item) => item && item.id !== activeTaskId && item.type === 'tool_image_gen')
+            .map(mergeTask)
+            .filter((item) => {
+                ensureImageState(item);
+                return item && item.state && item.state.stageReleased === true && item.state.stageDocked !== true;
+            });
+
+        for (const item of candidates) {
+            item.state.stageDocked = true;
+            item.state.stageReleased = false;
+            item.timestamp = Date.now();
+            callHook('setTaskShadow', item);
+            await callHook('saveTask', item);
+        }
+        return candidates.length;
+    }
+
     async function focus(event, taskId) {
         if (event) {
             event.preventDefault();
@@ -330,6 +350,7 @@
         const stored = callHook('getTaskShadow', taskId) || await callHook('getTask', taskId);
         const task = mergeTask(stored);
         if (!task || task.type !== 'tool_image_gen') return;
+        const dockedCount = await dockOtherReleasedTasks(task.id);
         task.state.stageDocked = false;
         task.state.stageReleased = true;
         task.timestamp = Date.now();
@@ -351,6 +372,10 @@
             callHook('scheduleViewportCulling', 40);
             callHook('updateSelectionToolbar');
         });
+        if (dockedCount > 0) {
+            callHook('showToast', '已切换台前卡片，其他调度卡片已收回', 'success');
+            return;
+        }
         callHook('showToast', '已释放到当前画布视口', 'success');
     }
 
