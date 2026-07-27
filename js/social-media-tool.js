@@ -111,11 +111,13 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             guidanceLink: '',
             imageRatio: DEFAULT_IMAGE_RATIO,
             imageCount: DEFAULT_IMAGE_COUNT,
+            imageRatios: [DEFAULT_IMAGE_RATIO, DEFAULT_IMAGE_RATIO, DEFAULT_IMAGE_RATIO],
             templateSelections: ['poster-premium', 'scene-lifestyle', 'scene-detail'],
             textResult: null,
             imagePrompts: [],
             imageResults: [],
             logs: ['运行日志'],
+            progress: { percent: 0, label: '待开始' },
             isLoading: false,
             generationToken: 0
         };
@@ -145,16 +147,19 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const productDesc = byId('social-tool-product-desc');
         const contextDesc = byId('social-tool-context-desc');
         const guidanceLink = byId('social-tool-guidance-link');
-        const imageRatio = byId('social-tool-image-ratio');
         const imageCount = byId('social-tool-image-count');
         if (productDesc) workspace.productDesc = productDesc.value;
         if (contextDesc) workspace.contextDesc = contextDesc.value;
         if (guidanceLink) workspace.guidanceLink = guidanceLink.value;
-        if (imageRatio) workspace.imageRatio = imageRatio.value || DEFAULT_IMAGE_RATIO;
         if (imageCount) workspace.imageCount = clampImageCount(imageCount.value);
         const slotSelects = Array.from(document.querySelectorAll('[data-social-template-slot]'));
         if (slotSelects.length) {
             workspace.templateSelections = slotSelects.map((select, index) => select.value || getDefaultTemplateId(index));
+        }
+        const ratioSelects = Array.from(document.querySelectorAll('[data-social-ratio-slot]'));
+        if (ratioSelects.length) {
+            workspace.imageRatios = ratioSelects.map((select, index) => normalizeImageRatio(select.value || getWorkspaceRatio(workspace, index)));
+            workspace.imageRatio = workspace.imageRatios[0] || workspace.imageRatio || DEFAULT_IMAGE_RATIO;
         }
     }
 
@@ -163,12 +168,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const productDesc = byId('social-tool-product-desc');
         const contextDesc = byId('social-tool-context-desc');
         const guidanceLink = byId('social-tool-guidance-link');
-        const imageRatio = byId('social-tool-image-ratio');
         const imageCount = byId('social-tool-image-count');
         if (productDesc) productDesc.value = workspace.productDesc || '';
         if (contextDesc) contextDesc.value = workspace.contextDesc || '';
         if (guidanceLink) guidanceLink.value = workspace.guidanceLink || '';
-        if (imageRatio) imageRatio.value = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
         if (imageCount) imageCount.value = String(clampImageCount(workspace.imageCount));
         renderTemplateSlots(workspace);
     }
@@ -227,6 +230,27 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         return Math.min(MAX_GENERATED_IMAGES, Math.max(1, parsed));
     }
 
+    function normalizeImageRatio(value) {
+        const ratio = String(value || '').trim();
+        return SOCIAL_IMAGE_RATIOS.some((item) => item.value === ratio) ? ratio : DEFAULT_IMAGE_RATIO;
+    }
+
+    function ensureWorkspaceImageRatios(workspace) {
+        if (!workspace) return [];
+        const imageCount = clampImageCount(workspace.imageCount);
+        const existing = Array.isArray(workspace.imageRatios) ? workspace.imageRatios : [];
+        workspace.imageRatios = Array.from({ length: imageCount }, (_, index) => (
+            normalizeImageRatio(existing[index] || workspace.imageRatio || DEFAULT_IMAGE_RATIO)
+        ));
+        workspace.imageRatio = workspace.imageRatios[0] || workspace.imageRatio || DEFAULT_IMAGE_RATIO;
+        return workspace.imageRatios;
+    }
+
+    function getWorkspaceRatio(workspace, index) {
+        const ratios = ensureWorkspaceImageRatios(workspace);
+        return normalizeImageRatio(ratios[index] || workspace.imageRatio || DEFAULT_IMAGE_RATIO);
+    }
+
     function createTemplateId(type, name) {
         const slug = String(name || type || 'template')
             .toLowerCase()
@@ -264,13 +288,14 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 
     function buildImagePlans(textResult, workspace) {
         const imageCount = clampImageCount(workspace.imageCount);
-        const selectedRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
-        const selectedSize = resolveSocialImageSize(selectedRatio);
+        ensureWorkspaceImageRatios(workspace);
         const theme = extractTheme(textResult, workspace);
         const copy = textResult && textResult.content ? String(textResult.content) : '';
         const hashtags = textResult && Array.isArray(textResult.hashtags) ? textResult.hashtags.join(' ') : '';
         return Array.from({ length: imageCount }, (_, index) => {
             const template = getTemplateById(workspace.templateSelections[index] || getDefaultTemplateId(index));
+            const selectedRatio = getWorkspaceRatio(workspace, index);
+            const selectedSize = resolveSocialImageSize(selectedRatio);
             const prompt = fillTemplate(template, {
                 theme,
                 copy,
@@ -320,6 +345,31 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const parts = String(config.value || DEFAULT_IMAGE_RATIO).split(':').map((part) => parseInt(part, 10));
         if (parts.length !== 2 || parts.some((part) => !Number.isFinite(part) || part <= 0)) return '1 / 1';
         return `${parts[0]} / ${parts[1]}`;
+    }
+
+    function normalizeHashtags(tags) {
+        return Array.isArray(tags)
+            ? tags.map((tag) => String(tag || '').trim()).filter(Boolean).map((tag) => tag.startsWith('#') ? tag : `#${tag}`)
+            : [];
+    }
+
+    function getPreviewHostname(url) {
+        const value = String(url || '').trim();
+        if (!value) return '';
+        try {
+            return new URL(value).hostname.replace(/^www\./i, '');
+        } catch (err) {
+            return value.replace(/^https?:\/\//i, '').split('/')[0];
+        }
+    }
+
+    function getPreviewImage(workspace) {
+        const successful = workspace && Array.isArray(workspace.imageResults)
+            ? workspace.imageResults.find((item) => item && item.status === 'success' && item.url)
+            : null;
+        if (successful && successful.url) return successful.url;
+        const uploaded = workspace && Array.isArray(workspace.uploadedImages) ? workspace.uploadedImages[0] : null;
+        return uploaded && uploaded.dataUrl ? uploaded.dataUrl : '';
     }
 
     function buildDynamicPrompt(productDesc, contextDesc, guidanceLink) {
@@ -376,12 +426,29 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-textarea { min-height: 88px; resize: vertical; line-height: 1.5; }
 .social-tool-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .social-tool-template-slots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 14px; }
-.social-tool-template-slot { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; align-items: center; }
+.social-tool-template-slot { display: grid; grid-template-columns: 42px minmax(150px, 1.1fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
 .social-tool-template-slot span { color: var(--text-sub); font-size: 12px; font-weight: 650; }
 .social-tool-template-builder { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.035); }
 .social-tool-template-builder textarea { min-height: 72px; }
 .social-tool-template-builder-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .social-tool-output { min-height: 220px; max-height: 360px; overflow: auto; white-space: pre-wrap; user-select: text; }
+.social-tool-social-preview { white-space: normal; color: #1f2937; }
+.social-tool-post-card { width: min(100%, 430px); margin: 0 auto; border: 1px solid rgba(15,23,42,.12); border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
+.social-tool-post-head { display: grid; grid-template-columns: 42px minmax(0, 1fr) 24px; gap: 10px; align-items: center; padding: 12px 14px; }
+.social-tool-post-avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #2f80ed, #43c279); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
+.social-tool-post-title { min-width: 0; font-size: 13px; font-weight: 750; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-tool-post-meta { margin-top: 2px; color: #6b7280; font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.social-tool-post-copy { padding: 0 14px 12px; color: #111827; font-size: 13px; line-height: 1.48; white-space: pre-wrap; }
+.social-tool-post-copy .social-tool-inline-tags { display: block; margin-top: 8px; color: #2563eb; }
+.social-tool-post-media { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #eef2f7; display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 12px; overflow: hidden; }
+.social-tool-post-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.social-tool-post-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 14px; background: #f3f4f6; border-top: 1px solid rgba(15,23,42,.08); }
+.social-tool-post-link-domain { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-tool-post-link-title { margin-top: 2px; color: #111827; font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-tool-post-cta { border: 0; border-radius: 6px; padding: 7px 10px; background: #e5e7eb; color: #111827; font-size: 12px; font-weight: 700; }
+.social-tool-post-engage { display: flex; justify-content: space-around; gap: 8px; padding: 10px 12px; color: #4b5563; font-size: 12px; border-top: 1px solid rgba(15,23,42,.08); }
+.social-tool-post-engage span { display: inline-flex; align-items: center; gap: 5px; }
+.social-tool-post-engage .material-symbols-outlined { font-size: 16px; }
 .social-tool-muted { color: var(--text-sub); font-size: 12px; line-height: 1.5; }
 .social-tool-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .social-tool-upload { aspect-ratio: 1; border: 1px dashed var(--border); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-sub); cursor: pointer; background: rgba(255,255,255,0.04); }
@@ -405,6 +472,11 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-image-item.pending { border-style: dashed; }
 .social-tool-image-item.failed { border-color: rgba(255,94,89,.42); color: var(--danger); }
 .social-tool-image-item .material-symbols-outlined { font-size: 24px; }
+.social-tool-image-loader { width: 100%; height: 100%; min-height: 118px; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 9px; align-items: stretch; color: var(--text-sub); }
+.social-tool-loader-shimmer { position: relative; overflow: hidden; border-radius: 7px; background: linear-gradient(110deg, rgba(255,255,255,.05), rgba(255,255,255,.14), rgba(255,255,255,.05)); }
+.social-tool-loader-shimmer::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent); animation: socialToolShimmer 1.25s linear infinite; }
+.social-tool-loader-copy { font-size: 11px; line-height: 1.35; }
+@keyframes socialToolShimmer { to { transform: translateX(100%); } }
 .social-tool-image-retry { border: 1px solid rgba(255,94,89,.38); color: var(--danger); background: rgba(255,94,89,.08); border-radius: 8px; padding: 6px 9px; cursor: pointer; font-size: 12px; }
 .social-tool-image-regenerate { border: 1px solid rgba(94,156,255,.35); color: #d7e7ff; background: rgba(20,55,98,.8); border-radius: 8px; padding: 5px 7px; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
 .social-tool-image-regenerate:hover { border-color: var(--accent); background: rgba(36,83,141,.9); }
@@ -412,6 +484,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-tags { display: flex; flex-wrap: wrap; gap: 8px; min-height: 28px; }
 .social-tool-tag { color: var(--accent); background: rgba(94,156,255,0.11); border: 1px solid rgba(94,156,255,0.2); border-radius: 999px; padding: 5px 9px; font-size: 12px; user-select: text; }
 .social-tool-log { min-height: 110px; max-height: 170px; overflow: auto; font-family: Consolas, Monaco, monospace; font-size: 11px; color: var(--text-sub); user-select: text; }
+.social-tool-progress { position: sticky; top: 0; z-index: 1; padding: 0 0 9px; margin-bottom: 8px; background: inherit; }
+.social-tool-progress-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; color: var(--text-main); font-family: inherit; font-size: 11px; }
+.social-tool-progress-track { height: 7px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); }
+.social-tool-progress-fill { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #43c279, #5e9cff); transition: width .24s ease; }
 .social-tool-shell.settings-open .social-tool-body { display: none; }
 .social-tool-settings { display: none; flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--border); padding: 20px; background: rgba(0,0,0,0.12); }
 .social-tool-settings.show { display: block; }
@@ -514,19 +590,13 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                                 <input class="social-tool-input" id="social-tool-guidance-link" type="url" placeholder="https://... 可选，用作贴文 CTA 或活动落点">
                             </div>
                             <div class="social-tool-field">
-                                <label for="social-tool-image-ratio">配图比例</label>
-                                <select class="social-tool-select" id="social-tool-image-ratio">
-                                    ${SOCIAL_IMAGE_RATIOS.map((item) => `<option value="${item.value}" ${item.value === DEFAULT_IMAGE_RATIO ? 'selected' : ''}>${item.label}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="social-tool-field">
                                 <label for="social-tool-image-count">生图张数</label>
                                 <select class="social-tool-select" id="social-tool-image-count">
                                     ${Array.from({ length: MAX_GENERATED_IMAGES }, (_, index) => `<option value="${index + 1}" ${index + 1 === DEFAULT_IMAGE_COUNT ? 'selected' : ''}>${index + 1} 张</option>`).join('')}
                                 </select>
                             </div>
                             <div class="social-tool-field">
-                                <label>每张图的提示词模板</label>
+                                <label>每张图的提示词模板 / 配图比例</label>
                                 <div class="social-tool-template-slots" id="social-tool-template-slots"></div>
                             </div>
                             <button class="top-btn top-btn-primary social-tool-main-btn" id="social-tool-generate-btn" type="button">
@@ -701,13 +771,12 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         byId('social-tool-generate-btn').addEventListener('click', handleGenerate);
         byId('social-tool-copy-btn').addEventListener('click', copyText);
         byId('social-tool-image-viewer-close').addEventListener('click', closeImagePreview);
-        byId('social-tool-image-ratio').addEventListener('change', () => saveActiveForm());
         byId('social-tool-image-count').addEventListener('change', () => {
             saveActiveForm();
             renderTemplateSlots(getActiveWorkspace());
         });
         byId('social-tool-template-slots').addEventListener('change', (event) => {
-            if (event.target && event.target.matches('[data-social-template-slot]')) saveActiveForm();
+            if (event.target && event.target.matches('[data-social-template-slot], [data-social-ratio-slot]')) saveActiveForm();
         });
         byId('social-tool-add-template-btn').addEventListener('click', addPromptTemplate);
         byId('social-tool-template-list').addEventListener('click', (event) => {
@@ -965,14 +1034,19 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const imageCount = clampImageCount(workspace.imageCount);
         workspace.imageCount = imageCount;
         workspace.templateSelections = Array.isArray(workspace.templateSelections) ? workspace.templateSelections : [];
+        ensureWorkspaceImageRatios(workspace);
         container.innerHTML = Array.from({ length: imageCount }, (_, index) => {
             const selectedId = getTemplateById(workspace.templateSelections[index] || getDefaultTemplateId(index)).id;
+            const selectedRatio = getWorkspaceRatio(workspace, index);
             workspace.templateSelections[index] = selectedId;
             return `
                 <div class="social-tool-template-slot">
                     <span>图 ${index + 1}</span>
                     <select class="social-tool-select" data-social-template-slot="${index}">
                         ${renderTemplateOptions(selectedId)}
+                    </select>
+                    <select class="social-tool-select" data-social-ratio-slot="${index}">
+                        ${SOCIAL_IMAGE_RATIOS.map((item) => `<option value="${escapeHtml(item.value)}" ${item.value === selectedRatio ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -1083,48 +1157,62 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         workspace.productDesc = (workspace.productDesc || '').trim();
         workspace.contextDesc = (workspace.contextDesc || '').trim();
         workspace.guidanceLink = (workspace.guidanceLink || '').trim();
-        workspace.imageRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
         workspace.imageCount = clampImageCount(workspace.imageCount);
+        ensureWorkspaceImageRatios(workspace);
         workspace.textResult = null;
         workspace.imagePrompts = [];
         workspace.imageResults = [];
         workspace.logs = ['运行日志'];
+        workspace.progress = { percent: 5, label: '准备任务' };
         workspace.isLoading = true;
         renderActiveWorkspace();
 
         try {
+            setWorkspaceProgress(workspaceId, 12, '分析图片与文案');
             logDebug('正在调用文本多模态大模型分析图片...', workspaceId);
             const textResult = await callTextMultimodalModel(workspace.productDesc, workspace.contextDesc, workspace.guidanceLink, workspaceId);
             if (!textResult) throw new Error('文本模型未返回有效数据');
             logDebug('文本生成成功，正在渲染到界面...', workspaceId);
             workspace.textResult = textResult;
+            setWorkspaceProgress(workspaceId, 38, '文案生成完成');
             if (activeWorkspaceId === workspaceId) renderTextOutput(textResult);
 
             const imagePlans = buildImagePlans(textResult, workspace).filter((plan) => plan.prompt);
             workspace.imagePrompts = imagePlans.map((plan) => plan.prompt);
             if (imagePlans.length === 0) {
                 logDebug('未找到可用模板，跳过生图步骤。', workspaceId);
+                setWorkspaceProgress(workspaceId, 100, '文案完成，无配图任务');
             } else {
                 logDebug(`准备通过模板和 n8n 生成 ${imagePlans.length} 张图片...`, workspaceId);
-                const selectedRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
-                const selectedSize = resolveSocialImageSize(selectedRatio);
-                workspace.imageResults = imagePlans.map((plan, index) => ({ ...plan, index, status: 'pending', url: '', error: '', ratio: selectedRatio, size: selectedSize }));
+                workspace.imageResults = imagePlans.map((plan, index) => ({ ...plan, index, status: 'pending', url: '', error: '', ratio: plan.ratio, size: plan.size }));
+                setWorkspaceProgress(workspaceId, 45, '准备生图');
                 if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
-                const results = await Promise.allSettled(imagePlans.map((plan, index) => generateImage(plan.prompt, index, workspaceId)));
-                results.forEach((result, index) => {
-                    if (result.status === 'rejected' || !result.value) {
-                        const message = result.reason && result.reason.message ? result.reason.message : 'Unknown image error';
-                        workspace.imageResults[index] = { ...imagePlans[index], index, status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
-                    }
-                });
+                let completedImages = 0;
+                const results = await Promise.allSettled(imagePlans.map((plan, index) => (
+                    generateImage(plan.prompt, index, workspaceId)
+                        .then((url) => {
+                            workspace.imageResults[index] = { ...plan, index, status: 'success', url, error: '', ratio: plan.ratio, size: plan.size };
+                            return url;
+                        })
+                        .catch((error) => {
+                            const message = error && error.message ? error.message : String(error || 'Unknown image error');
+                            workspace.imageResults[index] = { ...plan, index, status: 'failed', url: '', error: message, ratio: plan.ratio, size: plan.size };
+                            logDebug(`第 ${index + 1} 张图片生成失败: ${escapeHtml(message)}`, workspaceId);
+                            throw error;
+                        })
+                        .finally(() => {
+                            completedImages += 1;
+                            const percent = Math.min(96, 45 + Math.round((completedImages / imagePlans.length) * 45));
+                            setWorkspaceProgress(workspaceId, percent, completedImages === imagePlans.length ? '图片生成收尾中' : `已完成 ${completedImages}/${imagePlans.length} 张图片`);
+                            if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
+                        })
+                )));
                 results.forEach((result, index) => {
                     if (result.status === 'fulfilled' && result.value) {
-                        workspace.imageResults[index] = { ...imagePlans[index], index, status: 'success', url: result.value, error: '', ratio: selectedRatio, size: selectedSize };
-                    } else {
-                        const message = result.reason && result.reason.message ? result.reason.message : '未知错误';
-                        logDebug(`第 ${index + 1} 张图片生成失败: ${escapeHtml(message)}`, workspaceId);
+                        workspace.imageResults[index] = { ...imagePlans[index], index, status: 'success', url: result.value, error: '', ratio: imagePlans[index].ratio, size: imagePlans[index].size };
                     }
                 });
+                setWorkspaceProgress(workspaceId, 100, '生成完成');
                 if (activeWorkspaceId === workspaceId) renderImageResults(workspace);
                 if (activeWorkspaceId === workspaceId && !byId('social-tool-images').querySelector('.social-tool-image-item')) {
                     byId('social-tool-images').innerHTML = '<div class="social-tool-placeholder">图片生成失败，请查看日志</div>';
@@ -1138,6 +1226,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         } catch (error) {
             console.error(error);
             logDebug(`<span style="color:var(--danger);">错误: ${escapeHtml(error.message || error)}</span>`, workspaceId);
+            setWorkspaceProgress(workspaceId, 100, '生成失败');
             showToast('生成过程发生错误，请查看日志', true);
         } finally {
             if (workspace.generationToken === generationToken) workspace.isLoading = false;
@@ -1213,7 +1302,8 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
         const refs = workspace.uploadedImages.map((img) => img.dataUrl).filter(Boolean).slice(0, Math.min(MAX_IMAGES, route.maxRefs || MAX_IMAGES));
         const routeKey = route.key || settings.imageRoute || defaultSettings.imageRoute;
-        const selectedRatio = workspace.imageRatio || DEFAULT_IMAGE_RATIO;
+        const currentResult = workspace.imageResults && workspace.imageResults[index] ? workspace.imageResults[index] : null;
+        const selectedRatio = normalizeImageRatio((currentResult && currentResult.ratio) || getWorkspaceRatio(workspace, index));
         const selectedSize = resolveSocialImageSize(selectedRatio);
         const state = {
             prompt: promptText,
@@ -1391,18 +1481,76 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
     function renderTextOutput(data) {
         const output = byId('social-tool-text-output');
         if (!data) {
-            output.textContent = '等待生成中...';
+            output.innerHTML = `
+                <div class="social-tool-social-preview">
+                    <article class="social-tool-post-card">
+                        <div class="social-tool-post-head">
+                            <div class="social-tool-post-avatar">S</div>
+                            <div>
+                                <div class="social-tool-post-title">Social Campaign Preview</div>
+                                <div class="social-tool-post-meta">Sponsored · Preview</div>
+                            </div>
+                            <span class="material-symbols-outlined" style="font-size:18px; color:#6b7280;">more_horiz</span>
+                        </div>
+                        <div class="social-tool-post-copy">等待生成社媒文案...</div>
+                        <div class="social-tool-post-media">图片生成后会显示在这里</div>
+                        <div class="social-tool-post-engage">
+                            <span><span class="material-symbols-outlined">thumb_up</span>Like</span>
+                            <span><span class="material-symbols-outlined">mode_comment</span>Comment</span>
+                            <span><span class="material-symbols-outlined">ios_share</span>Share</span>
+                        </div>
+                    </article>
+                </div>
+            `;
             byId('social-tool-tags').innerHTML = '';
             return;
         }
-        output.textContent = data.content || '未能生成有效文案';
+        const workspace = getActiveWorkspace();
+        const tagsList = normalizeHashtags(data.hashtags);
+        const previewImage = getPreviewImage(workspace);
+        const host = getPreviewHostname(workspace.guidanceLink);
+        const tagText = tagsList.length ? `<span class="social-tool-inline-tags">${escapeHtml(tagsList.join(' '))}</span>` : '';
+        const mediaHtml = previewImage
+            ? `<img src="${escapeHtml(previewImage)}" alt="社媒配图预览">`
+            : '图片生成后会显示在这里';
+        const linkHtml = workspace.guidanceLink ? `
+            <div class="social-tool-post-link">
+                <div>
+                    <div class="social-tool-post-link-domain">${escapeHtml(host || 'Campaign Link')}</div>
+                    <div class="social-tool-post-link-title">${escapeHtml(workspace.contextDesc || workspace.productDesc || 'Learn more about this campaign')}</div>
+                </div>
+                <button class="social-tool-post-cta" type="button">Shop Now</button>
+            </div>
+        ` : '';
+        output.innerHTML = `
+            <div class="social-tool-social-preview">
+                <article class="social-tool-post-card">
+                    <div class="social-tool-post-head">
+                        <div class="social-tool-post-avatar">S</div>
+                        <div>
+                            <div class="social-tool-post-title">${escapeHtml(workspace.productDesc || 'Social Campaign')}</div>
+                            <div class="social-tool-post-meta">Sponsored · Just now</div>
+                        </div>
+                        <span class="material-symbols-outlined" style="font-size:18px; color:#6b7280;">more_horiz</span>
+                    </div>
+                    <div class="social-tool-post-copy">${escapeHtml(data.content || '未能生成有效文案')}${tagText}</div>
+                    <div class="social-tool-post-media">${mediaHtml}</div>
+                    ${linkHtml}
+                    <div class="social-tool-post-engage">
+                        <span><span class="material-symbols-outlined">thumb_up</span>Like</span>
+                        <span><span class="material-symbols-outlined">mode_comment</span>Comment</span>
+                        <span><span class="material-symbols-outlined">ios_share</span>Share</span>
+                    </div>
+                </article>
+            </div>
+        `;
         const tags = byId('social-tool-tags');
         tags.innerHTML = '';
-        if (data.hashtags && Array.isArray(data.hashtags)) {
-            data.hashtags.forEach((tag) => {
+        if (tagsList.length) {
+            tagsList.forEach((tag) => {
                 const span = document.createElement('span');
                 span.className = 'social-tool-tag';
-                span.textContent = String(tag || '').startsWith('#') ? tag : `#${tag}`;
+                span.textContent = tag;
                 tags.appendChild(span);
             });
         }
@@ -1486,13 +1634,20 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                 `;
             } else {
                 item.innerHTML = `
-                    <span class="material-symbols-outlined">hourglass_empty</span>
-                    <div>第 ${index + 1} 张生成中...</div>
-                    <div class="social-tool-muted">${escapeHtml(result.templateName || '')}</div>
+                    <div class="social-tool-image-loader">
+                        <div class="social-tool-loader-shimmer"></div>
+                        <div class="social-tool-loader-copy">
+                            <div>第 ${index + 1} 张生成中</div>
+                            <div>${escapeHtml(result.templateName || '')}</div>
+                        </div>
+                    </div>
                 `;
             }
             grid.appendChild(item);
         });
+        if (workspace && workspace.id === activeWorkspaceId && workspace.textResult) {
+            renderTextOutput(workspace.textResult);
+        }
     }
 
     async function rerunImage(index, workspaceId, mode = 'retry') {
@@ -1501,34 +1656,43 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             if (workspace && workspace.isLoading) showToast('该工作区正在生成中，请稍候');
             return;
         }
-        const prompt = workspace.imagePrompts[index] || (workspace.imageResults[index] && workspace.imageResults[index].prompt);
+        if (workspace.id === activeWorkspaceId) saveActiveForm();
+        ensureWorkspaceImageRatios(workspace);
+        const latestPlan = workspace.textResult ? buildImagePlans(workspace.textResult, workspace)[index] : null;
+        const prompt = (latestPlan && latestPlan.prompt) || workspace.imagePrompts[index] || (workspace.imageResults[index] && workspace.imageResults[index].prompt);
         if (!prompt) {
             showToast('找不到这张图的提示词，无法重新生成', true);
             return;
         }
         const isRegenerate = mode === 'regenerate';
         const previousResult = workspace.imageResults[index] || {};
-        const selectedRatio = previousResult.ratio || workspace.imageRatio || DEFAULT_IMAGE_RATIO;
+        const selectedRatio = getWorkspaceRatio(workspace, index);
         const selectedSize = resolveSocialImageSize(selectedRatio);
-        workspace.imageRatio = selectedRatio;
-        workspace.imageResults[index] = { ...previousResult, index, prompt, status: 'pending', url: '', error: '', ratio: selectedRatio, size: selectedSize };
+        workspace.imageRatios[index] = selectedRatio;
+        workspace.imageRatio = workspace.imageRatios[0] || selectedRatio;
+        workspace.imagePrompts[index] = prompt;
+        workspace.imageResults[index] = { ...previousResult, ...latestPlan, index, prompt, status: 'pending', url: '', error: '', ratio: selectedRatio, size: selectedSize };
+        workspace.progress = { percent: 45, label: `重新生成第 ${index + 1} 张图片` };
         workspace.isLoading = true;
         renderWorkspaceRail();
         if (activeWorkspaceId === workspace.id) {
             renderImageResults(workspace);
+            renderLog(workspace);
             setLoadingState(true);
         }
         try {
             const url = await generateImage(prompt, index, workspace.id);
-            workspace.imageResults[index] = { ...previousResult, index, prompt, status: 'success', url, error: '', ratio: selectedRatio, size: selectedSize };
+            workspace.imageResults[index] = { ...previousResult, ...latestPlan, index, prompt, status: 'success', url, error: '', ratio: selectedRatio, size: selectedSize };
+            setWorkspaceProgress(workspace.id, 100, '单图生成完成');
             if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
                 window.VeoBilling.refreshBalanceAfterUsage();
             }
             showToast(isRegenerate ? '单图重新生成完成' : '单图重试完成');
         } catch (error) {
             const message = error && error.message ? error.message : String(error || 'Unknown image error');
-            workspace.imageResults[index] = { ...previousResult, index, prompt, status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
+            workspace.imageResults[index] = { ...previousResult, ...latestPlan, index, prompt, status: 'failed', url: '', error: message, ratio: selectedRatio, size: selectedSize };
             logDebug(`第 ${index + 1} 张图片重试失败: ${escapeHtml(message)}`, workspace.id);
+            setWorkspaceProgress(workspace.id, 100, '单图生成失败');
             showToast(isRegenerate ? '单图重新生成失败，可再次点击重试' : '单图重试失败，可再次点击重试', true);
         } finally {
             workspace.isLoading = false;
@@ -1554,14 +1718,49 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
     }
 
     function resetLog() {
-        byId('social-tool-log').innerHTML = '<div>运行日志</div>';
+        renderLog(getActiveWorkspace());
+    }
+
+    function clampProgress(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return 0;
+        return Math.min(100, Math.max(0, Math.round(parsed)));
+    }
+
+    function getWorkspaceProgress(workspace) {
+        if (!workspace || !workspace.progress) return { percent: 0, label: '待开始' };
+        return {
+            percent: clampProgress(workspace.progress.percent),
+            label: workspace.progress.label || '待开始'
+        };
+    }
+
+    function setWorkspaceProgress(workspaceId, percent, label) {
+        const workspace = getWorkspace(workspaceId) || getActiveWorkspace();
+        workspace.progress = {
+            percent: clampProgress(percent),
+            label: label || '运行中'
+        };
+        if (workspace.id === activeWorkspaceId) renderLog(workspace);
     }
 
     function renderLog(workspace) {
         const log = byId('social-tool-log');
         if (!log) return;
         const entries = workspace && Array.isArray(workspace.logs) && workspace.logs.length ? workspace.logs : ['运行日志'];
-        log.innerHTML = entries.map((entry) => `<div>${entry}</div>`).join('');
+        const progress = getWorkspaceProgress(workspace);
+        log.innerHTML = `
+            <div class="social-tool-progress">
+                <div class="social-tool-progress-meta">
+                    <span>${escapeHtml(progress.label)}</span>
+                    <span>${progress.percent}%</span>
+                </div>
+                <div class="social-tool-progress-track">
+                    <div class="social-tool-progress-fill" style="width:${progress.percent}%;"></div>
+                </div>
+            </div>
+            ${entries.map((entry) => `<div>${entry}</div>`).join('')}
+        `;
         log.scrollTop = log.scrollHeight;
     }
 
@@ -1572,17 +1771,16 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         item.innerHTML = `<span style="opacity:.7;">[${escapeHtml(time)}]</span> ${message}`;
         workspace.logs.push(item.innerHTML);
         renderWorkspaceRail();
-        if (workspace.id !== activeWorkspaceId) return;
-        const log = byId('social-tool-log');
-        log.appendChild(item);
-        log.scrollTop = log.scrollHeight;
+        if (workspace.id === activeWorkspaceId) renderLog(workspace);
     }
 
     async function copyText() {
         const workspace = getActiveWorkspace();
-        const text = workspace.textResult && workspace.textResult.content
-            ? workspace.textResult.content
-            : (byId('social-tool-text-output').textContent || '');
+        if (!workspace.textResult || !workspace.textResult.content) {
+            showToast('暂无可复制的文案', true);
+            return;
+        }
+        const text = workspace.textResult.content;
         const tagList = workspace.textResult && Array.isArray(workspace.textResult.hashtags)
             ? workspace.textResult.hashtags.map((tag) => String(tag || '').startsWith('#') ? String(tag || '') : `#${tag}`)
             : Array.from(byId('social-tool-tags').children).map((item) => item.textContent);

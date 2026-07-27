@@ -47,3 +47,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; mocked Chrome smoke generated one image, exposed its regenerate action, and confirmed that clicking it sent one additional image request while retaining a single result card.
   - Next: test a real n8n single-image regeneration from the hosted test page.
+
+- 2026-07-27
+  - Goal: upgrade the social-media tool with a simulated social post preview, image loading animation, running-log progress bar, and per-image aspect-ratio controls.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; removed the hardcoded balance account fallback from `js/billing.js` before external push; verified `node --check js/social-media-tool.js`, `node --check js/billing.js`, and `git diff --check`; Chrome smoke on local `index.html` mocked text and n8n calls, confirmed no global ratio select, two per-slot ratio selects, pending loaders, progress at 100%, preview card with generated copy/image, and n8n payloads `1:1 / 1024x1024` plus `9:16 / 720x1280`.
+  - Next: push to `test/test-main`, then run one hosted n8n generation with mixed per-image ratios and runtime balance credentials configured.
