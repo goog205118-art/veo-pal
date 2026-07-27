@@ -1,5 +1,11 @@
 # WORKLOG
 
+- 2026-07-27
+  - Goal: restore the old lightweight "台前调度" behavior for image-generation cards without bringing back the retired large node workflow.
+  - Status: done.
+  - Evidence: added `js/image-stage.js`, wired the rail into `index.html`, `studio.html`, and `js/index.html`, connected stage hooks through canvas render/interactions/minimap/lifecycle modules, and added stage state defaults for image-generation cards.
+  - Next: hosted hand-test drag-to-stage, click-to-release, rename, and polling continuity while a generated image is running.
+
 - 2026-07-22
   - Goal: simplify the image-gen card by removing seed/retry controls, making prompt Enter-to-submit, and dropping the extra running animations.
   - Status: in progress.

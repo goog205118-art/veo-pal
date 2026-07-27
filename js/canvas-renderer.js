@@ -37,6 +37,7 @@
     }
 
     function isRenderableTask(task) {
+        if (task && task.type === 'tool_image_gen' && callHook('isImageStageDocked', task)) return false;
         return task && task.type !== 'local_image' && !callHook('isRetiredTaskType', task.type);
     }
 
@@ -96,6 +97,14 @@
         const task = normalizeTaskForRender(rawTask);
         if (!task) return;
         const cardEl = callHook('getTaskElement', taskId);
+        if (callHook('isImageStageDocked', task)) {
+            if (cardEl) cardEl.remove();
+            await callHook('renderImageStageRail');
+            callHook('renderMinimap');
+            callHook('scheduleViewportCulling', 40);
+            callHook('updateSelectionToolbar');
+            return;
+        }
         if (!cardEl) return;
 
         renderCardShell(cardEl, task, { force: true });
@@ -108,9 +117,15 @@
         const board = callHook('getBoardElement');
         if (!board) return;
         const tasks = await callHook('getAllTasks');
+        (Array.isArray(tasks) ? tasks : []).forEach((rawTask) => {
+            if (!rawTask || rawTask.type !== 'tool_image_gen') return;
+            const imageTask = normalizeTaskForRender(rawTask);
+            if (imageTask) syncProcessingImagePolling(imageTask);
+        });
         const boardTasks = (Array.isArray(tasks) ? tasks : []).filter(isRenderableTask);
         const boardTaskIds = new Set(boardTasks.map((task) => 'card-' + task.id));
         removeStaleCards(board, boardTaskIds);
+        await callHook('renderImageStageRail', tasks);
 
         boardTasks.forEach((rawTask) => {
             const task = normalizeTaskForRender(rawTask);
@@ -128,8 +143,6 @@
             } else {
                 renderCardShell(cardEl, task, { syncSnapshot });
             }
-
-            syncProcessingImagePolling(task);
             finalizeCard(cardEl, task, syncSnapshot);
         });
 

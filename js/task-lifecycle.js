@@ -45,6 +45,7 @@
         callHook('clearImagePolling', taskId);
         callHook('clearPromptDraft', taskId);
         callHook('clearImageRuntime', taskId);
+        callHook('clearImageStageTask', taskId);
         callHook('destroyMaskStudio', taskId);
         callHook('destroyMaskEditor', taskId);
         callHook('clearTaskShadow', taskId);

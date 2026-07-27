@@ -85,6 +85,10 @@
         const lastUsageCost = window.toFiniteNumber(task.state.lastUsageCost, NaN);
         task.state.lastUsageCost = Number.isFinite(lastUsageCost) && lastUsageCost >= 0 ? lastUsageCost : null;
         if (!task.state.lastUsageDetail) task.state.lastUsageDetail = '';
+        if (typeof task.state.stageDocked !== 'boolean') task.state.stageDocked = false;
+        if (typeof task.state.stageReleased !== 'boolean') task.state.stageReleased = false;
+        if (typeof task.state.stageLabel !== 'string') task.state.stageLabel = '';
+        if (typeof task.state.stageLabelCustom !== 'boolean') task.state.stageLabelCustom = false;
         const openW = parseInt(task.state.cardWidthOpen, 10);
         const collapsedW = parseInt(task.state.cardWidthCollapsed, 10);
         const cardH = parseInt(task.state.cardHeight, 10);

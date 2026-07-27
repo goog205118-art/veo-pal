@@ -26,6 +26,7 @@
     }
 
     function isBoardTask(task) {
+        if (task && task.type === 'tool_image_gen' && callHook('isImageStageDocked', task)) return false;
         return !!(task && task.type !== 'local_image' && !isRetiredTask(task));
     }
 

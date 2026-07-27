@@ -55,7 +55,11 @@
                 cardHeight: 520,
                 nextSubmitAt: 0,
                 lastUsageCost: null,
-                lastUsageDetail: ''
+                lastUsageDetail: '',
+                stageDocked: false,
+                stageReleased: false,
+                stageLabel: '',
+                stageLabelCustom: false
             }
         }
     };

@@ -58,7 +58,11 @@
                 imgGenUiV2: true,
                 cardWidthOpen: 680,
                 cardWidthCollapsed: 360,
-                cardHeight: 520
+                cardHeight: 520,
+                stageDocked: false,
+                stageReleased: false,
+                stageLabel: '',
+                stageLabelCustom: false
             };
         return {
             id: 'tool_img_' + Date.now(),
@@ -144,6 +148,10 @@
         clone.state.resultUrl = null;
         clone.state.startTime = null;
         clone.state.nextSubmitAt = 0;
+        clone.state.stageDocked = false;
+        clone.state.stageReleased = false;
+        clone.state.stageLabel = '';
+        clone.state.stageLabelCustom = false;
         clone.state.maskImage = null;
         clone.state.maskBlob = null;
         clone.state.maskEditMode = false;

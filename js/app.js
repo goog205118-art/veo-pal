@@ -189,6 +189,7 @@ const minimap = window.VeoMinimap.configure({
     hooks: {
         animateCameraTo: (target, options) => animateCameraTo(target, options),
         getAllTasks: () => getAllTasksDB(),
+        isImageStageDocked: (task) => isImgGenTaskStageDocked(task),
         getRetiredNodeTypes: () => window.VeoMigrationGuards.getRetiredNodeTypes()
     }
 });
@@ -318,6 +319,7 @@ window.VeoTaskLifecycle.configure({
     hooks: {
         clearImagePolling: (taskId) => clearImgGenPolling(taskId),
         clearImageRuntime: (taskId) => clearImgGenStateRuntime(taskId),
+        clearImageStageTask: (taskId) => window.VeoImageStage.clearActiveTask(taskId),
         clearPromptDraft: (taskId) => clearImgGenPromptDraftTimer(taskId),
         clearSelection: () => clearSelection(),
         clearTaskShadow: (taskId) => clearTaskShadow(taskId),
@@ -338,6 +340,40 @@ window.VeoTaskLifecycle.configure({
         updateSelectionToolbar: () => updateSelectionToolbar()
     }
 });
+window.VeoImageStage.configure({
+    hooks: {
+        clearSelection: () => clearSelection(),
+        clientToBoard: (clientX, clientY) => clientToBoard(clientX, clientY),
+        ensureImageState: (task) => ensureImgGenState(task),
+        getAllTasks: () => getAllTasksDB(),
+        getBlobUrl: (id, blob) => getBlobUrl(id, blob),
+        getPendingCount: (task) => getImgGenPendingCount(task),
+        getProtectedPreviewIds: (taskId) => getImgGenProtectedPreviewIds(taskId),
+        getSelectedTaskIds: () => Array.from(selectedTasks),
+        getTask: (taskId) => getTaskDB(taskId),
+        getTaskElement: (taskId) => document.getElementById('card-' + taskId),
+        getTaskFallbackSize: (task) => getTaskFallbackSize(task),
+        getTaskShadow: (taskId) => getTaskShadow(taskId),
+        getViewportRect: () => viewport && typeof viewport.getBoundingClientRect === 'function'
+            ? viewport.getBoundingClientRect()
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight },
+        isTaskSelected: (taskId) => selectedTasks.has(taskId),
+        mergeImageTaskWithShadow: (task, shadow, options) => mergeImgGenTaskWithShadow(task, shadow, options),
+        nextZIndex: () => {
+            highestZIndex++;
+            return highestZIndex;
+        },
+        renderBoard: () => renderBoard(),
+        renderMinimap: () => renderMinimap(),
+        saveTask: (task) => saveTaskDB(task),
+        scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
+        selectTask: (taskId, el) => canvasSelection.selectTask(taskId, el),
+        setTaskShadow: (task) => setTaskShadow(task),
+        showToast: (message, type) => showToast(message, type),
+        toFiniteNumber: (value, fallback) => toFiniteNumber(value, fallback),
+        updateSelectionToolbar: () => updateSelectionToolbar()
+    }
+});
 window.VeoCanvasRenderer.configure({
     hooks: {
         applyImageCardFrame: (cardEl, task) => applyImgGenCardFrame(cardEl, task),
@@ -354,10 +390,12 @@ window.VeoCanvasRenderer.configure({
         getTask: (taskId) => getTaskDB(taskId),
         getTaskElement: (taskId) => document.getElementById('card-' + taskId),
         hasImagePolling: (taskId, previewItemId) => hasImgGenPolling(taskId, previewItemId),
+        isImageStageDocked: (task) => isImgGenTaskStageDocked(task),
         isRetiredTaskType: (taskType) => window.VeoMigrationGuards.isRetiredTaskType(taskType),
         mergeImageTaskWithShadow: (task) => mergeImgGenTaskWithShadow(task, getTaskShadow(task.id), { protectedIds: getImgGenProtectedPreviewIds(task.id) }),
         morphCardDOM: (cardEl, html) => morphCardDOM(cardEl, html),
         normalizeTaskPosition: (task) => normalizeTaskPosition(task),
+        renderImageStageRail: (tasks) => window.VeoImageStage.render(tasks),
         renderImageCardHTML: (task) => renderImgGenCardHTML(task),
         renderMinimap: () => renderMinimap(),
         renderVideoCardHTML: (task) => renderVideoTaskCardHTML(task),
@@ -384,9 +422,13 @@ window.VeoCanvasInteractions.configure({
         cancelCanvasInertia: () => cancelCanvasInertia(),
         checkGroupDrop: (dragInfo) => checkGroupDrop(dragInfo),
         clearSelection: () => clearSelection(),
+        canDockToImageStage: (dragInfo, clientX, clientY) => window.VeoImageStage.canDockDrag(dragInfo, clientX, clientY),
         deleteSelectedTasks: () => deleteSelectedTasks(),
+        dockToImageStage: (dragInfo) => window.VeoImageStage.dockDraggedTask(dragInfo),
         duplicateSelectedTasks: () => duplicateSelectedTasks(),
         duplicateTask: (task, event) => duplicateTask(task, event),
+        isPointInImageStageRail: (clientX, clientY) => window.VeoImageStage.isPointInRail(clientX, clientY),
+        isPointNearImageStageRail: (clientX, clientY) => window.VeoImageStage.isPointNearRail(clientX, clientY),
         isTaskSelected: (taskId) => selectedTasks.has(taskId),
         nextZIndex: () => {
             highestZIndex++;
@@ -400,6 +442,7 @@ window.VeoCanvasInteractions.configure({
         saveTask: (task) => saveTaskDB(task),
         scheduleViewportCulling: (delay) => scheduleViewportCulling(delay),
         setCanvasMoving: (active) => setCanvasMoving(active),
+        setImageStageDragOver: (active) => window.VeoImageStage.setDragOver(active),
         showToast: (message, type) => showToast(message, type),
         startCanvasInertia: () => startCanvasInertia(),
         syncCardViewportMetrics: (cardEl, task) => syncCardViewportMetrics(cardEl, task),
@@ -576,6 +619,22 @@ function bindCardDrag(cardEl, task) {
 
 function getDraggingCardInfo() {
     return window.VeoCanvasInteractions.getDraggingCardInfo();
+}
+
+function toggleImgGenStageRail(event) {
+    return window.VeoImageStage.toggle(event);
+}
+
+function focusImgGenStageCard(event, taskId) {
+    return window.VeoImageStage.focus(event, taskId);
+}
+
+function renameImgGenStageLabel(event, taskId) {
+    return window.VeoImageStage.rename(event, taskId);
+}
+
+function isImgGenTaskStageDocked(task) {
+    return window.VeoImageStage && window.VeoImageStage.isDocked(task);
 }
 
 window.VeoCanvasInteractions.bind();

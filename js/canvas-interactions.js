@@ -90,6 +90,7 @@
         dragInfo.task.y = dragBaseY + dy;
         dragInfo.el.style.transform = `translate3d(${dragInfo.task.x}px, ${dragInfo.task.y}px, 0)`;
         dragSelectedChildren(dx, dy);
+        callHook('setImageStageDragOver', !!callHook('canDockToImageStage', dragInfo, e.clientX, e.clientY));
         callHook('requestSelectionToolbarUpdate');
     }
 
@@ -142,7 +143,7 @@
         }
     }
 
-    async function handleGlobalMouseUp() {
+    async function handleGlobalMouseUp(e) {
         state.isPrimaryPointerDown = false;
         const wasPanning = state.isPanning;
         state.isPanning = false;
@@ -155,6 +156,16 @@
 
         if (!state.draggingCardInfo) return;
         const dragInfo = state.draggingCardInfo;
+        const releaseX = e && Number.isFinite(e.clientX) ? e.clientX : state.lastPointerClientX;
+        const releaseY = e && Number.isFinite(e.clientY) ? e.clientY : state.lastPointerClientY;
+        if (callHook('canDockToImageStage', dragInfo, releaseX, releaseY)) {
+            callHook('setImageStageDragOver', false);
+            dragInfo.el.style.willChange = 'auto';
+            await callHook('dockToImageStage', dragInfo);
+            state.draggingCardInfo = null;
+            return;
+        }
+        callHook('setImageStageDragOver', false);
         dragInfo.el.style.willChange = 'auto';
         callHook('syncCardViewportMetrics', dragInfo.el, dragInfo.task);
         await callHook('saveTask', dragInfo.task);
@@ -313,7 +324,9 @@
                 initialX: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.x, 0),
                 initialY: toFiniteNumber(cardEl.__veoTask && cardEl.__veoTask.y, 0),
                 fromCanvasCard: true,
-                justCreated: false
+                justCreated: false,
+                startedInsideStageRail: !!callHook('isPointInImageStageRail', e.clientX, e.clientY),
+                startedNearStageRail: !!callHook('isPointNearImageStageRail', e.clientX, e.clientY)
             };
 
             if (task.type === 'frame') return;
