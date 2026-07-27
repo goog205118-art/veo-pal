@@ -53,3 +53,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; removed the hardcoded balance account fallback from `js/billing.js` before external push; verified `node --check js/social-media-tool.js`, `node --check js/billing.js`, and `git diff --check`; Chrome smoke on local `index.html` mocked text and n8n calls, confirmed no global ratio select, two per-slot ratio selects, pending loaders, progress at 100%, preview card with generated copy/image, and n8n payloads `1:1 / 1024x1024` plus `9:16 / 720x1280`.
   - Next: push to `test/test-main`, then run one hosted n8n generation with mixed per-image ratios and runtime balance credentials configured.
+
+- 2026-07-27
+  - Goal: remove the extra social copy output frame and separate hashtag section so the generated copy and tags live directly inside the simulated post preview.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; verified `git diff --check`; Chrome smoke on local `index.html` confirmed no `社媒文案输出` heading, no `Hashtags` heading, no separate tags node, no outer panel class on the preview output, and generated copy plus tags rendered inside the simulated post.
+  - Next: push to `test-main` for hosted visual hand-check.
