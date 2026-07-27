@@ -431,9 +431,11 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-template-builder { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: rgba(255,255,255,.035); }
 .social-tool-template-builder textarea { min-height: 72px; }
 .social-tool-template-builder-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
-.social-tool-output { min-height: 220px; max-height: 360px; overflow: auto; white-space: pre-wrap; user-select: text; }
+.social-tool-preview-stage { min-height: 360px; padding: 0; background: transparent; border: 0; }
+.social-tool-preview-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.social-tool-output { min-height: 320px; overflow: visible; white-space: normal; user-select: text; }
 .social-tool-social-preview { white-space: normal; color: #1f2937; }
-.social-tool-post-card { width: min(100%, 430px); margin: 0 auto; border: 1px solid rgba(15,23,42,.12); border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
+.social-tool-post-card { width: min(100%, 520px); margin: 0 auto; border: 1px solid rgba(15,23,42,.12); border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
 .social-tool-post-head { display: grid; grid-template-columns: 42px minmax(0, 1fr) 24px; gap: 10px; align-items: center; padding: 12px 14px; }
 .social-tool-post-avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #2f80ed, #43c279); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
 .social-tool-post-title { min-width: 0; font-size: 13px; font-weight: 750; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -609,19 +611,14 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                         </div>
                     </section>
                     <section class="social-tool-grid">
-                        <div class="social-tool-panel">
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
-                                <h3 style="margin:0;"><span class="material-symbols-outlined">stylus_note</span> 社媒文案输出</h3>
+                        <div class="social-tool-preview-stage">
+                            <div class="social-tool-preview-actions">
                                 <button class="top-btn" id="social-tool-copy-btn" type="button">
                                     <span class="material-symbols-outlined">content_copy</span>
                                     复制文案+标签
                                 </button>
                             </div>
-                            <div class="social-tool-output social-tool-panel" id="social-tool-text-output">等待生成中...</div>
-                            <div style="margin-top:14px;">
-                                <h3><span class="material-symbols-outlined">tag</span> Hashtags</h3>
-                                <div class="social-tool-tags" id="social-tool-tags"></div>
-                            </div>
+                            <div class="social-tool-output" id="social-tool-text-output">等待生成中...</div>
                         </div>
                         <div class="social-tool-panel">
                             <h3><span class="material-symbols-outlined">palette</span> 生成的配图</h3>
@@ -1502,7 +1499,8 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                     </article>
                 </div>
             `;
-            byId('social-tool-tags').innerHTML = '';
+            const tags = byId('social-tool-tags');
+            if (tags) tags.innerHTML = '';
             return;
         }
         const workspace = getActiveWorkspace();
@@ -1545,8 +1543,8 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             </div>
         `;
         const tags = byId('social-tool-tags');
-        tags.innerHTML = '';
-        if (tagsList.length) {
+        if (tags) tags.innerHTML = '';
+        if (tags && tagsList.length) {
             tagsList.forEach((tag) => {
                 const span = document.createElement('span');
                 span.className = 'social-tool-tag';
@@ -1705,8 +1703,9 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
     }
 
     function clearOutputs() {
-        byId('social-tool-text-output').textContent = '生成中，请稍候...';
-        byId('social-tool-tags').innerHTML = '';
+        renderTextOutput(null);
+        const tags = byId('social-tool-tags');
+        if (tags) tags.innerHTML = '';
         byId('social-tool-images').innerHTML = '<div class="social-tool-placeholder">等待图片生成中...</div>';
     }
 
@@ -1783,7 +1782,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         const text = workspace.textResult.content;
         const tagList = workspace.textResult && Array.isArray(workspace.textResult.hashtags)
             ? workspace.textResult.hashtags.map((tag) => String(tag || '').startsWith('#') ? String(tag || '') : `#${tag}`)
-            : Array.from(byId('social-tool-tags').children).map((item) => item.textContent);
+            : Array.from((byId('social-tool-tags') && byId('social-tool-tags').children) || []).map((item) => item.textContent);
         const hashtags = tagList.filter(Boolean).join(' ');
         const fullText = [text, hashtags].filter(Boolean).join('\n\n').trim();
         if (!fullText || fullText === '等待生成中...') return;
