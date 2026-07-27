@@ -65,3 +65,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; verified `node --check js/social-media-tool.js`; verified `git diff --check`; attempted Playwright smoke with bundled runtime, but bundled Chromium was missing and local Chrome run was blocked by the app login overlay before the generate button click.
   - Next: hand-check the hosted test page while running a real social-media image generation.
+
+- 2026-07-27
+  - Goal: add a social-media export action for generated images and post copy.
+  - Status: done.
+  - Evidence: updated `js/social-media-tool.js`; export button writes a `YYYY-MM-DD` folder with `copy.txt` and generated images when folder access is available, with ordinary-download fallback for unsupported browsers.
+  - Next: verify on the hosted test page in Chrome or Edge with a completed social-media generation.

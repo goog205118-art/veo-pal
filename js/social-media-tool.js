@@ -353,6 +353,52 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             : [];
     }
 
+    function formatDateFolderName(date = new Date()) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function sanitizeFilename(value, fallback = 'file') {
+        const cleaned = String(value || '')
+            .replace(/[\\/:*?"<>|]+/g, '-')
+            .replace(/\s+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 72);
+        return cleaned || fallback;
+    }
+
+    function getImageFileExtension(url, blob) {
+        const type = blob && blob.type ? blob.type.toLowerCase() : '';
+        if (type.includes('jpeg') || type.includes('jpg')) return 'jpg';
+        if (type.includes('webp')) return 'webp';
+        if (type.includes('gif')) return 'gif';
+        if (type.includes('png')) return 'png';
+        const match = String(url || '').split('?')[0].match(/\.([a-z0-9]{3,5})$/i);
+        return match ? match[1].toLowerCase() : 'png';
+    }
+
+    async function writeFileToDirectory(directoryHandle, filename, data) {
+        const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(data);
+        await writable.close();
+    }
+
+    function buildExportCopyText(workspace) {
+        const result = workspace && workspace.textResult ? workspace.textResult : null;
+        const copy = result && result.content ? String(result.content).trim() : '';
+        const hashtags = normalizeHashtags(result && result.hashtags).join(' ');
+        const lines = [];
+        if (copy) lines.push(copy);
+        if (hashtags) lines.push('', hashtags);
+        if (workspace && workspace.guidanceLink) lines.push('', `Link: ${workspace.guidanceLink}`);
+        if (workspace && workspace.productDesc) lines.push('', `Product: ${workspace.productDesc}`);
+        if (workspace && workspace.contextDesc) lines.push(`Context: ${workspace.contextDesc}`);
+        return lines.join('\n').trim();
+    }
+
     function getPreviewHostname(url) {
         const value = String(url || '').trim();
         if (!value) return '';
@@ -560,6 +606,9 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                         <p>上传产品图，生成欧美社媒贴文，并用模板批量生成配图。</p>
                     </div>
                     <div class="social-tool-head-actions">
+                        <button class="top-btn icon-only" id="social-tool-export-btn" type="button" data-tip="导出当前社媒内容">
+                            <span class="material-symbols-outlined">drive_folder_upload</span>
+                        </button>
                         <button class="top-btn icon-only" id="social-tool-settings-btn" data-tip="社媒引擎设置">
                             <span class="material-symbols-outlined">tune</span>
                         </button>
@@ -768,6 +817,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 
     function bindEvents() {
         byId('social-tool-close-btn').addEventListener('click', close);
+        byId('social-tool-export-btn').addEventListener('click', exportCurrentWorkspace);
         byId('social-tool-settings-btn').addEventListener('click', toggleSettings);
         byId('social-tool-settings-back').addEventListener('click', closeSettings);
         byId('social-tool-settings-cancel').addEventListener('click', () => {
@@ -1815,6 +1865,105 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         workspace.logs.push(item.innerHTML);
         renderWorkspaceRail();
         if (workspace.id === activeWorkspaceId) renderLog(workspace);
+    }
+
+    async function fetchExportImageBlob(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.blob();
+    }
+
+    function downloadExportBlob(filename, blob) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1200);
+    }
+
+    async function fallbackDownloadWorkspaceExport(workspace, copyText, successImages) {
+        const dateName = formatDateFolderName();
+        const failed = [];
+        downloadExportBlob(`${dateName}-copy.txt`, new Blob([`\ufeff${copyText || '暂无文案'}`], { type: 'text/plain;charset=utf-8' }));
+        for (let index = 0; index < successImages.length; index += 1) {
+            const result = successImages[index];
+            try {
+                const blob = await fetchExportImageBlob(result.url);
+                const extension = getImageFileExtension(result.url, blob);
+                const name = sanitizeFilename(result.templateName || `image-${index + 1}`, `image-${index + 1}`);
+                downloadExportBlob(`${dateName}-image-${String(index + 1).padStart(2, '0')}-${name}.${extension}`, blob);
+            } catch (error) {
+                failed.push(`image-${index + 1}: ${result.url}`);
+            }
+        }
+        if (failed.length) {
+            downloadExportBlob(`${dateName}-image-download-links.txt`, new Blob([`\ufeff${failed.join('\n')}`], { type: 'text/plain;charset=utf-8' }));
+            showToast('部分远程图片受跨域限制，已导出链接清单', true);
+        } else {
+            showToast('当前浏览器不支持文件夹选择，已改为普通下载');
+        }
+    }
+
+    async function exportCurrentWorkspace() {
+        saveActiveForm();
+        const workspace = getActiveWorkspace();
+        if (workspace.isLoading) {
+            showToast('请等待当前生成完成后再导出', true);
+            return;
+        }
+        const copyText = buildExportCopyText(workspace);
+        const successImages = Array.isArray(workspace.imageResults)
+            ? workspace.imageResults.filter((item) => item && item.status === 'success' && item.url)
+            : [];
+        if (!copyText && successImages.length === 0) {
+            showToast('暂无可导出的文案或图片', true);
+            return;
+        }
+        if (!window.showDirectoryPicker) {
+            await fallbackDownloadWorkspaceExport(workspace, copyText, successImages);
+            return;
+        }
+
+        try {
+            const rootHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            const exportHandle = await rootHandle.getDirectoryHandle(formatDateFolderName(), { create: true });
+            await writeFileToDirectory(
+                exportHandle,
+                'copy.txt',
+                new Blob([`\ufeff${copyText || '暂无文案'}`], { type: 'text/plain;charset=utf-8' })
+            );
+
+            const failed = [];
+            for (let index = 0; index < successImages.length; index += 1) {
+                const result = successImages[index];
+                try {
+                    const blob = await fetchExportImageBlob(result.url);
+                    const extension = getImageFileExtension(result.url, blob);
+                    const name = sanitizeFilename(result.templateName || `image-${index + 1}`, `image-${index + 1}`);
+                    await writeFileToDirectory(exportHandle, `image-${String(index + 1).padStart(2, '0')}-${name}.${extension}`, blob);
+                } catch (error) {
+                    failed.push(`image-${index + 1}: ${result.url}`);
+                }
+            }
+
+            if (failed.length) {
+                await writeFileToDirectory(
+                    exportHandle,
+                    'image-download-links.txt',
+                    new Blob([`\ufeff${failed.join('\n')}`], { type: 'text/plain;charset=utf-8' })
+                );
+                showToast('已导出文案；部分远程图片受跨域限制，已保存链接清单', true);
+            } else {
+                showToast(`已导出到 ${formatDateFolderName()} 文件夹`);
+            }
+        } catch (error) {
+            if (error && error.name === 'AbortError') return;
+            console.error(error);
+            showToast('导出失败，请检查文件夹权限或图片链接', true);
+        }
     }
 
     async function copyText() {
