@@ -80,6 +80,6 @@
 
 - 2026-07-28
   - Goal: port the Excel workbook assistant from `goog205118-art/dianputx` into the current studio as a two-layer embedded tool.
-  - Status: in progress.
-  - Evidence: added `js/excel-tool.js`, wired the top-bar entry into `index.html`, `studio.html`, and `js/index.html`, and confirmed the module passes `node --check`.
-  - Next: run a browser smoke on the modal open / settings / export path, then push the tested update to the `test` repository.
+  - Status: done.
+  - Evidence: added `js/excel-tool.js`, wired the top-bar entry into `index.html`, `studio.html`, and `js/index.html`; verified `node --check js/excel-tool.js`; ran a Playwright smoke against local `index.html` that opened the modal, switched to settings, and returned to work; committed as `8fbe783` and pushed to `test/main`.
+  - Next: wait for your manual review on the test repo and tune workbook export behavior if you want template-preserving fills beyond the current path.
