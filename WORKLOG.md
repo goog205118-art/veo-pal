@@ -77,3 +77,9 @@
   - Status: done.
   - Evidence: updated `js/social-media-tool.js`; export button writes a `YYYY-MM-DD` folder with `copy.txt` and generated images when folder access is available, with ordinary-download fallback for unsupported browsers.
   - Next: verify on the hosted test page in Chrome or Edge with a completed social-media generation.
+
+- 2026-07-28
+  - Goal: port the Excel workbook assistant from `goog205118-art/dianputx` into the current studio as a two-layer embedded tool.
+  - Status: in progress.
+  - Evidence: added `js/excel-tool.js`, wired the top-bar entry into `index.html`, `studio.html`, and `js/index.html`, and confirmed the module passes `node --check`.
+  - Next: run a browser smoke on the modal open / settings / export path, then push the tested update to the `test` repository.
