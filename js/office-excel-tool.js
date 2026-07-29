@@ -1,118 +1,69 @@
 (function (window, document) {
     'use strict';
 
-    const SETTINGS_KEY = 'veoOfficeExcelToolSettings';
-    const SHEETJS_CDN = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-    const MAX_PREVIEW_ROWS = 10;
+    const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
+    const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
 
-    const docTypes = {
-        product: {
-            label: '商品详情页',
-            filePrefix: 'product-detail',
-            template: [
-                ['商品详情页', '{{sku}}'],
-                ['目标国家', '{{country}}'],
-                ['标题', '{{title}}'],
-                ['价格', '{{price}}'],
-                ['卖点1', '{{feature_1}}'],
-                ['卖点2', '{{feature_2}}'],
-                ['卖点3', '{{feature_3}}'],
-                ['规格', '{{spec}}'],
-                ['合规备注', '{{compliance_note}}']
-            ]
-        },
-        purchase: {
-            label: '采购单',
-            filePrefix: 'purchase-order',
-            template: [
-                ['采购单号', '{{po_no}}'],
-                ['供应商', '{{supplier}}'],
-                ['SKU', '{{sku}}'],
-                ['数量', '{{quantity}}'],
-                ['单价', '{{price}}'],
-                ['国家', '{{country}}'],
-                ['交付日期', '{{delivery_date}}']
-            ]
-        },
-        quotation: {
-            label: '报价单',
-            filePrefix: 'quotation',
-            template: [
-                ['报价编号', '{{quote_no}}'],
-                ['客户国家', '{{country}}'],
-                ['SKU', '{{sku}}'],
-                ['产品名', '{{title}}'],
-                ['报价', '{{price}}'],
-                ['有效期', '{{valid_until}}'],
-                ['贸易条款', '{{trade_terms}}']
-            ]
-        },
-        invoice: {
-            label: '发票',
-            filePrefix: 'invoice',
-            template: [
-                ['Invoice No.', '{{invoice_no}}'],
-                ['Country', '{{country}}'],
-                ['SKU', '{{sku}}'],
-                ['Description', '{{title}}'],
-                ['Qty', '{{quantity}}'],
-                ['Unit Price', '{{price}}'],
-                ['Amount', '{{amount}}']
-            ]
-        },
-        packing: {
-            label: '装箱单',
-            filePrefix: 'packing-list',
-            template: [
-                ['Packing List No.', '{{packing_no}}'],
-                ['SKU', '{{sku}}'],
-                ['Country', '{{country}}'],
-                ['Cartons', '{{cartons}}'],
-                ['Gross Weight', '{{gross_weight}}'],
-                ['Net Weight', '{{net_weight}}'],
-                ['Dimensions', '{{dimensions}}']
-            ]
-        },
-        email: {
-            label: '邮件回复',
-            filePrefix: 'email-reply',
-            template: [
-                ['邮件主题', 'Re: {{sku}} inquiry for {{country}}'],
-                ['称呼', 'Dear {{customer_name}},'],
-                ['正文', 'Thank you for your inquiry. The current offer for {{sku}} is {{price}}. Delivery country: {{country}}.'],
-                ['补充说明', '{{email_note}}'],
-                ['签名', '{{brand_name}} Team']
-            ]
-        }
-    };
+    const DEFAULT_SYSTEM_PROMPT = [
+        '你是 OfficeCLI Excel 操作规划器。',
+        '你的目标不是直接改表格，而是把用户的自然语言需求转成 OfficeCLI 本地命令计划，让一个不懂表格操作的 LLM 也能通过本地工具读写 Excel / CSV 文件。',
+        '必须只输出 JSON，不要输出 Markdown。',
+        '命令计划必须使用 argv 数组，不允许输出 shell 字符串。',
+        'argv 不要包含 officecli 本体，只写 officecli 后面的参数。',
+        '使用 $file 作为当前上传或选择的表格文件占位符。',
+        '建议流程：inspect / get / query 先理解文件，再 set / add / remove / batch 修改，最后 validate 和 view html 预览。',
+        '如果用户任务不明确，生成只读 inspect + get + validate 计划，并在 notes 里说明需要补充的信息。',
+        'JSON 结构：',
+        '{"goal":"","file":"$file","summary":"","commands":[{"id":"inspect","title":"读取工作簿结构","op":"workbook.inspect","argv":["view","$file","--format","json"],"mutates":false,"explain":""}],"safety":{"writesFile":false,"requiresConfirmation":true},"expectedOutputs":["htmlPreview","logs"],"notes":[]}',
+        '可用能力参考：create, view html, get workbook/sheet/range, query table, set cell/range/style, add row/column/sheet/chart, remove row/column/sheet, batch, validate, watch/view html。',
+        '如需写入文件，优先生成备份/输出文件参数，不要覆盖原文件，除非用户明确要求。'
+    ].join('\n');
 
     const defaultSettings = {
-        localePreset: 'US',
-        dateFormat: 'YYYY-MM-DD',
-        defaultDocType: 'product',
-        requiredFields: 'sku,price,country',
-        bannedWords: 'best,guaranteed,permanent,cure,治愈,永久,绝对',
-        fieldAliases: [
-            'sku=SKU,商品编码,货号,产品编码',
-            'price=价格,单价,报价,售价,Price',
-            'country=国家,站点,市场,Country',
-            'title=标题,商品名,产品名,Title',
-            'quantity=数量,Qty,库存',
-            'supplier=供应商,工厂'
-        ].join('\n')
+        apiBaseUrl: '',
+        apiKey: '',
+        model: 'gpt-4.1-mini',
+        bridgeUrl: 'http://127.0.0.1:8765/officecli',
+        cliCommand: 'officecli',
+        workspaceDir: 'officecli-workspace',
+        dryRun: true,
+        requireConfirmation: true,
+        requestTimeoutMs: 120000,
+        systemPrompt: DEFAULT_SYSTEM_PROMPT
     };
 
+    const examples = [
+        {
+            title: '先理解表格结构',
+            text: '读取这个 Excel 的所有 sheet、表头、前 20 行数据，并生成 HTML 预览。'
+        },
+        {
+            title: '跨境商品表清洗',
+            text: '检查商品表里的 SKU、国家、价格、币种和库存字段，找出缺失项、价格格式不一致和重复 SKU，不直接修改文件。'
+        },
+        {
+            title: '批量改价',
+            text: '把 Sheet1 中 US 站点的价格统一上调 8%，保留两位小数，生成一个新的输出文件，并给出修改记录。'
+        },
+        {
+            title: '生成本地预览',
+            text: '把当前表格转换成可预览的 html，同时检查公式、空行、异常单元格和字段命名问题。'
+        }
+    ];
+
     let settings = { ...defaultSettings };
-    let activeLayer = 'work';
-    let sourceFile = null;
-    let templateFile = null;
-    let sourceRows = [];
-    let sourceHeaders = [];
-    let templateWorkbook = null;
-    let templateSheetName = '';
-    let templatePlaceholders = [];
-    let generated = [];
-    let issues = [];
+    let state = {
+        layer: 'work',
+        file: null,
+        fileDataUrl: '',
+        fileMeta: null,
+        instruction: '',
+        plan: null,
+        result: null,
+        logs: [],
+        busy: false,
+        bridgeStatus: 'unknown'
+    };
 
     const byId = (id) => document.getElementById(id);
 
@@ -125,755 +76,1325 @@
             .replace(/'/g, '&#39;');
     }
 
-    function loadSettings() {
+    function safeJsonParse(value, fallback) {
         try {
-            settings = { ...defaultSettings, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')) };
+            return JSON.parse(value);
         } catch (error) {
-            settings = { ...defaultSettings };
+            return fallback;
         }
     }
 
-    function saveSettings() {
+    function loadSettings() {
         settings = {
-            localePreset: byId('office-excel-locale').value,
-            dateFormat: byId('office-excel-date-format').value.trim() || defaultSettings.dateFormat,
-            defaultDocType: byId('office-excel-default-doc').value,
-            requiredFields: byId('office-excel-required-fields').value.trim(),
-            bannedWords: byId('office-excel-banned-words').value.trim(),
-            fieldAliases: byId('office-excel-field-aliases').value.trim()
+            ...defaultSettings,
+            ...safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {})
+        };
+        const lastPlan = safeJsonParse(localStorage.getItem(LAST_PLAN_KEY) || 'null', null);
+        if (lastPlan && Array.isArray(lastPlan.commands)) {
+            state.plan = lastPlan;
+        }
+    }
+
+    function saveSettingsFromForm() {
+        settings = {
+            apiBaseUrl: byId('officecli-api-base').value.trim(),
+            apiKey: byId('officecli-api-key').value.trim(),
+            model: byId('officecli-model').value.trim() || defaultSettings.model,
+            bridgeUrl: byId('officecli-bridge-url').value.trim() || defaultSettings.bridgeUrl,
+            cliCommand: byId('officecli-cli-command').value.trim() || defaultSettings.cliCommand,
+            workspaceDir: byId('officecli-workspace-dir').value.trim() || defaultSettings.workspaceDir,
+            dryRun: byId('officecli-dry-run').checked,
+            requireConfirmation: byId('officecli-require-confirm').checked,
+            requestTimeoutMs: Number(byId('officecli-timeout-ms').value) || defaultSettings.requestTimeoutMs,
+            systemPrompt: byId('officecli-system-prompt').value.trim() || DEFAULT_SYSTEM_PROMPT
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        setDocType(settings.defaultDocType);
-        toast('设置已保存');
+        toast('OfficeCLI 设置已保存');
     }
 
-    function loadScriptOnce(src, globalName) {
-        return new Promise((resolve, reject) => {
-            if (globalName && window[globalName]) {
-                resolve(true);
-                return;
-            }
-            const existing = Array.from(document.scripts).find((script) => script.src === src);
-            if (existing) {
-                existing.addEventListener('load', () => resolve(true), { once: true });
-                existing.addEventListener('error', reject, { once: true });
-                return;
-            }
-            const script = document.createElement('script');
-            script.src = src;
-            script.async = true;
-            script.onload = () => resolve(true);
-            script.onerror = () => reject(new Error('表格解析库加载失败'));
-            document.head.appendChild(script);
-        });
+    function resetSettings() {
+        settings = { ...defaultSettings };
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        render();
+        toast('已恢复默认设置');
     }
 
-    async function ensureXlsx() {
-        if (!window.XLSX) await loadScriptOnce(SHEETJS_CDN, 'XLSX');
-        if (!window.XLSX) throw new Error('XLSX 库不可用');
+    function addLog(message, type = 'info') {
+        const stamp = new Date().toLocaleTimeString();
+        state.logs.unshift({ stamp, message, type });
+        renderLogs();
     }
 
-    function readAsArrayBuffer(file) {
+    function toast(message) {
+        const existing = document.querySelector('.officecli-toast');
+        if (existing) existing.remove();
+        const node = document.createElement('div');
+        node.className = 'officecli-toast';
+        node.textContent = message;
+        document.body.appendChild(node);
+        setTimeout(() => node.remove(), 2400);
+    }
+
+    function readAsDataUrl(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
             reader.onerror = reject;
-            reader.readAsArrayBuffer(file);
+            reader.readAsDataURL(file);
         });
     }
 
-    function rowsFromSheet(sheet) {
-        return window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    function commandCount(plan) {
+        return Array.isArray(plan?.commands) ? plan.commands.length : 0;
     }
 
-    function findHeaderIndex(rows) {
-        let best = 0;
-        let count = 0;
-        rows.forEach((row, index) => {
-            const filled = row.filter((cell) => String(cell || '').trim()).length;
-            if (filled > count) {
-                best = index;
-                count = filled;
+    function planWrites(plan) {
+        if (!plan) return false;
+        if (plan.safety?.writesFile) return true;
+        return (plan.commands || []).some((command) => command.mutates === true);
+    }
+
+    function normalizePlan(rawPlan) {
+        const plan = rawPlan && typeof rawPlan === 'object' ? rawPlan : {};
+        const commands = Array.isArray(plan.commands) ? plan.commands : [];
+        return {
+            goal: String(plan.goal || state.instruction || 'OfficeCLI Excel 任务'),
+            file: plan.file || '$file',
+            summary: String(plan.summary || '已生成 OfficeCLI 命令计划。'),
+            commands: commands.map((command, index) => ({
+                id: String(command.id || `cmd_${index + 1}`),
+                title: String(command.title || command.op || `步骤 ${index + 1}`),
+                op: String(command.op || 'officecli.command'),
+                argv: Array.isArray(command.argv) ? command.argv.map((item) => String(item)) : [],
+                mutates: Boolean(command.mutates),
+                explain: String(command.explain || '')
+            })).filter((command) => command.argv.length),
+            safety: {
+                writesFile: Boolean(plan.safety?.writesFile || commands.some((command) => command.mutates)),
+                requiresConfirmation: plan.safety?.requiresConfirmation !== false
+            },
+            expectedOutputs: Array.isArray(plan.expectedOutputs) ? plan.expectedOutputs : ['logs', 'htmlPreview'],
+            notes: Array.isArray(plan.notes) ? plan.notes.map((item) => String(item)) : []
+        };
+    }
+
+    function extractJson(text) {
+        const raw = String(text || '').trim();
+        if (!raw) throw new Error('模型返回为空');
+        const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const source = fenced ? fenced[1].trim() : raw;
+        try {
+            return JSON.parse(source);
+        } catch (firstError) {
+            const first = source.indexOf('{');
+            const last = source.lastIndexOf('}');
+            if (first >= 0 && last > first) {
+                return JSON.parse(source.slice(first, last + 1));
             }
-        });
-        return best;
-    }
-
-    function rowsToObjects(rows) {
-        if (!rows.length) return { headers: [], rows: [] };
-        const headerIndex = findHeaderIndex(rows);
-        const headers = rows[headerIndex].map((cell, index) => String(cell || `Column ${index + 1}`).trim());
-        const items = rows.slice(headerIndex + 1)
-            .filter((row) => row.some((cell) => String(cell || '').trim()))
-            .map((row) => {
-                const item = {};
-                headers.forEach((header, index) => {
-                    item[header] = row[index] == null ? '' : row[index];
-                });
-                return item;
-            });
-        return { headers, rows: items };
-    }
-
-    async function parseWorkbook(file) {
-        await ensureXlsx();
-        const buffer = await readAsArrayBuffer(file);
-        const workbook = window.XLSX.read(buffer, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const rawRows = sheet ? rowsFromSheet(sheet) : [];
-        return { workbook, sheetName, rawRows, ...rowsToObjects(rawRows) };
-    }
-
-    function parseAliasMap() {
-        const map = {};
-        String(settings.fieldAliases || '').split(/\n+/).forEach((line) => {
-            const parts = line.split('=');
-            if (parts.length < 2) return;
-            const key = parts[0].trim();
-            const aliases = parts[1].split(',').map((value) => value.trim()).filter(Boolean);
-            if (key) map[key.toLowerCase()] = [key, ...aliases];
-        });
-        return map;
-    }
-
-    function findField(row, field) {
-        const aliasMap = parseAliasMap();
-        const aliases = aliasMap[String(field).toLowerCase()] || [field];
-        const keys = Object.keys(row || {});
-        const matched = keys.find((key) => aliases.some((alias) => key.toLowerCase() === alias.toLowerCase()));
-        if (matched) return row[matched];
-        const loose = keys.find((key) => aliases.some((alias) => key.toLowerCase().includes(alias.toLowerCase())));
-        return loose ? row[loose] : '';
-    }
-
-    function getCurrencySymbol(country) {
-        const preset = String(settings.localePreset || '').toUpperCase();
-        const value = String(country || preset).toUpperCase();
-        if (value.includes('JP') || value.includes('JAPAN') || value.includes('日本')) return 'JPY ';
-        if (value.includes('DE') || value.includes('FR') || value.includes('IT') || value.includes('ES') || value.includes('EU')) return 'EUR ';
-        if (value.includes('AE') || value.includes('UAE') || value.includes('阿拉伯')) return 'AED ';
-        if (value.includes('CN') || value.includes('中国')) return 'CNY ';
-        return 'USD ';
-    }
-
-    function formatField(field, value, sourceRow) {
-        const raw = value == null ? '' : String(value).trim();
-        if (!raw) return '';
-        const name = String(field || '').toLowerCase();
-        if (name.includes('price') || name.includes('amount')) {
-            if (/^[A-Z]{3}\s|^\$|^€|^¥|^￥/.test(raw)) return raw;
-            const numeric = Number(raw.replace(/[^\d.-]/g, ''));
-            if (Number.isFinite(numeric)) return `${getCurrencySymbol(findField(sourceRow, 'country'))}${numeric.toFixed(2)}`;
+            throw firstError;
         }
-        if (name.includes('date') || name.includes('until')) return formatDate(raw);
-        return raw;
     }
 
-    function formatDate(value) {
-        const date = new Date(value);
-        if (Number.isNaN(date.getTime())) return value;
-        const yyyy = date.getFullYear();
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        const dd = String(date.getDate()).padStart(2, '0');
-        const fmt = settings.dateFormat || 'YYYY-MM-DD';
-        if (fmt === 'MM/DD/YYYY') return `${mm}/${dd}/${yyyy}`;
-        if (fmt === 'DD/MM/YYYY') return `${dd}/${mm}/${yyyy}`;
-        if (fmt === 'YYYY/MM/DD') return `${yyyy}/${mm}/${dd}`;
-        return `${yyyy}-${mm}-${dd}`;
+    function buildUserPrompt() {
+        const meta = state.fileMeta || {};
+        return [
+            '请根据下面信息生成 OfficeCLI Excel 命令计划。',
+            '',
+            `用户任务：${state.instruction || '读取表格结构并生成预览。'}`,
+            `当前文件：${meta.name || '$file'}`,
+            `文件类型：${meta.type || 'unknown'}`,
+            `文件大小：${meta.size ? `${Math.round(meta.size / 1024)} KB` : 'unknown'}`,
+            '',
+            '要求：',
+            '1. 只输出 JSON。',
+            '2. commands[].argv 必须是参数数组，不要写 shell 字符串。',
+            '3. 对当前文件统一使用 $file 占位符。',
+            '4. 如果需要写入，尽量生成新文件或输出副本。',
+            '5. 计划中必须包含解释性 title / explain，方便前端展示给用户确认。'
+        ].join('\n');
     }
 
-    function extractPlaceholdersFromText(text) {
-        const found = new Set();
-        String(text || '').replace(/\{\{\s*([a-zA-Z0-9_\u4e00-\u9fa5-]+)\s*\}\}/g, (match, key) => {
-            found.add(key.trim());
-            return match;
-        });
-        return Array.from(found);
-    }
-
-    function extractTemplatePlaceholders() {
-        const found = new Set();
-        if (templateWorkbook && templateSheetName) {
-            const sheet = templateWorkbook.Sheets[templateSheetName];
-            Object.keys(sheet || {}).forEach((addr) => {
-                if (addr[0] === '!') return;
-                extractPlaceholdersFromText(sheet[addr].v).forEach((field) => found.add(field));
-            });
-        } else {
-            const doc = docTypes[getSelectedDocType()];
-            doc.template.flat().forEach((cell) => extractPlaceholdersFromText(cell).forEach((field) => found.add(field)));
+    async function callPlannerModel() {
+        if (!settings.apiBaseUrl || !settings.apiKey) {
+            throw new Error('请先在设置层填写大模型 API Base URL 和 API Key');
         }
-        templatePlaceholders = Array.from(found);
-    }
-
-    function getSelectedDocType() {
-        return byId('office-excel-doc-type')?.value || settings.defaultDocType || 'product';
-    }
-
-    function setDocType(value) {
-        const select = byId('office-excel-doc-type');
-        if (select && docTypes[value]) select.value = value;
-        extractTemplatePlaceholders();
-        renderTemplateFields();
-        renderPreview();
-    }
-
-    function buildContext(row) {
-        const context = {};
-        const fields = new Set([
-            ...templatePlaceholders,
-            ...String(settings.requiredFields || '').split(',').map((field) => field.trim()).filter(Boolean)
-        ]);
-        fields.forEach((field) => {
-            context[field] = formatField(field, findField(row, field), row);
-        });
-        return context;
-    }
-
-    function fillText(text, context) {
-        return String(text == null ? '' : text).replace(/\{\{\s*([a-zA-Z0-9_\u4e00-\u9fa5-]+)\s*\}\}/g, (match, key) => {
-            const value = context[key.trim()];
-            return value == null || value === '' ? match : String(value);
-        });
-    }
-
-    function cloneSheetWithContext(sheet, context) {
-        const next = {};
-        Object.keys(sheet || {}).forEach((addr) => {
-            const cell = sheet[addr];
-            if (addr[0] === '!') {
-                next[addr] = Array.isArray(cell) ? cell.slice() : cell;
-                return;
-            }
-            next[addr] = { ...cell };
-            if (typeof cell.v === 'string') {
-                next[addr].v = fillText(cell.v, context);
-                next[addr].w = next[addr].v;
-            }
-        });
-        return next;
-    }
-
-    function builtInSheet(context) {
-        const rows = docTypes[getSelectedDocType()].template.map((row) => row.map((cell) => fillText(cell, context)));
-        return window.XLSX.utils.aoa_to_sheet(rows);
-    }
-
-    function validateOutput(items) {
-        const list = [];
-        const required = String(settings.requiredFields || '').split(',').map((field) => field.trim()).filter(Boolean);
-        const banned = String(settings.bannedWords || '').split(',').map((word) => word.trim()).filter(Boolean);
-        items.forEach((item, index) => {
-            required.forEach((field) => {
-                if (!String(item.context[field] || '').trim()) {
-                    list.push({ level: 'danger', row: index + 1, title: `缺失字段 {{${field}}}`, detail: '模板生成前需要补齐该字段。' });
-                }
+        const url = settings.apiBaseUrl.replace(/\/+$/, '') + '/chat/completions';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), settings.requestTimeoutMs);
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${settings.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: settings.model,
+                    temperature: 0.1,
+                    messages: [
+                        { role: 'system', content: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT },
+                        { role: 'user', content: buildUserPrompt() }
+                    ]
+                }),
+                signal: controller.signal
             });
-            const text = JSON.stringify(item.context);
-            banned.forEach((word) => {
-                if (word && text.toLowerCase().includes(word.toLowerCase())) {
-                    list.push({ level: 'danger', row: index + 1, title: `命中禁用词 ${word}`, detail: '建议替换为更保守的跨境平台表达。' });
-                }
-            });
-            Object.entries(item.context).forEach(([field, value]) => {
-                if ((field.toLowerCase().includes('title') || field.includes('标题')) && String(value).length > 80) {
-                    list.push({ level: 'warn', row: index + 1, title: '标题过长', detail: '建议控制在 80 字符以内，避免移动端折行过多。' });
-                }
-                if (String(value).includes('{{')) {
-                    list.push({ level: 'warn', row: index + 1, title: '仍有未替换占位符', detail: String(value).slice(0, 100) });
-                }
-            });
-            const country = String(item.context.country || '').toUpperCase();
-            const joined = text.toLowerCase();
-            if ((country.includes('DE') || country.includes('EU')) && (joined.includes(' inch') || joined.includes(' lb'))) {
-                list.push({ level: 'warn', row: index + 1, title: '欧盟站单位疑似未本地化', detail: '建议统一检查 cm / kg 单位。' });
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`模型规划失败：${response.status} ${text.slice(0, 160)}`);
             }
-        });
-        return list;
+            const data = await response.json();
+            const content = data?.choices?.[0]?.message?.content || '';
+            return normalizePlan(extractJson(content));
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
-    function applyTemplate() {
-        if (!sourceRows.length) {
-            toast('请先导入 Excel / CSV 数据', true);
+    function createLocalReadPlan() {
+        return normalizePlan({
+            goal: state.instruction || '读取工作簿结构',
+            file: '$file',
+            summary: '未配置模型时生成的只读示例计划。配置模型后可按自然语言生成真实操作计划。',
+            commands: [
+                {
+                    id: 'view_json',
+                    title: '读取工作簿结构',
+                    op: 'workbook.view',
+                    argv: ['view', '$file', '--format', 'json'],
+                    mutates: false,
+                    explain: '查看 sheet、表头和基础结构，帮助模型理解表格。'
+                },
+                {
+                    id: 'validate',
+                    title: '校验表格',
+                    op: 'workbook.validate',
+                    argv: ['validate', '$file'],
+                    mutates: false,
+                    explain: '检查文件结构、异常单元格和潜在格式问题。'
+                },
+                {
+                    id: 'html_preview',
+                    title: '生成 HTML 预览',
+                    op: 'workbook.viewHtml',
+                    argv: ['view', '$file', '--format', 'html'],
+                    mutates: false,
+                    explain: '返回浏览器可展示的表格预览。'
+                }
+            ],
+            safety: { writesFile: false, requiresConfirmation: true },
+            expectedOutputs: ['logs', 'htmlPreview'],
+            notes: ['这是兜底计划：它只展示 OfficeCLI 结构，不代表已理解用户的复杂修改目标。']
+        });
+    }
+
+    async function generatePlan() {
+        if (state.busy) return;
+        state.instruction = byId('officecli-instruction').value.trim();
+        if (!state.instruction) {
+            toast('先写一个表格操作目标');
             return;
         }
-        extractTemplatePlaceholders();
-        const limit = Math.max(1, Math.min(500, Number(byId('office-excel-row-limit').value) || sourceRows.length));
-        generated = sourceRows.slice(0, limit).map((row, index) => {
-            const context = buildContext(row);
-            return {
-                index,
-                source: row,
-                context,
-                sheetName: `${String(context.sku || index + 1).slice(0, 24) || `Row${index + 1}`}`.replace(/[\\/?*[\]:]/g, '-')
+        state.busy = true;
+        state.result = null;
+        renderBusy('正在让模型生成 OfficeCLI 命令计划...');
+        addLog('开始规划 OfficeCLI 命令', 'info');
+        try {
+            const plan = settings.apiBaseUrl && settings.apiKey ? await callPlannerModel() : createLocalReadPlan();
+            state.plan = plan;
+            localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
+            addLog(`命令计划生成完成：${commandCount(plan)} 个步骤`, 'success');
+            render();
+        } catch (error) {
+            addLog(error.message, 'error');
+            toast(error.message);
+            render();
+        } finally {
+            state.busy = false;
+            render();
+        }
+    }
+
+    async function executePlan() {
+        if (state.busy) return;
+        if (!state.plan || !commandCount(state.plan)) {
+            toast('请先生成命令计划');
+            return;
+        }
+        if (!state.file && !byId('officecli-file-path').value.trim()) {
+            toast('请上传文件或填写本地文件路径');
+            return;
+        }
+        if (settings.requireConfirmation && planWrites(state.plan)) {
+            const ok = window.confirm('这个 OfficeCLI 计划包含写入动作。确认交给本地桥执行吗？');
+            if (!ok) return;
+        }
+        state.busy = true;
+        state.result = null;
+        renderBusy(settings.dryRun ? '正在执行 Dry Run...' : '正在交给本地 OfficeCLI 执行...');
+        addLog(settings.dryRun ? 'Dry Run：仅检查命令，不写入文件' : '发送到 OfficeCLI 本地桥', 'info');
+        try {
+            const body = {
+                tool: 'officecli',
+                kind: 'excel',
+                action: 'execute',
+                file: {
+                    name: state.fileMeta?.name || '',
+                    type: state.fileMeta?.type || '',
+                    size: state.fileMeta?.size || 0,
+                    dataUrl: state.fileDataUrl || '',
+                    path: byId('officecli-file-path').value.trim()
+                },
+                plan: state.plan,
+                options: {
+                    dryRun: settings.dryRun,
+                    requireConfirmation: settings.requireConfirmation,
+                    cliCommand: settings.cliCommand,
+                    workspaceDir: settings.workspaceDir,
+                    returnHtml: true,
+                    validate: true
+                }
             };
-        });
-        issues = validateOutput(generated);
-        renderAll();
-        toast(`已套用 ${generated.length} 行模板`);
-    }
-
-    async function handleSourceFiles(fileList) {
-        const file = Array.from(fileList || [])[0];
-        if (!file) return;
-        try {
-            sourceFile = file;
-            const parsed = await parseWorkbook(file);
-            sourceRows = parsed.rows;
-            sourceHeaders = parsed.headers;
-            generated = [];
-            issues = [];
-            renderAll();
-            toast(`已读取 ${sourceRows.length} 行数据`);
+            const result = await postBridge(body);
+            state.result = result;
+            addLog(result.success === false ? 'OfficeCLI 执行失败' : 'OfficeCLI 执行完成', result.success === false ? 'error' : 'success');
+            render();
         } catch (error) {
-            console.error(error);
-            toast(error.message || '源数据解析失败', true);
+            addLog(error.message, 'error');
+            toast(error.message);
+            render();
+        } finally {
+            state.busy = false;
+            render();
         }
     }
 
-    async function handleTemplateFiles(fileList) {
-        const file = Array.from(fileList || [])[0];
-        if (!file) return;
+    async function postBridge(body) {
+        if (!settings.bridgeUrl) {
+            throw new Error('请先填写 OfficeCLI 本地桥地址');
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), settings.requestTimeoutMs);
         try {
-            templateFile = file;
-            const parsed = await parseWorkbook(file);
-            templateWorkbook = parsed.workbook;
-            templateSheetName = parsed.sheetName;
-            extractTemplatePlaceholders();
-            generated = [];
-            issues = [];
-            renderAll();
-            toast(`已识别 ${templatePlaceholders.length} 个模板字段`);
-        } catch (error) {
-            console.error(error);
-            toast(error.message || '模板解析失败', true);
+            const response = await fetch(settings.bridgeUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: controller.signal
+            });
+            const text = await response.text();
+            const data = safeJsonParse(text, { success: false, raw: text });
+            if (!response.ok) {
+                throw new Error(data.message || `本地桥请求失败：${response.status}`);
+            }
+            return data;
+        } finally {
+            clearTimeout(timer);
         }
     }
 
-    function exportWorkbook() {
-        if (!generated.length) {
-            toast('暂无可导出的批量结果', true);
+    async function checkBridge() {
+        if (!settings.bridgeUrl) {
+            state.bridgeStatus = 'missing';
+            renderBridgeStatus();
             return;
         }
-        const workbook = window.XLSX.utils.book_new();
-        generated.forEach((item, index) => {
-            const sourceSheet = templateWorkbook && templateSheetName ? templateWorkbook.Sheets[templateSheetName] : null;
-            const sheet = sourceSheet ? cloneSheetWithContext(sourceSheet, item.context) : builtInSheet(item.context);
-            const safeName = item.sheetName || `Row${index + 1}`;
-            window.XLSX.utils.book_append_sheet(workbook, sheet, safeName.slice(0, 31));
-        });
-        const date = new Date();
-        const stamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-        const prefix = docTypes[getSelectedDocType()].filePrefix;
-        window.XLSX.writeFile(workbook, `${prefix}-batch-${stamp}.xlsx`);
-        toast('已导出批量文档 xlsx');
+        const healthUrl = settings.bridgeUrl.replace(/\/officecli\/?$/, '/health');
+        state.bridgeStatus = 'checking';
+        renderBridgeStatus();
+        try {
+            const response = await fetch(healthUrl, { method: 'GET' });
+            state.bridgeStatus = response.ok ? 'online' : 'offline';
+        } catch (error) {
+            state.bridgeStatus = 'offline';
+        }
+        renderBridgeStatus();
     }
 
-    function renderTable(targetId, rows, headers, fallback) {
-        const target = byId(targetId);
-        if (!target) return;
-        if (!rows.length || !headers.length) {
-            target.className = 'office-excel-empty';
-            target.innerHTML = fallback;
+    function renderBusy(message) {
+        const node = byId('officecli-busy-text');
+        if (node) node.textContent = message;
+    }
+
+    function switchLayer(layer) {
+        state.layer = layer;
+        render();
+    }
+
+    function insertExample(index) {
+        const item = examples[index];
+        if (!item) return;
+        const input = byId('officecli-instruction');
+        input.value = item.text;
+        state.instruction = item.text;
+        input.focus();
+    }
+
+    async function handleFileChange(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        state.file = file;
+        state.fileMeta = { name: file.name, size: file.size, type: file.type };
+        state.fileDataUrl = await readAsDataUrl(file);
+        addLog(`已载入文件：${file.name}`, 'success');
+        renderFileSummary();
+    }
+
+    function copyPlan() {
+        if (!state.plan) {
+            toast('当前没有命令计划');
             return;
         }
-        target.className = 'office-excel-table-wrap';
-        target.innerHTML = `
-            <table class="office-excel-table">
-                <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
-                <tbody>${rows.slice(0, MAX_PREVIEW_ROWS).map((row) => `
-                    <tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join('')}</tr>
-                `).join('')}</tbody>
-            </table>
+        navigator.clipboard.writeText(JSON.stringify(state.plan, null, 2));
+        toast('命令计划已复制');
+    }
+
+    function clearPlan() {
+        state.plan = null;
+        state.result = null;
+        localStorage.removeItem(LAST_PLAN_KEY);
+        addLog('已清空当前命令计划', 'info');
+        render();
+    }
+
+    function close() {
+        const node = byId('officecli-modal');
+        if (node) node.remove();
+    }
+
+    function render() {
+        ensureStyle();
+        let modal = byId('officecli-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'officecli-modal';
+            modal.className = 'officecli-modal';
+            document.body.appendChild(modal);
+        }
+        modal.innerHTML = `
+            <div class="officecli-dialog">
+                <header class="officecli-header">
+                    <div>
+                        <h2><span class="material-symbols-outlined">dataset</span> Office 表格</h2>
+                        <p>LLM 生成 OfficeCLI 命令计划，本地桥执行 Excel / CSV 读写、校验和 HTML 预览。</p>
+                    </div>
+                    <button class="officecli-icon-btn" id="officecli-close" aria-label="关闭">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </header>
+                <nav class="officecli-tabs">
+                    <button class="${state.layer === 'work' ? 'active' : ''}" id="officecli-work-tab">
+                        <span class="material-symbols-outlined">terminal</span> 使用层
+                    </button>
+                    <button class="${state.layer === 'settings' ? 'active' : ''}" id="officecli-settings-tab">
+                        <span class="material-symbols-outlined">tune</span> 设置层
+                    </button>
+                </nav>
+                ${state.layer === 'work' ? renderWorkLayer() : renderSettingsLayer()}
+            </div>
+        `;
+        bindCommon();
+        if (state.layer === 'work') bindWorkLayer();
+        if (state.layer === 'settings') bindSettingsLayer();
+        renderLogs();
+        renderBridgeStatus();
+        renderFileSummary();
+    }
+
+    function renderWorkLayer() {
+        return `
+            <section class="officecli-body officecli-work">
+                <div class="officecli-left">
+                    <div class="officecli-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">description</span>
+                            <b>1. 表格文件</b>
+                        </div>
+                        <div class="officecli-upload-row">
+                            <label class="officecli-file-pick">
+                                <span class="material-symbols-outlined">upload_file</span>
+                                上传 Excel / CSV
+                                <input id="officecli-file" type="file" accept=".xlsx,.xls,.csv,.xlsm">
+                            </label>
+                            <div id="officecli-file-summary" class="officecli-file-summary"></div>
+                        </div>
+                        <label class="officecli-field">
+                            <span>或填写本地文件路径（本地桥可直接读取）</span>
+                            <input id="officecli-file-path" type="text" placeholder="D:\\work\\products.xlsx">
+                        </label>
+                    </div>
+
+                    <div class="officecli-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">psychology</span>
+                            <b>2. 自然语言任务</b>
+                        </div>
+                        <textarea id="officecli-instruction" class="officecli-task-input" placeholder="例如：把 US 站点价格上调 8%，输出新文件，并生成修改前后差异预览。">${escapeHtml(state.instruction)}</textarea>
+                        <div class="officecli-example-grid">
+                            ${examples.map((item, index) => `
+                                <button type="button" data-example="${index}">
+                                    <b>${escapeHtml(item.title)}</b>
+                                    <span>${escapeHtml(item.text)}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                        <div class="officecli-actions">
+                            <button class="officecli-primary" id="officecli-generate" ${state.busy ? 'disabled' : ''}>
+                                <span class="material-symbols-outlined">auto_awesome</span>
+                                生成 OfficeCLI 计划
+                            </button>
+                            <button class="officecli-secondary" id="officecli-execute" ${state.busy ? 'disabled' : ''}>
+                                <span class="material-symbols-outlined">play_arrow</span>
+                                执行计划
+                            </button>
+                            <button class="officecli-secondary" id="officecli-copy-plan">
+                                <span class="material-symbols-outlined">content_copy</span>
+                                复制 JSON
+                            </button>
+                            <button class="officecli-ghost" id="officecli-clear-plan">
+                                <span class="material-symbols-outlined">delete</span>
+                                清空
+                            </button>
+                        </div>
+                        <div id="officecli-busy-text" class="officecli-busy">${state.busy ? '处理中...' : ''}</div>
+                    </div>
+                </div>
+
+                <div class="officecli-right">
+                    <div class="officecli-status-row">
+                        <div class="officecli-status-card">
+                            <span>本地桥</span>
+                            <b id="officecli-bridge-status">检测中</b>
+                        </div>
+                        <div class="officecli-status-card">
+                            <span>模式</span>
+                            <b>${settings.dryRun ? 'Dry Run' : '真实执行'}</b>
+                        </div>
+                        <div class="officecli-status-card">
+                            <span>命令数</span>
+                            <b>${commandCount(state.plan)}</b>
+                        </div>
+                    </div>
+                    <div class="officecli-panel officecli-plan-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">account_tree</span>
+                            <b>命令计划</b>
+                        </div>
+                        ${renderPlan()}
+                    </div>
+                    <div class="officecli-panel officecli-result-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">preview</span>
+                            <b>执行结果 / HTML 预览</b>
+                        </div>
+                        ${renderResult()}
+                    </div>
+                    <div class="officecli-panel officecli-log-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">receipt_long</span>
+                            <b>运行日志</b>
+                        </div>
+                        <div id="officecli-logs" class="officecli-logs"></div>
+                    </div>
+                </div>
+            </section>
         `;
     }
 
-    function renderSourcePreview() {
-        renderTable('office-excel-source-preview', sourceRows, sourceHeaders, '导入 Excel / CSV 后在这里预览源数据');
-        const meta = byId('office-excel-source-meta');
-        if (meta) meta.textContent = sourceFile ? `${sourceFile.name} / ${sourceRows.length} 行` : '未导入源数据';
+    function renderSettingsLayer() {
+        return `
+            <section class="officecli-body officecli-settings">
+                <div class="officecli-settings-grid">
+                    <div class="officecli-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">smart_toy</span>
+                            <b>模型规划器</b>
+                        </div>
+                        <label class="officecli-field">
+                            <span>API Base URL</span>
+                            <input id="officecli-api-base" type="text" value="${escapeHtml(settings.apiBaseUrl)}" placeholder="https://api.openai.com/v1">
+                        </label>
+                        <label class="officecli-field">
+                            <span>API Key</span>
+                            <input id="officecli-api-key" type="password" value="${escapeHtml(settings.apiKey)}" placeholder="sk-...">
+                        </label>
+                        <label class="officecli-field">
+                            <span>模型名称</span>
+                            <input id="officecli-model" type="text" value="${escapeHtml(settings.model)}" placeholder="gpt-4.1-mini">
+                        </label>
+                        <p class="officecli-help">这里的大模型只负责把任务翻译成 OfficeCLI 命令计划；表格文件读写由本地桥处理。</p>
+                    </div>
+
+                    <div class="officecli-panel">
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">dns</span>
+                            <b>OfficeCLI 本地桥</b>
+                        </div>
+                        <label class="officecli-field">
+                            <span>桥接地址</span>
+                            <input id="officecli-bridge-url" type="text" value="${escapeHtml(settings.bridgeUrl)}">
+                        </label>
+                        <label class="officecli-field">
+                            <span>OfficeCLI 命令</span>
+                            <input id="officecli-cli-command" type="text" value="${escapeHtml(settings.cliCommand)}" placeholder="officecli">
+                        </label>
+                        <label class="officecli-field">
+                            <span>工作目录</span>
+                            <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="officecli-workspace">
+                        </label>
+                        <div class="officecli-switches">
+                            <label><input id="officecli-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}> 默认 Dry Run</label>
+                            <label><input id="officecli-require-confirm" type="checkbox" ${settings.requireConfirmation ? 'checked' : ''}> 写入前二次确认</label>
+                        </div>
+                        <label class="officecli-field">
+                            <span>请求超时（毫秒）</span>
+                            <input id="officecli-timeout-ms" type="number" min="10000" step="1000" value="${escapeHtml(settings.requestTimeoutMs)}">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="officecli-panel officecli-prompt-panel">
+                    <div class="officecli-panel-title">
+                        <span class="material-symbols-outlined">integration_instructions</span>
+                        <b>OfficeCLI Skill 提示词</b>
+                    </div>
+                    <textarea id="officecli-system-prompt" class="officecli-system-prompt">${escapeHtml(settings.systemPrompt)}</textarea>
+                    <div class="officecli-actions">
+                        <button class="officecli-primary" id="officecli-save-settings">
+                            <span class="material-symbols-outlined">save</span>
+                            保存设置
+                        </button>
+                        <button class="officecli-secondary" id="officecli-check-bridge">
+                            <span class="material-symbols-outlined">wifi_tethering</span>
+                            检测本地桥
+                        </button>
+                        <button class="officecli-ghost" id="officecli-reset-settings">
+                            <span class="material-symbols-outlined">restart_alt</span>
+                            恢复默认
+                        </button>
+                    </div>
+                </div>
+            </section>
+        `;
     }
 
-    function renderTemplateFields() {
-        const box = byId('office-excel-template-fields');
-        if (!box) return;
-        const fields = templatePlaceholders.length ? templatePlaceholders : extractPlaceholdersFromText(JSON.stringify(docTypes[getSelectedDocType()].template));
-        box.innerHTML = fields.length
-            ? fields.map((field) => `<span class="office-excel-chip">{{${escapeHtml(field)}}}</span>`).join('')
-            : '<span class="office-excel-chip">未识别字段</span>';
-        const meta = byId('office-excel-template-meta');
-        if (meta) meta.textContent = templateFile ? `${templateFile.name} / ${fields.length} 字段` : `内置模板 / ${fields.length} 字段`;
-    }
-
-    function renderIssues() {
-        const box = byId('office-excel-issues');
-        if (!box) return;
-        if (!issues.length) {
-            box.innerHTML = '<div class="office-excel-issue ok"><b>质检通过</b><span>当前批次暂无敏感词、缺失字段或明显格式问题。</span></div>';
-            return;
-        }
-        box.innerHTML = issues.slice(0, 60).map((issue) => `
-            <div class="office-excel-issue ${issue.level}">
-                <b>Row ${issue.row} · ${escapeHtml(issue.title)}</b>
-                <span>${escapeHtml(issue.detail)}</span>
-            </div>
-        `).join('');
-    }
-
-    function renderResultPreview() {
-        const headers = ['row', ...templatePlaceholders];
-        const rows = generated.map((item) => {
-            const row = { row: item.index + 1 };
-            templatePlaceholders.forEach((field) => {
-                row[field] = item.context[field] || '';
-            });
-            return row;
-        });
-        renderTable('office-excel-result-preview', rows, headers, '点击“一键套用模板”后在这里预览生成字段');
-    }
-
-    function renderPreview() {
-        const target = byId('office-excel-live-preview');
-        if (!target) return;
-        const item = generated[0] || { context: buildContext(sourceRows[0] || {}) };
-        let html = '';
-        if (templateWorkbook && templateSheetName && window.XLSX) {
-            const sheet = cloneSheetWithContext(templateWorkbook.Sheets[templateSheetName], item.context);
-            html = window.XLSX.utils.sheet_to_html(sheet);
-        } else {
-            const rows = docTypes[getSelectedDocType()].template.map((row) => row.map((cell) => fillText(cell, item.context)));
-            html = `
-                <table class="office-excel-preview-grid">
-                    <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
-                </table>
+    function renderPlan() {
+        if (!state.plan) {
+            return `
+                <div class="officecli-empty">
+                    <span class="material-symbols-outlined">route</span>
+                    <b>等待模型生成命令计划</b>
+                    <p>OfficeCLI 的重点是先让模型学会“怎么操作文件”，再由本地工具真正执行。</p>
+                </div>
             `;
         }
-        target.innerHTML = html;
-    }
-
-    function renderAll() {
-        extractTemplatePlaceholders();
-        renderTemplateFields();
-        renderSourcePreview();
-        renderResultPreview();
-        renderIssues();
-        renderPreview();
-    }
-
-    function setLayer(layer) {
-        activeLayer = layer === 'settings' ? 'settings' : 'work';
-        const shell = byId('office-excel-shell');
-        if (shell) shell.dataset.layer = activeLayer;
-        document.querySelectorAll('[data-office-excel-layer]').forEach((button) => {
-            button.classList.toggle('active', button.dataset.officeExcelLayer === activeLayer);
-        });
-    }
-
-    function toast(message, isError) {
-        const box = byId('office-excel-toast');
-        if (!box) return;
-        box.textContent = message;
-        box.classList.toggle('error', !!isError);
-        box.classList.add('show');
-        clearTimeout(toast._timer);
-        toast._timer = setTimeout(() => box.classList.remove('show'), 2400);
-    }
-
-    function ensureStyles() {
-        if (byId('office-excel-styles')) return;
-        const style = document.createElement('style');
-        style.id = 'office-excel-styles';
-        style.textContent = `
-.office-excel-modal { z-index: 10070; }
-.office-excel-shell { width: min(1320px, calc(100vw - 32px)); max-height: min(900px, calc(100vh - 36px)); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
-.office-excel-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 18px 22px; border-bottom: 1px solid var(--border); }
-.office-excel-title h2 { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text-main); font-size: 20px; }
-.office-excel-title p { margin: 5px 0 0; color: var(--text-sub); font-size: 12px; }
-.office-excel-actions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-.office-excel-tabs { display: flex; gap: 8px; padding: 12px 18px 0; border-bottom: 1px solid var(--border); }
-.office-excel-tab { border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; background: rgba(255,255,255,.04); color: var(--text-sub); padding: 9px 13px; display: flex; align-items: center; gap: 7px; font-size: 13px; }
-.office-excel-tab.active { color: var(--accent); background: rgba(94,156,255,.12); border-color: rgba(94,156,255,.32); }
-.office-excel-body { display: grid; grid-template-columns: minmax(360px, .82fr) minmax(560px, 1.18fr); gap: 16px; padding: 18px; overflow: auto; }
-.office-excel-settings { display: none; padding: 18px; overflow: auto; }
-.office-excel-shell[data-layer='settings'] .office-excel-body { display: none; }
-.office-excel-shell[data-layer='settings'] .office-excel-settings { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
-.office-excel-stack { display: grid; gap: 14px; align-content: start; }
-.office-excel-panel { border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.045); padding: 15px; min-width: 0; }
-:root[data-theme='light'] .office-excel-panel { background: rgba(246,249,255,.82); }
-.office-excel-panel h3 { margin: 0 0 12px; color: var(--text-main); font-size: 14px; display: flex; align-items: center; gap: 7px; }
-.office-excel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.office-excel-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
-.office-excel-field label { color: var(--text-sub); font-size: 12px; font-weight: 650; }
-.office-excel-input, .office-excel-textarea, .office-excel-select { width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--input-muted-bg); color: var(--text-main); outline: none; font-size: 13px; padding: 10px 12px; user-select: text; }
-.office-excel-textarea { min-height: 112px; resize: vertical; line-height: 1.5; }
-.office-excel-drop { border: 1px dashed var(--border); border-radius: 8px; min-height: 112px; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-sub); background: rgba(255,255,255,.035); cursor: pointer; padding: 14px; }
-.office-excel-drop:hover { color: var(--accent); border-color: var(--accent); background: rgba(94,156,255,.08); }
-.office-excel-drop strong { display: block; color: var(--text-main); margin-bottom: 4px; font-size: 13px; }
-.office-excel-drop input { display: none; }
-.office-excel-meta { border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,.12); padding: 9px 10px; color: var(--text-sub); font-size: 12px; line-height: 1.5; }
-:root[data-theme='light'] .office-excel-meta { background: rgba(255,255,255,.58); }
-.office-excel-chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.office-excel-chip { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: rgba(255,255,255,.04); color: var(--text-sub); font-size: 12px; }
-.office-excel-table-wrap { overflow: auto; max-height: 230px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,.1); }
-.office-excel-table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-main); }
-.office-excel-table th, .office-excel-table td { border-bottom: 1px solid var(--border); padding: 8px 9px; text-align: left; vertical-align: top; min-width: 96px; }
-.office-excel-table th { position: sticky; top: 0; background: var(--chrome-bg-strong); color: var(--text-sub); font-weight: 700; z-index: 1; }
-.office-excel-empty { min-height: 150px; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-sub); font-size: 13px; border: 1px dashed var(--border); border-radius: 8px; }
-.office-excel-preview { min-height: 420px; max-height: 620px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: rgba(255,255,255,.04); }
-.office-excel-preview table, .office-excel-preview-grid { width: 100%; border-collapse: collapse; color: var(--text-main); font-size: 13px; }
-.office-excel-preview td, .office-excel-preview th, .office-excel-preview-grid td { border: 1px solid var(--border); padding: 9px 10px; min-width: 100px; }
-.office-excel-preview tr:first-child td { font-weight: 700; background: rgba(94,156,255,.08); }
-.office-excel-issue { display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; background: rgba(255,255,255,.04); }
-.office-excel-issue b { font-size: 13px; color: var(--text-main); }
-.office-excel-issue span { font-size: 12px; color: var(--text-sub); }
-.office-excel-issue.danger { border-color: rgba(255,94,89,.35); background: rgba(255,94,89,.08); }
-.office-excel-issue.warn { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
-.office-excel-issue.ok { border-color: rgba(63,212,122,.28); background: rgba(63,212,122,.08); }
-.office-excel-main-btn { width: 100%; justify-content: center; padding: 12px 14px; }
-.office-excel-toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(14px); opacity: 0; pointer-events: none; z-index: 10090; border: 1px solid var(--border); background: var(--chrome-bg-strong); color: var(--text-main); border-radius: 8px; padding: 10px 14px; font-size: 13px; box-shadow: var(--panel-shadow); transition: opacity .2s ease, transform .2s ease; }
-.office-excel-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.office-excel-toast.error { border-color: rgba(255,94,89,.35); color: var(--danger); }
-@media (max-width: 980px) {
-  .office-excel-body, .office-excel-grid { grid-template-columns: 1fr; }
-  .office-excel-shell { width: calc(100vw - 20px); }
-}
-`;
-        document.head.appendChild(style);
-    }
-
-    function ensureShell() {
-        if (byId('office-excel-modal')) return;
-        const modal = document.createElement('div');
-        modal.id = 'office-excel-modal';
-        modal.className = 'help-modal office-excel-modal';
-        modal.innerHTML = `
-            <div class="help-content office-excel-shell" id="office-excel-shell" data-layer="work" onclick="event.stopPropagation()">
-                <div class="office-excel-head">
-                    <div class="office-excel-title">
-                        <h2><span class="material-symbols-outlined">dataset</span> Office 表格模板工具</h2>
-                        <p>不调用大模型，按 OfficeCLI merge / validate / view 的思路做本地字段套用、批量生成和预览。</p>
-                    </div>
-                    <div class="office-excel-actions">
-                        <button class="top-btn" id="office-excel-apply-top" type="button">
-                            <span class="material-symbols-outlined">bolt</span>
-                            一键套用
-                        </button>
-                        <button class="top-btn top-btn-primary" id="office-excel-export-top" type="button">
-                            <span class="material-symbols-outlined">download</span>
-                            导出
-                        </button>
-                        <button class="top-btn icon-only" id="office-excel-close" type="button" data-tip="关闭">
-                            <span class="material-symbols-outlined">close</span>
-                        </button>
-                    </div>
+        return `
+            <div class="officecli-plan-head">
+                <div>
+                    <b>${escapeHtml(state.plan.goal)}</b>
+                    <p>${escapeHtml(state.plan.summary)}</p>
                 </div>
-                <div class="office-excel-tabs">
-                    <button class="office-excel-tab active" type="button" data-office-excel-layer="work">
-                        <span class="material-symbols-outlined">play_circle</span>
-                        使用层
-                    </button>
-                    <button class="office-excel-tab" type="button" data-office-excel-layer="settings">
-                        <span class="material-symbols-outlined">tune</span>
-                        设置层
-                    </button>
-                </div>
-                <div class="office-excel-body">
-                    <div class="office-excel-stack">
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">category</span> 文档类型</h3>
-                            <div class="office-excel-grid">
-                                <div class="office-excel-field">
-                                    <label for="office-excel-doc-type">套用模板</label>
-                                    <select class="office-excel-select" id="office-excel-doc-type">
-                                        ${Object.entries(docTypes).map(([key, doc]) => `<option value="${key}">${doc.label}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div class="office-excel-field">
-                                    <label for="office-excel-row-limit">批量行数</label>
-                                    <input class="office-excel-input" id="office-excel-row-limit" type="number" min="1" max="500" value="50">
-                                </div>
-                            </div>
-                        </section>
-
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">upload_file</span> 表格数据</h3>
-                            <label class="office-excel-drop">
-                                <input id="office-excel-source-input" type="file" accept=".xlsx,.xls,.csv">
-                                <div>
-                                    <span class="material-symbols-outlined">table_view</span>
-                                    <strong>上传 Excel / CSV 源数据</strong>
-                                    <div>每一行会生成一个模板结果，字段支持别名映射。</div>
-                                </div>
-                            </label>
-                            <div class="office-excel-meta" id="office-excel-source-meta">未导入源数据</div>
-                        </section>
-
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">contract_edit</span> 自定义模板</h3>
-                            <label class="office-excel-drop">
-                                <input id="office-excel-template-input" type="file" accept=".xlsx,.xls,.csv">
-                                <div>
-                                    <span class="material-symbols-outlined">note_stack</span>
-                                    <strong>可选：上传含 {{sku}} 的 Excel 模板</strong>
-                                    <div>不上传时使用当前文档类型的内置模板。</div>
-                                </div>
-                            </label>
-                            <div class="office-excel-meta" id="office-excel-template-meta">内置模板</div>
-                        </section>
-
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">data_object</span> 模板字段</h3>
-                            <div class="office-excel-chip-row" id="office-excel-template-fields"></div>
-                        </section>
-
-                        <section class="office-excel-panel">
-                            <button class="top-btn top-btn-primary office-excel-main-btn" id="office-excel-apply-main" type="button">
-                                <span class="material-symbols-outlined">bolt</span>
-                                一键批量套用模板
-                            </button>
-                        </section>
-                    </div>
-
-                    <div class="office-excel-stack">
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">preview</span> 右侧实时预览</h3>
-                            <div class="office-excel-preview" id="office-excel-live-preview"></div>
-                        </section>
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">fact_check</span> 合规和质检</h3>
-                            <div id="office-excel-issues"></div>
-                        </section>
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">dataset</span> 源数据预览</h3>
-                            <div id="office-excel-source-preview" class="office-excel-empty"></div>
-                        </section>
-                        <section class="office-excel-panel">
-                            <h3><span class="material-symbols-outlined">library_books</span> 生成字段预览</h3>
-                            <div id="office-excel-result-preview" class="office-excel-empty"></div>
-                        </section>
-                    </div>
-                </div>
-                <div class="office-excel-settings">
-                    <section class="office-excel-panel">
-                        <h3><span class="material-symbols-outlined">language</span> 本地化规则</h3>
-                        <div class="office-excel-grid">
-                            <div class="office-excel-field">
-                                <label for="office-excel-locale">默认市场</label>
-                                <select class="office-excel-select" id="office-excel-locale">
-                                    <option value="US">美国 / USD / inch / lb</option>
-                                    <option value="EU">欧盟 / EUR / cm / kg</option>
-                                    <option value="JP">日本 / JPY / cm / kg</option>
-                                    <option value="AE">阿拉伯 / AED / cm / kg</option>
-                                    <option value="CN">中国 / CNY / cm / kg</option>
-                                </select>
-                            </div>
-                            <div class="office-excel-field">
-                                <label for="office-excel-date-format">日期格式</label>
-                                <select class="office-excel-select" id="office-excel-date-format">
-                                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                                    <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                                    <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                                    <option value="YYYY/MM/DD">YYYY/MM/DD</option>
-                                </select>
-                            </div>
-                            <div class="office-excel-field">
-                                <label for="office-excel-default-doc">默认模板</label>
-                                <select class="office-excel-select" id="office-excel-default-doc">
-                                    ${Object.entries(docTypes).map(([key, doc]) => `<option value="${key}">${doc.label}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="office-excel-field">
-                                <label for="office-excel-required-fields">必填字段</label>
-                                <input class="office-excel-input" id="office-excel-required-fields" type="text">
-                            </div>
-                        </div>
-                    </section>
-                    <section class="office-excel-panel">
-                        <h3><span class="material-symbols-outlined">block</span> 禁用词与字段别名</h3>
-                        <div class="office-excel-field">
-                            <label for="office-excel-banned-words">禁用词，英文逗号分隔</label>
-                            <textarea class="office-excel-textarea" id="office-excel-banned-words"></textarea>
-                        </div>
-                        <div class="office-excel-field">
-                            <label for="office-excel-field-aliases">字段别名，每行格式：标准字段=别名1,别名2</label>
-                            <textarea class="office-excel-textarea" id="office-excel-field-aliases"></textarea>
-                        </div>
-                        <div class="office-excel-actions">
-                            <button class="top-btn" id="office-excel-reset-settings" type="button">
-                                <span class="material-symbols-outlined">restart_alt</span>
-                                恢复默认
-                            </button>
-                            <button class="top-btn top-btn-primary" id="office-excel-save-settings" type="button">
-                                <span class="material-symbols-outlined">save</span>
-                                保存到浏览器缓存
-                            </button>
-                        </div>
-                    </section>
-                </div>
+                <span class="${planWrites(state.plan) ? 'warn' : 'safe'}">${planWrites(state.plan) ? '写入计划' : '只读计划'}</span>
             </div>
-            <div class="office-excel-toast" id="office-excel-toast"></div>
+            <div class="officecli-command-list">
+                ${state.plan.commands.map((command, index) => `
+                    <article class="officecli-command ${command.mutates ? 'mutates' : ''}">
+                        <div class="officecli-command-index">${index + 1}</div>
+                        <div>
+                            <h4>${escapeHtml(command.title)}</h4>
+                            <p>${escapeHtml(command.explain || command.op)}</p>
+                            <code>${escapeHtml([settings.cliCommand || 'officecli', ...command.argv].join(' '))}</code>
+                        </div>
+                    </article>
+                `).join('')}
+            </div>
+            ${state.plan.notes?.length ? `
+                <div class="officecli-notes">
+                    ${state.plan.notes.map((note) => `<p>${escapeHtml(note)}</p>`).join('')}
+                </div>
+            ` : ''}
         `;
-        modal.addEventListener('click', close);
-        document.body.appendChild(modal);
-        bindEvents();
     }
 
-    function syncSettingsUI() {
-        byId('office-excel-locale').value = settings.localePreset;
-        byId('office-excel-date-format').value = settings.dateFormat;
-        byId('office-excel-default-doc').value = settings.defaultDocType;
-        byId('office-excel-required-fields').value = settings.requiredFields;
-        byId('office-excel-banned-words').value = settings.bannedWords;
-        byId('office-excel-field-aliases').value = settings.fieldAliases;
-        setDocType(settings.defaultDocType);
+    function renderResult() {
+        if (!state.result) {
+            return `
+                <div class="officecli-empty small">
+                    <span class="material-symbols-outlined">web_asset</span>
+                    <b>还没有执行结果</b>
+                    <p>执行后这里展示 OfficeCLI stdout、产物路径、校验结果或 HTML 预览。</p>
+                </div>
+            `;
+        }
+        const html = state.result.html || state.result.previewHtml || '';
+        const artifacts = Array.isArray(state.result.artifacts) ? state.result.artifacts : [];
+        const logs = Array.isArray(state.result.logs) ? state.result.logs : [];
+        return `
+            ${html ? `<iframe class="officecli-preview-frame" srcdoc="${escapeHtml(html)}"></iframe>` : ''}
+            ${artifacts.length ? `
+                <div class="officecli-artifacts">
+                    <b>输出文件</b>
+                    ${artifacts.map((item) => `<p>${escapeHtml(typeof item === 'string' ? item : item.path || item.name || JSON.stringify(item))}</p>`).join('')}
+                </div>
+            ` : ''}
+            <pre class="officecli-result-json">${escapeHtml(JSON.stringify({
+                success: state.result.success,
+                message: state.result.message,
+                logs: logs.slice(-8)
+            }, null, 2))}</pre>
+        `;
     }
 
-    function bindEvents() {
-        byId('office-excel-close').addEventListener('click', close);
-        byId('office-excel-apply-top').addEventListener('click', applyTemplate);
-        byId('office-excel-apply-main').addEventListener('click', applyTemplate);
-        byId('office-excel-export-top').addEventListener('click', exportWorkbook);
-        byId('office-excel-save-settings').addEventListener('click', saveSettings);
-        byId('office-excel-reset-settings').addEventListener('click', () => {
-            settings = { ...defaultSettings };
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-            syncSettingsUI();
-            toast('已恢复默认设置');
+    function renderLogs() {
+        const node = byId('officecli-logs');
+        if (!node) return;
+        node.innerHTML = state.logs.length ? state.logs.map((log) => `
+            <div class="${escapeHtml(log.type)}">
+                <span>${escapeHtml(log.stamp)}</span>
+                <p>${escapeHtml(log.message)}</p>
+            </div>
+        `).join('') : '<p class="officecli-muted">暂无运行日志。</p>';
+    }
+
+    function renderBridgeStatus() {
+        const node = byId('officecli-bridge-status');
+        if (!node) return;
+        const map = {
+            unknown: '未检测',
+            checking: '检测中',
+            online: '在线',
+            offline: '离线',
+            missing: '未配置'
+        };
+        node.textContent = map[state.bridgeStatus] || '未检测';
+        node.className = `bridge-${state.bridgeStatus}`;
+    }
+
+    function renderFileSummary() {
+        const node = byId('officecli-file-summary');
+        if (!node) return;
+        if (!state.fileMeta) {
+            node.innerHTML = '<span>未上传文件</span>';
+            return;
+        }
+        node.innerHTML = `
+            <b>${escapeHtml(state.fileMeta.name)}</b>
+            <span>${Math.max(1, Math.round(state.fileMeta.size / 1024))} KB</span>
+        `;
+    }
+
+    function bindCommon() {
+        byId('officecli-close')?.addEventListener('click', close);
+        byId('officecli-work-tab')?.addEventListener('click', () => switchLayer('work'));
+        byId('officecli-settings-tab')?.addEventListener('click', () => switchLayer('settings'));
+    }
+
+    function bindWorkLayer() {
+        byId('officecli-file')?.addEventListener('change', handleFileChange);
+        byId('officecli-generate')?.addEventListener('click', generatePlan);
+        byId('officecli-execute')?.addEventListener('click', executePlan);
+        byId('officecli-copy-plan')?.addEventListener('click', copyPlan);
+        byId('officecli-clear-plan')?.addEventListener('click', clearPlan);
+        byId('officecli-instruction')?.addEventListener('input', (event) => {
+            state.instruction = event.target.value;
         });
-        byId('office-excel-source-input').addEventListener('change', (event) => handleSourceFiles(event.target.files));
-        byId('office-excel-template-input').addEventListener('change', (event) => handleTemplateFiles(event.target.files));
-        byId('office-excel-doc-type').addEventListener('change', (event) => {
-            setDocType(event.target.value);
-            generated = [];
-            issues = [];
-            renderAll();
+        document.querySelectorAll('[data-example]').forEach((button) => {
+            button.addEventListener('click', () => insertExample(Number(button.dataset.example)));
         });
-        document.querySelectorAll('[data-office-excel-layer]').forEach((button) => {
-            button.addEventListener('click', () => setLayer(button.dataset.officeExcelLayer));
+    }
+
+    function bindSettingsLayer() {
+        byId('officecli-save-settings')?.addEventListener('click', saveSettingsFromForm);
+        byId('officecli-reset-settings')?.addEventListener('click', resetSettings);
+        byId('officecli-check-bridge')?.addEventListener('click', () => {
+            saveSettingsFromForm();
+            checkBridge();
         });
+    }
+
+    function ensureStyle() {
+        if (byId('officecli-style')) return;
+        const style = document.createElement('style');
+        style.id = 'officecli-style';
+        style.textContent = `
+            .officecli-modal {
+                position: fixed;
+                inset: 0;
+                z-index: 12000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: rgba(15, 23, 42, .42);
+                backdrop-filter: blur(16px);
+                color: #172033;
+                font-family: "Google Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+            .officecli-dialog {
+                width: min(1440px, calc(100vw - 32px));
+                height: min(900px, calc(100vh - 32px));
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                border: 1px solid rgba(148, 163, 184, .35);
+                border-radius: 8px;
+                background: #f8fafc;
+                box-shadow: 0 26px 80px rgba(15, 23, 42, .28);
+            }
+            .officecli-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 18px;
+                padding: 18px 22px;
+                background: #ffffff;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            .officecli-header h2 {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin: 0;
+                font-size: 20px;
+                font-weight: 700;
+                color: #0f172a;
+            }
+            .officecli-header p {
+                margin: 4px 0 0;
+                color: #64748b;
+                font-size: 13px;
+            }
+            .officecli-icon-btn {
+                width: 36px;
+                height: 36px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+                color: #334155;
+                cursor: pointer;
+            }
+            .officecli-tabs {
+                display: flex;
+                gap: 8px;
+                padding: 12px 22px 0;
+                background: #fff;
+            }
+            .officecli-tabs button {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px 14px;
+                border: 0;
+                border-bottom: 2px solid transparent;
+                background: transparent;
+                color: #64748b;
+                cursor: pointer;
+                font-weight: 700;
+            }
+            .officecli-tabs button.active {
+                border-bottom-color: #2563eb;
+                color: #1d4ed8;
+            }
+            .officecli-body {
+                flex: 1;
+                overflow: auto;
+                padding: 18px 22px 22px;
+            }
+            .officecli-work {
+                display: grid;
+                grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+                gap: 16px;
+            }
+            .officecli-left,
+            .officecli-right {
+                display: flex;
+                min-width: 0;
+                flex-direction: column;
+                gap: 14px;
+            }
+            .officecli-panel {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+                padding: 14px;
+            }
+            .officecli-panel-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 12px;
+                color: #0f172a;
+            }
+            .officecli-panel-title b {
+                font-size: 14px;
+            }
+            .officecli-upload-row {
+                display: flex;
+                gap: 12px;
+                align-items: stretch;
+            }
+            .officecli-file-pick {
+                min-width: 150px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 12px;
+                border: 1px dashed #94a3b8;
+                border-radius: 8px;
+                background: #f8fafc;
+                color: #1d4ed8;
+                cursor: pointer;
+                font-weight: 700;
+            }
+            .officecli-file-pick input {
+                display: none;
+            }
+            .officecli-file-summary {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 4px;
+                padding: 10px 12px;
+                border-radius: 8px;
+                background: #f1f5f9;
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-file-summary b {
+                overflow: hidden;
+                color: #0f172a;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .officecli-field {
+                display: flex;
+                flex-direction: column;
+                gap: 7px;
+                margin-top: 12px;
+                color: #475569;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            .officecli-field input,
+            .officecli-task-input,
+            .officecli-system-prompt {
+                width: 100%;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                background: #fff;
+                color: #0f172a;
+                outline: none;
+                font: inherit;
+            }
+            .officecli-field input {
+                height: 40px;
+                padding: 0 12px;
+            }
+            .officecli-field input:focus,
+            .officecli-task-input:focus,
+            .officecli-system-prompt:focus {
+                border-color: #2563eb;
+                box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+            }
+            .officecli-task-input {
+                min-height: 132px;
+                resize: vertical;
+                padding: 12px;
+                line-height: 1.55;
+            }
+            .officecli-example-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                margin-top: 10px;
+            }
+            .officecli-example-grid button {
+                min-height: 88px;
+                padding: 10px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #f8fafc;
+                color: #334155;
+                text-align: left;
+                cursor: pointer;
+            }
+            .officecli-example-grid b,
+            .officecli-example-grid span {
+                display: block;
+            }
+            .officecli-example-grid b {
+                margin-bottom: 5px;
+                color: #0f172a;
+                font-size: 13px;
+            }
+            .officecli-example-grid span {
+                color: #64748b;
+                font-size: 12px;
+                line-height: 1.4;
+            }
+            .officecli-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 12px;
+            }
+            .officecli-actions button,
+            .officecli-primary,
+            .officecli-secondary,
+            .officecli-ghost {
+                min-height: 38px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 7px;
+                padding: 8px 12px;
+                border-radius: 8px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            .officecli-primary {
+                border: 1px solid #2563eb;
+                background: #2563eb;
+                color: #fff;
+            }
+            .officecli-secondary {
+                border: 1px solid #cbd5e1;
+                background: #fff;
+                color: #1e293b;
+            }
+            .officecli-ghost {
+                border: 1px solid transparent;
+                background: transparent;
+                color: #64748b;
+            }
+            .officecli-actions button:disabled {
+                cursor: not-allowed;
+                opacity: .58;
+            }
+            .officecli-busy {
+                min-height: 18px;
+                margin-top: 8px;
+                color: #2563eb;
+                font-size: 12px;
+            }
+            .officecli-status-row {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 10px;
+            }
+            .officecli-status-card {
+                min-height: 68px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 4px;
+                padding: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .officecli-status-card span {
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-status-card b {
+                color: #0f172a;
+                font-size: 18px;
+            }
+            .bridge-online { color: #16a34a !important; }
+            .bridge-offline { color: #dc2626 !important; }
+            .bridge-checking { color: #2563eb !important; }
+            .officecli-plan-panel,
+            .officecli-result-panel {
+                min-height: 260px;
+            }
+            .officecli-plan-head {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 12px;
+                border-radius: 8px;
+                background: #f8fafc;
+            }
+            .officecli-plan-head b {
+                color: #0f172a;
+            }
+            .officecli-plan-head p {
+                margin: 6px 0 0;
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-plan-head span {
+                height: 26px;
+                white-space: nowrap;
+                border-radius: 999px;
+                padding: 4px 9px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            .officecli-plan-head .safe {
+                background: #dcfce7;
+                color: #15803d;
+            }
+            .officecli-plan-head .warn {
+                background: #fef3c7;
+                color: #b45309;
+            }
+            .officecli-command-list {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-top: 10px;
+            }
+            .officecli-command {
+                display: grid;
+                grid-template-columns: 32px minmax(0, 1fr);
+                gap: 10px;
+                padding: 10px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .officecli-command.mutates {
+                border-color: #f59e0b;
+                background: #fffbeb;
+            }
+            .officecli-command-index {
+                width: 28px;
+                height: 28px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
+                background: #e0e7ff;
+                color: #1d4ed8;
+                font-weight: 800;
+            }
+            .officecli-command h4 {
+                margin: 0;
+                color: #0f172a;
+                font-size: 13px;
+            }
+            .officecli-command p {
+                margin: 4px 0 7px;
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-command code {
+                display: block;
+                overflow: auto;
+                padding: 7px 8px;
+                border-radius: 6px;
+                background: #0f172a;
+                color: #dbeafe;
+                font-size: 12px;
+                white-space: nowrap;
+            }
+            .officecli-notes {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 8px;
+                background: #fefce8;
+                color: #854d0e;
+                font-size: 12px;
+            }
+            .officecli-notes p {
+                margin: 0 0 5px;
+            }
+            .officecli-empty {
+                min-height: 190px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                color: #64748b;
+                text-align: center;
+            }
+            .officecli-empty.small {
+                min-height: 155px;
+            }
+            .officecli-empty .material-symbols-outlined {
+                font-size: 42px;
+                color: #94a3b8;
+            }
+            .officecli-empty b {
+                color: #334155;
+            }
+            .officecli-empty p {
+                max-width: 420px;
+                margin: 0;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .officecli-preview-frame {
+                width: 100%;
+                min-height: 280px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .officecli-artifacts {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 8px;
+                background: #f0fdf4;
+                color: #166534;
+                font-size: 12px;
+            }
+            .officecli-artifacts p {
+                margin: 6px 0 0;
+                overflow-wrap: anywhere;
+            }
+            .officecli-result-json {
+                max-height: 220px;
+                overflow: auto;
+                margin: 10px 0 0;
+                padding: 10px;
+                border-radius: 8px;
+                background: #0f172a;
+                color: #e2e8f0;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .officecli-log-panel {
+                min-height: 170px;
+            }
+            .officecli-logs {
+                max-height: 180px;
+                overflow: auto;
+                display: flex;
+                flex-direction: column;
+                gap: 7px;
+            }
+            .officecli-logs div {
+                display: grid;
+                grid-template-columns: 82px minmax(0, 1fr);
+                gap: 8px;
+                align-items: start;
+                padding: 8px;
+                border-radius: 8px;
+                background: #f8fafc;
+                font-size: 12px;
+            }
+            .officecli-logs span {
+                color: #94a3b8;
+            }
+            .officecli-logs p {
+                margin: 0;
+                color: #475569;
+            }
+            .officecli-logs .success p { color: #15803d; }
+            .officecli-logs .error p { color: #dc2626; }
+            .officecli-muted {
+                margin: 0;
+                color: #94a3b8;
+                font-size: 12px;
+            }
+            .officecli-settings-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 14px;
+            }
+            .officecli-help {
+                margin: 12px 0 0;
+                color: #64748b;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .officecli-switches {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                margin-top: 12px;
+            }
+            .officecli-switches label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 10px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #f8fafc;
+                color: #334155;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            .officecli-prompt-panel {
+                margin-top: 14px;
+            }
+            .officecli-system-prompt {
+                min-height: 250px;
+                resize: vertical;
+                padding: 12px;
+                font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+                font-size: 12px;
+                line-height: 1.55;
+            }
+            .officecli-toast {
+                position: fixed;
+                left: 50%;
+                bottom: 28px;
+                z-index: 13000;
+                transform: translateX(-50%);
+                padding: 11px 16px;
+                border-radius: 8px;
+                background: #0f172a;
+                color: #fff;
+                box-shadow: 0 14px 36px rgba(15, 23, 42, .3);
+                font-size: 13px;
+            }
+            @media (max-width: 1040px) {
+                .officecli-work,
+                .officecli-settings-grid {
+                    grid-template-columns: 1fr;
+                }
+                .officecli-dialog {
+                    height: calc(100vh - 20px);
+                    width: calc(100vw - 20px);
+                }
+            }
+            @media (max-width: 720px) {
+                .officecli-body {
+                    padding: 14px;
+                }
+                .officecli-header {
+                    padding: 14px;
+                }
+                .officecli-tabs {
+                    padding: 10px 14px 0;
+                }
+                .officecli-status-row,
+                .officecli-example-grid,
+                .officecli-switches {
+                    grid-template-columns: 1fr;
+                }
+                .officecli-upload-row {
+                    flex-direction: column;
+                }
+            }
+        `;
+        document.head.appendChild(style);
     }
 
     function open() {
         loadSettings();
-        ensureStyles();
-        ensureShell();
-        syncSettingsUI();
-        renderAll();
-        byId('office-excel-modal').classList.add('show');
-        setLayer(activeLayer);
-    }
-
-    function close() {
-        const modal = byId('office-excel-modal');
-        if (modal) modal.classList.remove('show');
+        state.layer = 'work';
+        state.logs = state.logs.length ? state.logs : [{ stamp: new Date().toLocaleTimeString(), message: 'OfficeCLI 表格工具已打开', type: 'info' }];
+        render();
+        setTimeout(checkBridge, 150);
     }
 
     window.openOfficeExcelTool = open;
     window.VeoOfficeExcelTool = {
         open,
         close,
-        getSettings: () => ({ ...settings }),
-        getGenerated: () => generated.map((item) => ({ ...item }))
+        generatePlan,
+        executePlan,
+        getState: () => ({ ...state, settings: { ...settings, apiKey: settings.apiKey ? '***' : '' } })
     };
 })(window, document);
