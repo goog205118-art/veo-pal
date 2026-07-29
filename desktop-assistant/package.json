@@ -1,0 +1,72 @@
+{
+  "name": "wally-office-assistant",
+  "version": "0.1.0",
+  "description": "Desktop helper for Wally Office Excel powered by OfficeCLI.",
+  "author": "goog205118-art",
+  "type": "module",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "bridge": "node ../tools/officecli-bridge.mjs",
+    "check": "node --check electron-main.js && node --check preload.js && node --check bridge/officecli-service.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir",
+    "dist:offline": "npm run dist:dir && powershell -ExecutionPolicy Bypass -File scripts/package-offline.ps1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.wally.office.assistant",
+    "productName": "Wally Office Assistant",
+    "directories": {
+      "output": "dist"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "goog205118-art",
+        "repo": "veo-pal"
+      }
+    ],
+    "files": [
+      "electron-main.js",
+      "preload.js",
+      "bridge/**/*",
+      "ui/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "resources/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "WallyOfficeAssistantPortable-${version}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "WallyOfficeAssistantSetup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "protocols": [
+      {
+        "name": "Wally Office Assistant",
+        "schemes": [
+          "wally-office"
+        ]
+      }
+    ]
+  }
+}

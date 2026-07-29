@@ -41,6 +41,8 @@ flowchart LR
 - 支持写入前二次确认
 - 展示本地桥状态
 - 展示执行日志、产物路径、HTML 预览
+- 桌面助手自动检测和一键唤起
+- 桌面助手任务历史、失败重试和版本兼容信息
 
 ## 设置层能力
 
@@ -105,6 +107,20 @@ flowchart LR
 
 文件：`tools/officecli-bridge.mjs`
 
+当前本地桥已经升级为可被桌面助手复用的服务层。普通用户推荐使用：
+
+```text
+desktop-assistant/dist/WallyOfficeAssistantOffline-0.1.0.zip
+```
+
+普通用户流程：
+
+```text
+解压 zip -> 双击 install.cmd -> 打开网页 Office 表格 -> 点击启动助手或等待自动检测
+```
+
+开发者仍然可以用下面命令直接启动本地桥。
+
 启动示例：
 
 ```bash
@@ -152,8 +168,17 @@ OFFICECLI_WORKSPACE=C:\Users\HSUSZ-B\officecli-workspace
 ## 下一步建议
 
 1. 本机安装并确认 `officecli` 命令可用。
-2. 启动 `tools/officecli-bridge.mjs`。
-3. 在前端 `Office 表格 -> 设置层` 填入模型 API 和桥接地址。
-4. 先保持 Dry Run，确认命令计划正确。
-5. 关闭 Dry Run，再执行真实写入任务。
-6. 如果后续放进 n8n，可让 n8n 作为 Bridge 的上游调度层，前端结构无需大改。
+2. 普通用户解压离线包并双击 `install.cmd`，开发者可启动 `tools/officecli-bridge.mjs`。
+3. 前端 `Office 表格 -> 设置层` 会自动检测桌面助手。
+4. 未连接时点击 `启动助手`，通过 `wally-office://start` 唤起本机助手。
+5. 先保持 Dry Run，确认命令计划正确。
+6. 关闭 Dry Run，再执行真实写入任务。
+7. 如果后续放进 n8n，可让 n8n 作为 Bridge 的上游调度层，前端结构无需大改。
+
+## 桌面助手三阶段状态
+
+第一阶段 MVP 已落地：Electron 托盘程序、内置 bridge、`/health`、`/officecli`、工作目录、日志、前端自动检测。
+
+第二阶段已落地：`wally-office://start` 协议、端口占用自动切换、OfficeCLI 可用性检测、一键打开日志、一键打开工作目录、前端显示助手版本。
+
+第三阶段已具备产品化底座：Windows 打包配置、离线安装包、双击安装入口、图标、开机自启开关、自动更新检查、任务历史、失败重试、执行确认校验、权限摘要、版本兼容信息。OfficeCLI 一键修复和正式发布流水线仍建议作为后续增强。
