@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wally Office Assistant</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f7f8fb;
+            --panel: #ffffff;
+            --line: #d9e1ec;
+            --text: #172033;
+            --muted: #667085;
+            --blue: #2563eb;
+            --green: #16a34a;
+            --red: #dc2626;
+            --amber: #b45309;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 22px 26px;
+            border-bottom: 1px solid var(--line);
+            background: var(--panel);
+        }
+        h1 {
+            margin: 0;
+            font-size: 21px;
+        }
+        .sub {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        main {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            padding: 18px;
+        }
+        .card {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            padding: 16px;
+        }
+        .wide { grid-column: 1 / -1; }
+        .label {
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .value {
+            margin-top: 6px;
+            overflow-wrap: anywhere;
+            font-size: 15px;
+            font-weight: 700;
+        }
+        .ok { color: var(--green); }
+        .bad { color: var(--red); }
+        .warn { color: var(--amber); }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 14px;
+        }
+        button {
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+        button.primary {
+            border-color: var(--blue);
+            background: var(--blue);
+            color: white;
+        }
+        pre {
+            max-height: 220px;
+            overflow: auto;
+            margin: 0;
+            border-radius: 8px;
+            background: #111827;
+            color: #e5e7eb;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .history-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .history-item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 10px;
+            background: #f8fafc;
+        }
+        .history-title {
+            font-weight: 800;
+        }
+        .history-meta {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        @media (max-width: 760px) {
+            main { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>Wally Office Assistant</h1>
+            <p class="sub">本地 OfficeCLI 桌面助手，负责连接网页和本机表格文件。</p>
+        </div>
+        <button class="primary" id="refresh">刷新状态</button>
+    </header>
+    <main>
+        <section class="card">
+            <div class="label">助手状态</div>
+            <div class="value" id="service-status">启动中</div>
+        </section>
+        <section class="card">
+            <div class="label">OfficeCLI</div>
+            <div class="value" id="officecli-status">检测中</div>
+        </section>
+        <section class="card wide">
+            <div class="label">本地桥地址</div>
+            <div class="value" id="bridge-url">-</div>
+            <div class="actions">
+                <button id="open-workspace">打开工作目录</button>
+                <button id="open-log">查看日志</button>
+                <button id="recheck">重新检测 OfficeCLI</button>
+                <button id="restart">重启服务</button>
+            </div>
+        </section>
+        <section class="card">
+            <div class="label">工作目录</div>
+            <div class="value" id="workspace">-</div>
+        </section>
+        <section class="card">
+            <div class="label">日志文件</div>
+            <div class="value" id="log-file">-</div>
+        </section>
+        <section class="card">
+            <div class="label">开机自启</div>
+            <div class="value" id="auto-start">-</div>
+            <div class="actions">
+                <button id="enable-autostart">开启</button>
+                <button id="disable-autostart">关闭</button>
+            </div>
+        </section>
+        <section class="card">
+            <div class="label">版本兼容</div>
+            <div class="value" id="compatibility">-</div>
+        </section>
+        <section class="card wide">
+            <div class="label">本地权限</div>
+            <div class="value" id="permissions">-</div>
+        </section>
+        <section class="card wide">
+            <div class="label">自动更新</div>
+            <div class="value" id="updates">-</div>
+        </section>
+        <section class="card wide">
+            <div class="label">任务历史</div>
+            <div class="value" id="history-file">-</div>
+            <div class="history-list" id="task-history"></div>
+        </section>
+        <section class="card wide">
+            <div class="label">完整状态</div>
+            <pre id="raw-status">{}</pre>
+        </section>
+    </main>
+    <script>
+        const els = {
+            service: document.getElementById('service-status'),
+            officeCli: document.getElementById('officecli-status'),
+            bridgeUrl: document.getElementById('bridge-url'),
+            workspace: document.getElementById('workspace'),
+            logFile: document.getElementById('log-file'),
+            autoStart: document.getElementById('auto-start'),
+            compatibility: document.getElementById('compatibility'),
+            permissions: document.getElementById('permissions'),
+            updates: document.getElementById('updates'),
+            historyFile: document.getElementById('history-file'),
+            taskHistory: document.getElementById('task-history'),
+            raw: document.getElementById('raw-status')
+        };
+
+        let currentStatus = null;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
+        function render(status) {
+            if (!status) return;
+            currentStatus = status;
+            els.service.textContent = status.portChanged ? `已连接，端口切换到 ${status.port}` : '已连接';
+            els.service.className = status.portChanged ? 'value warn' : 'value ok';
+            els.officeCli.textContent = status.officeCli?.available
+                ? `可用 ${status.officeCli.version || ''}`
+                : `不可用：${status.officeCli?.error || '未检测到 officecli'}`;
+            els.officeCli.className = status.officeCli?.available ? 'value ok' : 'value bad';
+            els.bridgeUrl.textContent = status.bridgeUrl || '-';
+            els.workspace.textContent = status.workspace || '-';
+            els.logFile.textContent = status.logFile || '-';
+            els.autoStart.textContent = status.autoStart?.supported
+                ? (status.autoStart.enabled ? '已开启' : '已关闭')
+                : '当前系统不支持';
+            els.autoStart.className = status.autoStart?.enabled ? 'value ok' : 'value warn';
+            els.compatibility.textContent = `协议 ${status.protocolVersion || '-'}，前端最低 ${status.minFrontendVersion || '-'}`;
+            els.permissions.textContent = status.permissions?.localOnly
+                ? '仅本机访问；文件限制在工作目录；禁用 shell 字符串；OfficeCLI 命令白名单'
+                : '等待助手返回权限信息';
+            els.updates.textContent = status.updates?.message || '-';
+            els.updates.className = status.updates?.downloaded ? 'value ok' : 'value';
+            els.historyFile.textContent = status.historyFile || '-';
+            els.raw.textContent = JSON.stringify(status, null, 2);
+            refreshHistory();
+        }
+
+        function assistantBaseUrl() {
+            return currentStatus?.bridgeUrl ? currentStatus.bridgeUrl.replace(/\/officecli\/?$/, '') : '';
+        }
+
+        async function refreshHistory() {
+            const baseUrl = assistantBaseUrl();
+            if (!baseUrl) return;
+            try {
+                const data = await fetch(`${baseUrl}/history`).then((res) => res.json());
+                const tasks = Array.isArray(data.tasks) ? data.tasks.slice(0, 5) : [];
+                els.taskHistory.innerHTML = tasks.length ? tasks.map((task) => `
+                    <div class="history-item">
+                        <div>
+                            <div class="history-title ${task.success ? 'ok' : 'bad'}">${task.success ? '成功' : '失败'}：${escapeHtml(task.goal || 'OfficeCLI 任务')}</div>
+                            <div class="history-meta">${escapeHtml(task.finishedAt || '')} · ${task.dryRun ? 'Dry Run' : '真实执行'} · ${Number(task.commandCount || 0)} 条命令</div>
+                        </div>
+                        ${task.success ? '' : `<button data-retry="${escapeHtml(task.id)}">重试</button>`}
+                    </div>
+                `).join('') : '<div class="history-meta">暂无任务记录</div>';
+                els.taskHistory.querySelectorAll('[data-retry]').forEach((button) => {
+                    button.addEventListener('click', () => retryTask(button.dataset.retry));
+                });
+            } catch (error) {
+                els.taskHistory.innerHTML = '<div class="history-meta">暂时无法读取任务历史</div>';
+            }
+        }
+
+        async function retryTask(taskId) {
+            const baseUrl = assistantBaseUrl();
+            if (!baseUrl || !taskId) return;
+            await fetch(`${baseUrl}/control/retry-task`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ taskId })
+            });
+            await refreshHistory();
+        }
+
+        async function refresh() {
+            render(await window.wallyAssistant.getStatus());
+        }
+
+        document.getElementById('refresh').addEventListener('click', refresh);
+        document.getElementById('open-workspace').addEventListener('click', () => window.wallyAssistant.openWorkspace());
+        document.getElementById('open-log').addEventListener('click', () => window.wallyAssistant.openLog());
+        document.getElementById('restart').addEventListener('click', async () => render(await window.wallyAssistant.restartService()));
+        document.getElementById('recheck').addEventListener('click', async () => render(await window.wallyAssistant.recheckOfficeCli()));
+        document.getElementById('enable-autostart').addEventListener('click', async () => render(await window.wallyAssistant.setAutoStart(true)));
+        document.getElementById('disable-autostart').addEventListener('click', async () => render(await window.wallyAssistant.setAutoStart(false)));
+        window.wallyAssistant.onStatus(render);
+        refresh();
+    </script>
+</body>
+</html>

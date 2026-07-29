@@ -3,6 +3,7 @@
 
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
+    const FRONTEND_VERSION = '0.1.0';
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -24,8 +25,9 @@
         apiKey: '',
         model: 'gpt-4.1-mini',
         bridgeUrl: 'http://127.0.0.1:8765/officecli',
+        assistantProtocol: 'wally-office://start',
         cliCommand: 'officecli',
-        workspaceDir: 'officecli-workspace',
+        workspaceDir: '',
         dryRun: true,
         requireConfirmation: true,
         requestTimeoutMs: 120000,
@@ -62,7 +64,8 @@
         result: null,
         logs: [],
         busy: false,
-        bridgeStatus: 'unknown'
+        bridgeStatus: 'unknown',
+        assistant: null
     };
 
     const byId = (id) => document.getElementById(id);
@@ -84,6 +87,20 @@
         }
     }
 
+    function compareVersion(left = '0.0.0', right = '0.0.0') {
+        const a = String(left).split('.').map((part) => Number(part) || 0);
+        const b = String(right).split('.').map((part) => Number(part) || 0);
+        for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+            const diff = (a[index] || 0) - (b[index] || 0);
+            if (diff) return diff;
+        }
+        return 0;
+    }
+
+    function isFrontendCompatible(minVersion) {
+        return !minVersion || compareVersion(FRONTEND_VERSION, minVersion) >= 0;
+    }
+
     function loadSettings() {
         settings = {
             ...defaultSettings,
@@ -101,6 +118,7 @@
             apiKey: byId('officecli-api-key').value.trim(),
             model: byId('officecli-model').value.trim() || defaultSettings.model,
             bridgeUrl: byId('officecli-bridge-url').value.trim() || defaultSettings.bridgeUrl,
+            assistantProtocol: byId('officecli-assistant-protocol')?.value.trim() || settings.assistantProtocol || defaultSettings.assistantProtocol,
             cliCommand: byId('officecli-cli-command').value.trim() || defaultSettings.cliCommand,
             workspaceDir: byId('officecli-workspace-dir').value.trim() || defaultSettings.workspaceDir,
             dryRun: byId('officecli-dry-run').checked,
@@ -324,9 +342,11 @@
             toast('请上传文件或填写本地文件路径');
             return;
         }
+        let confirmedAt = '';
         if (settings.requireConfirmation && planWrites(state.plan)) {
             const ok = window.confirm('这个 OfficeCLI 计划包含写入动作。确认交给本地桥执行吗？');
             if (!ok) return;
+            confirmedAt = new Date().toISOString();
         }
         state.busy = true;
         state.result = null;
@@ -348,8 +368,10 @@
                 options: {
                     dryRun: settings.dryRun,
                     requireConfirmation: settings.requireConfirmation,
+                    confirmedAt,
+                    frontendVersion: FRONTEND_VERSION,
                     cliCommand: settings.cliCommand,
-                    workspaceDir: settings.workspaceDir,
+                    workspaceDir: settings.workspaceDir || undefined,
                     returnHtml: true,
                     validate: true
                 }
@@ -395,19 +417,81 @@
     async function checkBridge() {
         if (!settings.bridgeUrl) {
             state.bridgeStatus = 'missing';
+            state.assistant = null;
             renderBridgeStatus();
+            renderAssistantStatus();
             return;
         }
-        const healthUrl = settings.bridgeUrl.replace(/\/officecli\/?$/, '/health');
         state.bridgeStatus = 'checking';
         renderBridgeStatus();
+        renderAssistantStatus();
         try {
-            const response = await fetch(healthUrl, { method: 'GET' });
-            state.bridgeStatus = response.ok ? 'online' : 'offline';
+            const data = await findAssistantHealth();
+            state.bridgeStatus = data ? 'online' : 'offline';
+            state.assistant = data || null;
+            if (data?.bridgeUrl && data.bridgeUrl !== settings.bridgeUrl) {
+                settings.bridgeUrl = data.bridgeUrl;
+                localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+            }
         } catch (error) {
             state.bridgeStatus = 'offline';
+            state.assistant = null;
         }
         renderBridgeStatus();
+        renderAssistantStatus();
+    }
+
+    async function fetchHealth(healthUrl) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1200);
+        try {
+            const response = await fetch(healthUrl, { method: 'GET', signal: controller.signal });
+            if (!response.ok) return null;
+            return await response.json().catch(() => null);
+        } catch (error) {
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async function findAssistantHealth() {
+        const urls = [];
+        const configuredHealth = settings.bridgeUrl.replace(/\/officecli\/?$/, '/health');
+        urls.push(configuredHealth);
+        for (let port = 8765; port < 8785; port += 1) {
+            urls.push(`http://127.0.0.1:${port}/health`);
+        }
+        const uniqueUrls = Array.from(new Set(urls));
+        let compatible = null;
+        for (const url of uniqueUrls) {
+            const data = await fetchHealth(url);
+            if (!data) continue;
+            if (data.service === 'wally-office-assistant') return data;
+            if (!compatible && data.success) {
+                const bridgeUrl = data.bridgeUrl || url.replace(/\/health$/, '/officecli');
+                compatible = { ...data, bridgeUrl };
+            }
+        }
+        return compatible;
+    }
+
+    function launchAssistant() {
+        const protocol = settings.assistantProtocol || defaultSettings.assistantProtocol;
+        try {
+            window.location.href = protocol;
+            toast('正在尝试启动桌面助手...');
+            setTimeout(checkBridge, 3000);
+        } catch (error) {
+            toast('无法启动桌面助手，请先安装 Wally Office Assistant');
+        }
+    }
+
+    async function callAssistantControl(pathname) {
+        const baseUrl = settings.bridgeUrl.replace(/\/officecli\/?$/, '');
+        const response = await fetch(`${baseUrl}${pathname}`, { method: 'POST' });
+        if (!response.ok) throw new Error(`Assistant control failed: ${response.status}`);
+        return response.json();
     }
 
     function renderBusy(message) {
@@ -603,6 +687,7 @@
     function renderSettingsLayer() {
         return `
             <section class="officecli-body officecli-settings">
+                ${renderAssistantPanel()}
                 <div class="officecli-settings-grid">
                     <div class="officecli-panel">
                         <div class="officecli-panel-title">
@@ -635,11 +720,12 @@
                         </label>
                         <label class="officecli-field">
                             <span>OfficeCLI 命令</span>
+                            <input id="officecli-assistant-protocol" type="hidden" value="${escapeHtml(settings.assistantProtocol || defaultSettings.assistantProtocol)}">
                             <input id="officecli-cli-command" type="text" value="${escapeHtml(settings.cliCommand)}" placeholder="officecli">
                         </label>
                         <label class="officecli-field">
                             <span>工作目录</span>
-                            <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="officecli-workspace">
+                            <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="留空则由桌面助手自动管理">
                         </label>
                         <div class="officecli-switches">
                             <label><input id="officecli-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}> 默认 Dry Run</label>
@@ -674,6 +760,73 @@
                     </div>
                 </div>
             </section>
+        `;
+    }
+
+    function renderAssistantPanel() {
+        const assistant = state.assistant || {};
+        const officeCli = assistant.officeCli || {};
+        const isOnline = state.bridgeStatus === 'online';
+        const compatible = isFrontendCompatible(assistant.minFrontendVersion);
+        return `
+            <div class="officecli-panel officecli-assistant-panel">
+                <div class="officecli-assistant-main">
+                    <div>
+                        <div class="officecli-panel-title">
+                            <span class="material-symbols-outlined">desktop_windows</span>
+                            <b>Wally Office Assistant</b>
+                        </div>
+                        <p class="officecli-help">安装一次桌面助手后，网页会自动连接本机 OfficeCLI 服务，普通用户不需要手动打开命令行。</p>
+                    </div>
+                    <div class="officecli-assistant-badge ${isOnline ? 'online' : 'offline'}">
+                        ${isOnline ? '已连接' : '未连接'}
+                    </div>
+                </div>
+                <div class="officecli-assistant-grid">
+                    <div>
+                        <span>桥接地址</span>
+                        <b>${escapeHtml(assistant.bridgeUrl || settings.bridgeUrl || '-')}</b>
+                    </div>
+                    <div>
+                        <span>工作目录</span>
+                        <b>${escapeHtml(assistant.workspace || settings.workspaceDir || '-')}</b>
+                    </div>
+                    <div>
+                        <span>OfficeCLI</span>
+                        <b class="${officeCli.available ? 'ok' : 'bad'}">${officeCli.available ? '可用' : '未检测到'}</b>
+                    </div>
+                    <div>
+                        <span>版本</span>
+                        <b>${escapeHtml(assistant.version || '-')}</b>
+                    </div>
+                    <div>
+                        <span>兼容性</span>
+                        <b class="${compatible ? 'ok' : 'bad'}">${compatible ? `兼容前端 ${FRONTEND_VERSION}` : `需更新前端到 ${escapeHtml(assistant.minFrontendVersion)}`}</b>
+                    </div>
+                </div>
+                <div class="officecli-actions">
+                    <button class="officecli-primary" id="officecli-launch-assistant">
+                        <span class="material-symbols-outlined">rocket_launch</span>
+                        启动助手
+                    </button>
+                    <button class="officecli-secondary" id="officecli-check-assistant">
+                        <span class="material-symbols-outlined">sync</span>
+                        重新检测
+                    </button>
+                    <button class="officecli-secondary" id="officecli-open-workspace" ${isOnline ? '' : 'disabled'}>
+                        <span class="material-symbols-outlined">folder_open</span>
+                        工作目录
+                    </button>
+                    <button class="officecli-secondary" id="officecli-open-log" ${isOnline ? '' : 'disabled'}>
+                        <span class="material-symbols-outlined">article</span>
+                        日志
+                    </button>
+                    <a class="officecli-download-link" href="desktop-assistant/README.md" target="_blank" rel="noreferrer">
+                        <span class="material-symbols-outlined">download</span>
+                        查看安装说明
+                    </a>
+                </div>
+            </div>
         `;
     }
 
@@ -769,6 +922,12 @@
         node.className = `bridge-${state.bridgeStatus}`;
     }
 
+    function renderAssistantStatus() {
+        const panel = document.querySelector('.officecli-assistant-panel');
+        if (!panel || state.layer !== 'settings') return;
+        render();
+    }
+
     function renderFileSummary() {
         const node = byId('officecli-file-summary');
         if (!node) return;
@@ -805,6 +964,24 @@
     function bindSettingsLayer() {
         byId('officecli-save-settings')?.addEventListener('click', saveSettingsFromForm);
         byId('officecli-reset-settings')?.addEventListener('click', resetSettings);
+        byId('officecli-launch-assistant')?.addEventListener('click', launchAssistant);
+        byId('officecli-check-assistant')?.addEventListener('click', checkBridge);
+        byId('officecli-open-workspace')?.addEventListener('click', async () => {
+            try {
+                const result = await callAssistantControl('/control/open-workspace');
+                toast(result.success ? '已打开工作目录' : result.message);
+            } catch (error) {
+                toast('无法打开工作目录，请先启动桌面助手');
+            }
+        });
+        byId('officecli-open-log')?.addEventListener('click', async () => {
+            try {
+                const result = await callAssistantControl('/control/open-log');
+                toast(result.success ? '已打开日志' : result.message);
+            } catch (error) {
+                toast('无法打开日志，请先启动桌面助手');
+            }
+        });
         byId('officecli-check-bridge')?.addEventListener('click', () => {
             saveSettingsFromForm();
             checkBridge();
@@ -1306,6 +1483,78 @@
                 font-size: 12px;
                 line-height: 1.5;
             }
+            .officecli-assistant-panel {
+                margin-bottom: 14px;
+            }
+            .officecli-assistant-main {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 16px;
+            }
+            .officecli-assistant-badge {
+                min-width: 82px;
+                text-align: center;
+                border-radius: 999px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            .officecli-assistant-badge.online {
+                background: #dcfce7;
+                color: #15803d;
+            }
+            .officecli-assistant-badge.offline {
+                background: #fee2e2;
+                color: #b91c1c;
+            }
+            .officecli-assistant-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 8px;
+                margin-top: 12px;
+            }
+            .officecli-assistant-grid div {
+                min-height: 66px;
+                padding: 10px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #f8fafc;
+            }
+            .officecli-assistant-grid span {
+                display: block;
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-assistant-grid b {
+                display: block;
+                overflow: hidden;
+                margin-top: 6px;
+                color: #0f172a;
+                font-size: 13px;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .officecli-assistant-grid b.ok {
+                color: #15803d;
+            }
+            .officecli-assistant-grid b.bad {
+                color: #dc2626;
+            }
+            .officecli-download-link {
+                min-height: 38px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 7px;
+                padding: 8px 12px;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                background: #fff;
+                color: #1e293b;
+                text-decoration: none;
+                font-weight: 700;
+            }
             .officecli-switches {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1370,7 +1619,8 @@
                 }
                 .officecli-status-row,
                 .officecli-example-grid,
-                .officecli-switches {
+                .officecli-switches,
+                .officecli-assistant-grid {
                     grid-template-columns: 1fr;
                 }
                 .officecli-upload-row {
