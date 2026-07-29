@@ -210,6 +210,7 @@
         };
 
         let currentStatus = null;
+        const hasDesktopApi = Boolean(window.wallyAssistant);
 
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -286,18 +287,143 @@
             await refreshHistory();
         }
 
+        async function fetchHealth(healthUrl) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 1200);
+            try {
+                const response = await fetch(healthUrl, { method: 'GET', signal: controller.signal });
+                if (!response.ok) return null;
+                return await response.json().catch(() => null);
+            } catch (error) {
+                return null;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function findAssistantStatus() {
+            for (let port = 8765; port < 8785; port += 1) {
+                const data = await fetchHealth(`http://127.0.0.1:${port}/health`);
+                if (data?.service === 'wally-office-assistant') return data;
+            }
+            return null;
+        }
+
+        function renderDisconnected() {
+            const status = {
+                success: false,
+                service: hasDesktopApi ? 'wally-office-assistant' : 'browser-fallback',
+                message: hasDesktopApi ? '桌面助手暂未返回状态' : '当前页面没有连接到桌面助手，请先启动 Wally Office Assistant。',
+                bridgeUrl: '',
+                workspace: '',
+                logFile: '',
+                historyFile: '',
+                protocolVersion: '-',
+                minFrontendVersion: '-',
+                officeCli: {
+                    available: false,
+                    error: hasDesktopApi ? '检测中' : '未检测到本地助手服务'
+                },
+                autoStart: {
+                    supported: hasDesktopApi,
+                    enabled: false
+                },
+                updates: {
+                    message: hasDesktopApi ? '等待助手返回' : '浏览器模式无法管理自动更新'
+                },
+                permissions: {
+                    localOnly: false
+                }
+            };
+            currentStatus = null;
+            els.service.textContent = hasDesktopApi ? '启动中' : '未连接';
+            els.service.className = hasDesktopApi ? 'value warn' : 'value bad';
+            els.officeCli.textContent = status.officeCli.error;
+            els.officeCli.className = 'value bad';
+            els.bridgeUrl.textContent = '-';
+            els.workspace.textContent = '-';
+            els.logFile.textContent = '-';
+            els.autoStart.textContent = hasDesktopApi ? '-' : '需要在桌面助手中管理';
+            els.autoStart.className = 'value warn';
+            els.compatibility.textContent = '-';
+            els.permissions.textContent = status.message;
+            els.updates.textContent = status.updates.message;
+            els.historyFile.textContent = '-';
+            els.taskHistory.innerHTML = '<div class="history-meta">暂无任务记录</div>';
+            els.raw.textContent = JSON.stringify(status, null, 2);
+        }
+
         async function refresh() {
-            render(await window.wallyAssistant.getStatus());
+            try {
+                const status = hasDesktopApi
+                    ? await window.wallyAssistant.getStatus()
+                    : await findAssistantStatus();
+                if (status) {
+                    render(status);
+                } else {
+                    renderDisconnected();
+                }
+            } catch (error) {
+                renderDisconnected();
+            }
+        }
+
+        async function openWorkspace() {
+            if (hasDesktopApi) {
+                await window.wallyAssistant.openWorkspace();
+                return;
+            }
+            const baseUrl = assistantBaseUrl();
+            if (baseUrl) await fetch(`${baseUrl}/control/open-workspace`, { method: 'POST' });
+        }
+
+        async function openLog() {
+            if (hasDesktopApi) {
+                await window.wallyAssistant.openLog();
+                return;
+            }
+            const baseUrl = assistantBaseUrl();
+            if (baseUrl) await fetch(`${baseUrl}/control/open-log`, { method: 'POST' });
+        }
+
+        async function restartService() {
+            if (hasDesktopApi) {
+                render(await window.wallyAssistant.restartService());
+                return;
+            }
+            await refresh();
+        }
+
+        async function recheckOfficeCli() {
+            if (hasDesktopApi) {
+                render(await window.wallyAssistant.recheckOfficeCli());
+                return;
+            }
+            const baseUrl = assistantBaseUrl();
+            if (baseUrl) {
+                await fetch(`${baseUrl}/control/recheck-officecli`, { method: 'POST' });
+            }
+            await refresh();
+        }
+
+        async function setAutoStart(enabled) {
+            if (hasDesktopApi) {
+                render(await window.wallyAssistant.setAutoStart(enabled));
+                return;
+            }
+            renderDisconnected();
         }
 
         document.getElementById('refresh').addEventListener('click', refresh);
-        document.getElementById('open-workspace').addEventListener('click', () => window.wallyAssistant.openWorkspace());
-        document.getElementById('open-log').addEventListener('click', () => window.wallyAssistant.openLog());
-        document.getElementById('restart').addEventListener('click', async () => render(await window.wallyAssistant.restartService()));
-        document.getElementById('recheck').addEventListener('click', async () => render(await window.wallyAssistant.recheckOfficeCli()));
-        document.getElementById('enable-autostart').addEventListener('click', async () => render(await window.wallyAssistant.setAutoStart(true)));
-        document.getElementById('disable-autostart').addEventListener('click', async () => render(await window.wallyAssistant.setAutoStart(false)));
-        window.wallyAssistant.onStatus(render);
+        document.getElementById('open-workspace').addEventListener('click', openWorkspace);
+        document.getElementById('open-log').addEventListener('click', openLog);
+        document.getElementById('restart').addEventListener('click', restartService);
+        document.getElementById('recheck').addEventListener('click', recheckOfficeCli);
+        document.getElementById('enable-autostart').addEventListener('click', () => setAutoStart(true));
+        document.getElementById('disable-autostart').addEventListener('click', () => setAutoStart(false));
+        if (hasDesktopApi) {
+            window.wallyAssistant.onStatus(render);
+        }
         refresh();
     </script>
 </body>
