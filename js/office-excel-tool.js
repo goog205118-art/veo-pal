@@ -3,7 +3,7 @@
 
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
-    const FRONTEND_VERSION = '0.1.1';
+    const FRONTEND_VERSION = '0.1.2';
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -69,6 +69,7 @@
         file: null,
         fileDataUrl: '',
         fileMeta: null,
+        filePath: '',
         instruction: '',
         plan: null,
         result: null,
@@ -188,6 +189,16 @@
         if (!plan) return false;
         if (plan.safety?.writesFile) return true;
         return (plan.commands || []).some((command) => command.mutates === true);
+    }
+
+    function isReadOnlyPlan(plan) {
+        return Boolean(plan && commandCount(plan) && !planWrites(plan));
+    }
+
+    function compactText(value, maxLength = 16000) {
+        const text = String(value == null ? '' : value).trim();
+        if (text.length <= maxLength) return text;
+        return `${text.slice(0, maxLength)}\n...内容过长，已截断...`;
     }
 
     function normalizeOfficeCliArgv(argv) {
@@ -337,7 +348,63 @@
         ].join('\n');
     }
 
-    async function callPlannerModel() {
+    function resultTextForPlanning(result) {
+        if (!result) return '';
+        const lines = [];
+        lines.push(`执行状态：${result.success === false ? '失败' : '成功'}`);
+        if (result.message) lines.push(`消息：${result.message}`);
+        if (result.filePath) lines.push(`当前工作区文件：${result.filePath}`);
+        if (result.workspace) lines.push(`工作目录：${result.workspace}`);
+        if (Array.isArray(result.artifacts) && result.artifacts.length) {
+            lines.push(`输出文件：${result.artifacts.map((item) => (typeof item === 'string' ? item : item.path || item.name || JSON.stringify(item))).join('；')}`);
+        }
+        if (Array.isArray(result.logs) && result.logs.length) {
+            lines.push('');
+            lines.push('OfficeCLI 日志 / stdout：');
+            lines.push(result.logs.join('\n'));
+        }
+        if (Array.isArray(result.commands) && result.commands.length) {
+            lines.push('');
+            lines.push('命令执行明细：');
+            result.commands.forEach((command, index) => {
+                lines.push(`--- command ${index + 1}: ${command.title || command.id || ''} ---`);
+                if (command.stdout) lines.push(`stdout:\n${command.stdout}`);
+                if (command.stderr) lines.push(`stderr:\n${command.stderr}`);
+            });
+        }
+        return compactText(lines.join('\n'), 20000);
+    }
+
+    function buildFollowupPrompt(previousResult) {
+        const meta = state.fileMeta || {};
+        const previousPlan = state.plan ? JSON.stringify(state.plan, null, 2) : '{}';
+        const executionText = resultTextForPlanning(previousResult);
+        return [
+            '请基于 OfficeCLI 已经读取到的表格结果，继续生成下一阶段 OfficeCLI Excel 命令计划。',
+            '',
+            `用户原始任务：${state.instruction || '根据读取结果继续完成表格任务。'}`,
+            `当前文件：${meta.name || previousResult?.filePath || '$file'}`,
+            `文件类型：${meta.type || 'unknown'}`,
+            '',
+            '上一阶段命令计划：',
+            compactText(previousPlan, 6000),
+            '',
+            '上一阶段执行结果：',
+            executionText || '没有可用执行结果。',
+            '',
+            '后续计划要求：',
+            '1. 只输出 JSON，不要 Markdown。',
+            '2. commands[].argv 必须是参数数组，argv 不要包含 officecli 本体。',
+            '3. 继续使用 $file 占位符，不要把 $file 拼进新文件名。',
+            '4. 如果读取结果已经包含真实 sheet 名、表头、列号和行号，请直接生成 set / batch / validate / view html 等写入计划。',
+            '5. 如果仍然无法确定全部行范围，先生成更充分的读取计划，例如 ["view","$file","text","--max-lines","200","--json"] 或 get 具体范围，不要编造不存在的行号。',
+            '6. 对“把某列全部替换为某值”这类任务，优先用真实 sheet 名和真实列号生成范围 set 或 batch set；不要只停留在读取结构。',
+            '7. 写入计划必须把 mutates 设置为 true，并将 safety.writesFile 设置为 true。',
+            '8. 最后附加 validate 和 ["view","$file","html"] 方便前端展示修改结果。'
+        ].join('\n');
+    }
+
+    async function callPlannerModel(userPrompt = buildUserPrompt()) {
         if (!settings.apiBaseUrl || !settings.apiKey) {
             throw new Error('请先在设置层填写大模型 API Base URL 和 API Key');
         }
@@ -356,7 +423,7 @@
                     temperature: 0.1,
                     messages: [
                         { role: 'system', content: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT },
-                        { role: 'user', content: buildUserPrompt() }
+                        { role: 'user', content: userPrompt }
                     ]
                 }),
                 signal: controller.signal
@@ -374,6 +441,45 @@
             return normalizePlan(extractJson(content));
         } finally {
             clearTimeout(timer);
+        }
+    }
+
+    async function generateFollowupPlan() {
+        if (state.busy) return;
+        const previousResult = state.result;
+        if (!previousResult || previousResult.success === false) {
+            toast('需要先成功执行读取计划');
+            return;
+        }
+        if (previousResult.dryRun) {
+            toast('Dry Run 没有读取真实表格内容，请先关闭演练并执行读取');
+            return;
+        }
+        state.instruction = byId('officecli-instruction')?.value.trim() || state.instruction;
+        if (!state.instruction) {
+            toast('请保留或填写原始表格任务');
+            return;
+        }
+        state.busy = true;
+        renderBusy('正在基于读取结果生成后续修改计划...');
+        addLog('读取结果已交回模型，开始生成后续修改计划', 'info');
+        try {
+            const plan = await callPlannerModel(buildFollowupPrompt(previousResult));
+            state.plan = plan;
+            state.result = null;
+            localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
+            addLog(`后续计划生成完成：${commandCount(plan)} 个步骤`, planWrites(plan) ? 'success' : 'info');
+            if (!planWrites(plan)) {
+                addLog('模型认为信息仍不足，生成了更充分的读取计划。请先执行它，再继续生成修改计划。', 'info');
+            }
+            render();
+        } catch (error) {
+            addLog(error.message, 'error');
+            toast(error.message);
+            render();
+        } finally {
+            state.busy = false;
+            render();
         }
     }
 
@@ -447,7 +553,8 @@
             toast('请先生成命令计划');
             return;
         }
-        if (!state.file && !byId('officecli-file-path').value.trim()) {
+        state.filePath = byId('officecli-file-path')?.value.trim() || state.filePath;
+        if (!state.file && !state.filePath) {
             toast('请上传文件或填写本地文件路径');
             return;
         }
@@ -486,7 +593,7 @@
                     type: state.fileMeta?.type || '',
                     size: state.fileMeta?.size || 0,
                     dataUrl: state.fileDataUrl || '',
-                    path: byId('officecli-file-path').value.trim()
+                    path: state.filePath
                 },
                 plan: state.plan,
                 options: {
@@ -503,6 +610,9 @@
             const result = await postBridge(body);
             state.result = result;
             addLog(result.success === false ? 'OfficeCLI 执行失败' : 'OfficeCLI 执行完成', result.success === false ? 'error' : 'success');
+            if (result.success !== false && isReadOnlyPlan(state.plan)) {
+                addLog('读取完成：如果原任务还需要修改表格，请点击“基于读取结果生成修改计划”。', 'info');
+            }
             render();
         } catch (error) {
             addLog(error.message, 'error');
@@ -512,6 +622,15 @@
             state.busy = false;
             render();
         }
+    }
+
+    async function executeReadPlanForReal() {
+        if (state.busy) return;
+        settings.dryRun = false;
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        const checkbox = byId('officecli-work-dry-run');
+        if (checkbox) checkbox.checked = false;
+        await executePlan();
     }
 
     async function postBridge(body) {
@@ -741,7 +860,7 @@
                         </div>
                         <label class="officecli-field">
                             <span>或填写本地文件路径（本地桥可直接读取）</span>
-                            <input id="officecli-file-path" type="text" placeholder="D:\\work\\products.xlsx">
+                            <input id="officecli-file-path" type="text" value="${escapeHtml(state.filePath)}" placeholder="D:\\work\\products.xlsx">
                         </label>
                     </div>
 
@@ -1029,7 +1148,33 @@
         const html = state.result.html || state.result.previewHtml || '';
         const artifacts = Array.isArray(state.result.artifacts) ? state.result.artifacts : [];
         const logs = Array.isArray(state.result.logs) ? state.result.logs : [];
+        const canContinue = state.result.success !== false && isReadOnlyPlan(state.plan) && !state.result.dryRun;
+        const dryReadOnly = state.result.success !== false && isReadOnlyPlan(state.plan) && state.result.dryRun;
         return `
+            ${dryReadOnly ? `
+                <div class="officecli-followup-callout">
+                    <div>
+                        <b>当前只是 Dry Run，还没有读取真实表格内容</b>
+                        <p>要完成后续修改，需要先让本地桥真正执行读取计划，拿到 Sheet、表头、列号和行号。</p>
+                    </div>
+                    <button class="officecli-primary" id="officecli-execute-real-read" ${state.busy ? 'disabled' : ''}>
+                        <span class="material-symbols-outlined">play_circle</span>
+                        关闭演练并读取
+                    </button>
+                </div>
+            ` : ''}
+            ${canContinue ? `
+                <div class="officecli-followup-callout">
+                    <div>
+                        <b>读取已完成，下一步生成真正的修改计划</b>
+                        <p>例如“将材质列全部替换为塑料”，需要把刚读到的 Sheet、表头、行号再交给模型，生成 set / batch 写入命令。</p>
+                    </div>
+                    <button class="officecli-primary" id="officecli-generate-followup" ${state.busy ? 'disabled' : ''}>
+                        <span class="material-symbols-outlined">published_with_changes</span>
+                        基于读取结果生成修改计划
+                    </button>
+                </div>
+            ` : ''}
             ${state.result.dryRun ? `
                 <div class="officecli-artifacts dry-run">
                     <b>Dry Run 演练完成</b>
@@ -1104,6 +1249,8 @@
     function bindWorkLayer() {
         byId('officecli-file')?.addEventListener('change', handleFileChange);
         byId('officecli-generate')?.addEventListener('click', generatePlan);
+        byId('officecli-generate-followup')?.addEventListener('click', generateFollowupPlan);
+        byId('officecli-execute-real-read')?.addEventListener('click', executeReadPlanForReal);
         byId('officecli-execute')?.addEventListener('click', executePlan);
         byId('officecli-work-dry-run')?.addEventListener('change', (event) => {
             settings.dryRun = event.target.checked;
@@ -1114,6 +1261,9 @@
         byId('officecli-clear-plan')?.addEventListener('click', clearPlan);
         byId('officecli-instruction')?.addEventListener('input', (event) => {
             state.instruction = event.target.value;
+        });
+        byId('officecli-file-path')?.addEventListener('input', (event) => {
+            state.filePath = event.target.value.trim();
         });
         document.querySelectorAll('[data-example]').forEach((button) => {
             button.addEventListener('click', () => insertExample(Number(button.dataset.example)));
@@ -1595,6 +1745,33 @@
                 border: 1px solid #e2e8f0;
                 border-radius: 8px;
                 background: #fff;
+            }
+            .officecli-followup-callout {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 10px;
+                padding: 12px;
+                border: 1px solid #bfdbfe;
+                border-radius: 8px;
+                background: #eff6ff;
+                color: #1e3a8a;
+            }
+            .officecli-followup-callout b {
+                display: block;
+                margin-bottom: 4px;
+                color: #1d4ed8;
+                font-size: 13px;
+            }
+            .officecli-followup-callout p {
+                margin: 0;
+                color: #475569;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .officecli-followup-callout button {
+                flex: 0 0 auto;
             }
             .officecli-artifacts {
                 margin-top: 10px;
