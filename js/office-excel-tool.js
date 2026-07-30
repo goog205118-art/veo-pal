@@ -78,7 +78,8 @@
         logs: [],
         busy: false,
         bridgeStatus: 'unknown',
-        assistant: null
+        assistant: null,
+        progress: { percent: 0, label: '待开始' }
     };
 
     const byId = (id) => document.getElementById(id);
@@ -287,10 +288,7 @@
             const picked = await window.wallyAssistant.pickDirectory({ title: '选择工作目录' });
             return picked?.path || '';
         }
-        const fallback = window.prompt('请输入工作目录路径', settings.workspaceDir || '');
-        if (fallback && String(fallback).trim()) {
-            return String(fallback).trim();
-        }
+        toast('网页不能直接选择电脑目录，已自动使用本地桥默认工作目录');
         return '';
     }
 
@@ -627,6 +625,7 @@
         state.busy = true;
         state.result = null;
         let createdPlan = null;
+        setProgress(12, '生成命令计划');
         renderBusy(autoExecute ? '正在生成并执行 OfficeCLI 任务...' : '正在让模型生成 OfficeCLI 命令计划...');
         addLog('开始规划 OfficeCLI 命令', 'info');
         try {
@@ -634,9 +633,11 @@
             createdPlan = plan;
             state.plan = plan;
             localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
+            setProgress(autoExecute ? 35 : 100, autoExecute ? '计划完成，准备执行' : '计划生成完成');
             addLog(`命令计划生成完成：${commandCount(plan)} 个步骤`, 'success');
             render();
         } catch (error) {
+            setProgress(100, '计划生成失败');
             addLog(error.message, 'error');
             toast(error.message);
             render();
@@ -686,6 +687,7 @@
         }
         state.busy = true;
         state.result = null;
+        setProgress(settings.dryRun ? 45 : 52, settings.dryRun ? 'Dry Run 检查中' : '本地桥执行中');
         renderBusy(settings.dryRun ? '正在执行 Dry Run...' : '正在交给本地 OfficeCLI 执行...');
         addLog(settings.dryRun ? 'Dry Run：仅检查命令，不写入文件' : '发送到 OfficeCLI 本地桥', 'info');
         try {
@@ -714,6 +716,7 @@
             };
             const result = await postBridge(body);
             state.result = result;
+            setProgress(result.success === false ? 100 : 82, result.success === false ? '执行失败' : '整理执行结果');
             addLog(result.success === false ? 'OfficeCLI 执行失败' : 'OfficeCLI 执行完成', result.success === false ? 'error' : 'success');
             if (
                 autoFollowup &&
@@ -723,6 +726,7 @@
                 settings.apiKey &&
                 followupDepth < maxFollowupDepth
             ) {
+                setProgress(88, '生成后续计划');
                 addLog('读取完成，正在自动生成下一段写入计划', 'info');
                 const nextPlan = await callPlannerModel(buildFollowupPrompt(result));
                 state.plan = nextPlan;
@@ -736,8 +740,10 @@
             if (autoFollowup && result.success !== false && isReadOnlyPlan(executedPlan) && followupDepth >= maxFollowupDepth) {
                 addLog('自动读取轮次已达到上限，请补充更明确的修改目标后再试', 'error');
             }
+            if (result.success !== false) setProgress(100, '执行完成');
             render();
         } catch (error) {
+            setProgress(100, '执行失败');
             addLog(error.message, 'error');
             toast(error.message);
             render();
@@ -869,6 +875,31 @@
         if (node) node.textContent = message;
     }
 
+    function clampProgress(value) {
+        return Math.max(0, Math.min(100, Number(value) || 0));
+    }
+
+    function getProgress() {
+        const progress = state.progress || {};
+        return {
+            percent: clampProgress(progress.percent),
+            label: progress.label || (state.busy ? '处理中' : '待开始')
+        };
+    }
+
+    function setProgress(percent, label) {
+        state.progress = { percent: clampProgress(percent), label: label || '' };
+        renderLogProgress();
+    }
+
+    function renderLogProgress() {
+        const progress = getProgress();
+        const fill = byId('officecli-log-progress-fill');
+        const text = byId('officecli-log-progress-text');
+        if (fill) fill.style.width = `${progress.percent}%`;
+        if (text) text.textContent = `${progress.label} ${progress.percent}%`;
+    }
+
     function switchLayer(layer) {
         state.layer = layer;
         render();
@@ -924,6 +955,16 @@
         settings.workspaceDir = selected;
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         toast('已选择工作目录');
+        render();
+    }
+
+    function handleResetWorkspaceDirectory() {
+        const input = byId('officecli-workspace-dir');
+        if (input) input.value = '';
+        settings.workspaceDir = '';
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        toast('已切换为本地桥默认工作目录');
+        render();
     }
 
     async function handleOpenResultFile() {
@@ -1049,20 +1090,6 @@
                 </div>
 
                 <div class="officecli-right">
-                    <div class="officecli-status-row">
-                        <div class="officecli-status-card">
-                            <span>本地桥</span>
-                            <b id="officecli-bridge-status">检测中</b>
-                        </div>
-                        <div class="officecli-status-card">
-                            <span>模式</span>
-                            <b>${settings.dryRun ? 'Dry Run' : '真实执行'}</b>
-                        </div>
-                        <div class="officecli-status-card">
-                            <span>命令数</span>
-                            <b>${commandCount(state.plan)}</b>
-                        </div>
-                    </div>
                     <div class="officecli-panel officecli-result-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">preview</span>
@@ -1082,6 +1109,10 @@
                         <summary>
                             <span class="material-symbols-outlined">receipt_long</span>
                             <b>运行日志</b>
+                            <span class="officecli-log-progress" aria-hidden="true">
+                                <i id="officecli-log-progress-fill" style="width:${getProgress().percent}%"></i>
+                            </span>
+                            <span id="officecli-log-progress-text" class="officecli-log-progress-text">${escapeHtml(getProgress().label)} ${getProgress().percent}%</span>
                             <span id="officecli-log-summary" class="officecli-log-summary">收纳</span>
                         </summary>
                         <div id="officecli-logs" class="officecli-logs"></div>
@@ -1132,11 +1163,21 @@
                         </label>
                         <label class="officecli-field">
                             <span>工作目录</span>
+                            <input id="officecli-workspace-dir" type="hidden" value="${escapeHtml(settings.workspaceDir)}">
+                            <div class="officecli-workspace-auto">
+                                <div>
+                                    <b>${escapeHtml(state.assistant?.workspace || settings.workspaceDir || '自动使用本地桥默认目录')}</b>
+                                    <span>${settings.workspaceDir ? '已指定自定义目录' : '无需手动填写路径；执行时自动使用桌面助手工作区'}</span>
+                                </div>
+                            </div>
                             <div class="officecli-path-row">
-                                <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="点击右侧选择目录" readonly>
                                 <button class="officecli-secondary" id="officecli-pick-workspace-dir" type="button">
                                     <span class="material-symbols-outlined">folder_open</span>
-                                    选择目录
+                                    更改目录
+                                </button>
+                                <button class="officecli-ghost" id="officecli-reset-workspace-dir" type="button">
+                                    <span class="material-symbols-outlined">restart_alt</span>
+                                    使用默认目录
                                 </button>
                             </div>
                         </label>
@@ -1376,6 +1417,7 @@
                 <p>${escapeHtml(log.message)}</p>
             </div>
         `).join('') : '<p class="officecli-muted">暂无运行日志。</p>';
+        renderLogProgress();
     }
 
     function renderBridgeStatus() {
@@ -1467,6 +1509,7 @@
         byId('officecli-reset-settings')?.addEventListener('click', resetSettings);
         byId('officecli-launch-assistant')?.addEventListener('click', launchAssistant);
         byId('officecli-pick-workspace-dir')?.addEventListener('click', handlePickWorkspaceDirectory);
+        byId('officecli-reset-workspace-dir')?.addEventListener('click', handleResetWorkspaceDirectory);
         byId('officecli-check-assistant')?.addEventListener('click', () => {
             saveSettingsFromForm();
             checkBridge();
@@ -1662,6 +1705,33 @@
                 flex: 1;
                 min-width: 0;
             }
+            .officecli-workspace-auto {
+                display: flex;
+                align-items: center;
+                min-height: 54px;
+                padding: 10px 12px;
+                border: 1px solid #dbeafe;
+                border-radius: 8px;
+                background: #eff6ff;
+                color: #1e3a8a;
+            }
+            .officecli-workspace-auto b,
+            .officecli-workspace-auto span {
+                display: block;
+            }
+            .officecli-workspace-auto b {
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 13px;
+            }
+            .officecli-workspace-auto span {
+                margin-top: 4px;
+                color: #64748b;
+                font-size: 12px;
+                font-weight: 600;
+            }
             .officecli-dropzone {
                 display: flex;
                 flex-direction: column;
@@ -1852,12 +1922,20 @@
             .bridge-online { color: #16a34a !important; }
             .bridge-offline { color: #dc2626 !important; }
             .bridge-checking { color: #2563eb !important; }
-            .officecli-plan-panel,
             .officecli-result-panel {
                 min-height: 220px;
             }
+            .officecli-plan-panel[open] {
+                min-height: 220px;
+            }
             .officecli-plan-details {
-                padding-top: 8px;
+                padding: 10px 12px;
+            }
+            .officecli-plan-details[open] {
+                padding: 14px;
+            }
+            .officecli-plan-details:not([open]) {
+                min-height: 0;
             }
             .officecli-plan-details > summary,
             .officecli-result-details > summary {
@@ -1869,6 +1947,9 @@
                 color: #0f172a;
                 font-weight: 600;
                 font-size: 13px;
+            }
+            .officecli-plan-details:not([open]) > summary {
+                min-height: 24px;
             }
             .officecli-plan-details > summary::-webkit-details-marker,
             .officecli-result-details > summary::-webkit-details-marker {
@@ -1884,8 +1965,32 @@
                 font-weight: 600;
                 font-size: 13px;
             }
-            .officecli-log-summary {
+            .officecli-log-progress {
+                flex: 1 1 180px;
+                max-width: 390px;
+                height: 8px;
                 margin-left: auto;
+                overflow: hidden;
+                border-radius: 999px;
+                background: #e2e8f0;
+            }
+            .officecli-log-progress i {
+                display: block;
+                width: 0;
+                height: 100%;
+                border-radius: inherit;
+                background: linear-gradient(90deg, #2563eb, #22c55e);
+                transition: width .25s ease;
+            }
+            .officecli-log-progress-text {
+                min-width: 104px;
+                color: #64748b;
+                font-size: 11px;
+                font-weight: 700;
+                text-align: right;
+                white-space: nowrap;
+            }
+            .officecli-log-summary {
                 border-radius: 999px;
                 padding: 2px 8px;
                 background: #e2e8f0;
