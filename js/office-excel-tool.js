@@ -383,6 +383,15 @@
             toast('请上传文件或填写本地文件路径');
             return;
         }
+        if (!settings.dryRun) {
+            await checkBridge();
+            if (!state.assistant?.officeCli?.available) {
+                const message = state.assistant?.officeCli?.error || '未检测到 OfficeCLI。请先安装 OfficeCLI，或在设置层填写完整命令路径。';
+                toast(message);
+                addLog(message, 'error');
+                return;
+            }
+        }
         let confirmedAt = '';
         if (settings.requireConfirmation && planWrites(state.plan)) {
             const ok = window.confirm('这个 OfficeCLI 计划包含写入动作。确认交给本地桥执行吗？');
@@ -669,8 +678,12 @@
                             </button>
                             <button class="officecli-secondary" id="officecli-execute" ${state.busy ? 'disabled' : ''}>
                                 <span class="material-symbols-outlined">play_arrow</span>
-                                执行计划
+                                ${settings.dryRun ? '演练计划' : '真实执行'}
                             </button>
+                            <label class="officecli-inline-check">
+                                <input id="officecli-work-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}>
+                                仅演练，不写文件
+                            </label>
                             <button class="officecli-secondary" id="officecli-copy-plan">
                                 <span class="material-symbols-outlined">content_copy</span>
                                 复制 JSON
@@ -929,6 +942,12 @@
         const artifacts = Array.isArray(state.result.artifacts) ? state.result.artifacts : [];
         const logs = Array.isArray(state.result.logs) ? state.result.logs : [];
         return `
+            ${state.result.dryRun ? `
+                <div class="officecli-artifacts dry-run">
+                    <b>Dry Run 演练完成</b>
+                    <p>本次只校验命令计划，没有写入或生成修改后文件。关闭“仅演练，不写文件”后才会真实调用 OfficeCLI。</p>
+                </div>
+            ` : ''}
             ${html ? `<iframe class="officecli-preview-frame" srcdoc="${escapeHtml(html)}"></iframe>` : ''}
             ${artifacts.length ? `
                 <div class="officecli-artifacts">
@@ -998,6 +1017,11 @@
         byId('officecli-file')?.addEventListener('change', handleFileChange);
         byId('officecli-generate')?.addEventListener('click', generatePlan);
         byId('officecli-execute')?.addEventListener('click', executePlan);
+        byId('officecli-work-dry-run')?.addEventListener('change', (event) => {
+            settings.dryRun = event.target.checked;
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+            render();
+        });
         byId('officecli-copy-plan')?.addEventListener('click', copyPlan);
         byId('officecli-clear-plan')?.addEventListener('click', clearPlan);
         byId('officecli-instruction')?.addEventListener('input', (event) => {
@@ -1299,6 +1323,25 @@
                 cursor: not-allowed;
                 opacity: .58;
             }
+            .officecli-inline-check {
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                min-height: 36px;
+                padding: 0 10px;
+                border: 1px solid #fed7aa;
+                border-radius: 8px;
+                background: #fff7ed;
+                color: #c2410c;
+                font-size: 12px;
+                font-weight: 800;
+                white-space: nowrap;
+            }
+            .officecli-inline-check input {
+                width: 14px;
+                height: 14px;
+                accent-color: #ea580c;
+            }
             .officecli-busy {
                 min-height: 18px;
                 margin-top: 8px;
@@ -1469,6 +1512,10 @@
                 background: #f0fdf4;
                 color: #166534;
                 font-size: 12px;
+            }
+            .officecli-artifacts.dry-run {
+                background: #fff7ed;
+                color: #c2410c;
             }
             .officecli-artifacts p {
                 margin: 6px 0 0;

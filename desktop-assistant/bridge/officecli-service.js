@@ -474,6 +474,13 @@ export class OfficeCliService {
                     throw new Error('Write execution requires user confirmation.');
                 }
             }
+            if (!options.dryRun) {
+                this.cliCommand = cliCommand;
+                const officeCliStatus = await this.refreshOfficeCliStatus();
+                if (!officeCliStatus.available) {
+                    throw new Error(officeCliStatus.error || 'OfficeCLI is not available.');
+                }
+            }
 
             workbookPath = await this.prepareFile(payload.file || {}, workspace);
             await this.log(`${options.dryRun ? 'Dry run' : 'Execute'} plan "${plan.goal || 'OfficeCLI task'}" with ${commands.length} command(s).`);
@@ -527,7 +534,8 @@ export class OfficeCliService {
                 filePath: workbookPath,
                 workspace,
                 logFile: this.logFile,
-                artifacts: [workbookPath],
+                artifacts: options.dryRun ? [] : [workbookPath],
+                dryRun: Boolean(options.dryRun),
                 logs,
                 commands: commandResults,
                 html
