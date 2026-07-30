@@ -627,11 +627,14 @@
             render();
         }
         if (autoExecute && createdPlan) {
-            await executePlan();
+            await executePlan({ autoFollowup: true });
         }
     }
 
-    async function executePlan() {
+    async function executePlan(options = {}) {
+        const autoFollowup = Boolean(options.autoFollowup);
+        const followupDepth = Number(options.followupDepth) || 0;
+        const maxFollowupDepth = 2;
         if (state.busy) return;
         if (!state.plan || !commandCount(state.plan)) {
             toast('请先生成命令计划');
@@ -647,6 +650,7 @@
             addLog(planIssue, 'error');
             return;
         }
+        const executedPlan = state.plan;
         if (!settings.dryRun) {
             await checkBridge();
             if (!state.assistant?.officeCli?.available) {
@@ -693,8 +697,26 @@
             const result = await postBridge(body);
             state.result = result;
             addLog(result.success === false ? 'OfficeCLI 执行失败' : 'OfficeCLI 执行完成', result.success === false ? 'error' : 'success');
-            if (result.success !== false && isReadOnlyPlan(state.plan)) {
-                addLog('读取完成：如果原任务还需要修改表格，请点击“基于读取结果生成修改计划”。', 'info');
+            if (
+                autoFollowup &&
+                result.success !== false &&
+                isReadOnlyPlan(executedPlan) &&
+                settings.apiBaseUrl &&
+                settings.apiKey &&
+                followupDepth < maxFollowupDepth
+            ) {
+                addLog('读取完成，正在自动生成下一段写入计划', 'info');
+                const nextPlan = await callPlannerModel(buildFollowupPrompt(result));
+                state.plan = nextPlan;
+                localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(nextPlan));
+                addLog(`后续计划生成完成：${commandCount(nextPlan)} 个步骤`, planWrites(nextPlan) ? 'success' : 'info');
+                render();
+                state.busy = false;
+                await executePlan({ autoFollowup: true, followupDepth: followupDepth + 1 });
+                return;
+            }
+            if (autoFollowup && result.success !== false && isReadOnlyPlan(executedPlan) && followupDepth >= maxFollowupDepth) {
+                addLog('自动读取轮次已达到上限，请补充更明确的修改目标后再试', 'error');
             }
             render();
         } catch (error) {
@@ -1003,10 +1025,6 @@
                                 <span class="material-symbols-outlined">auto_awesome</span>
                                 一键修改
                             </button>
-                            <label class="officecli-inline-check">
-                                <input id="officecli-work-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}>
-                                仅演练，不写文件
-                            </label>
                         </div>
                         <div id="officecli-busy-text" class="officecli-busy">${state.busy ? '处理中...' : ''}</div>
                     </div>
@@ -1038,6 +1056,7 @@
                         <summary>
                             <span class="material-symbols-outlined">account_tree</span>
                             <b>命令计划</b>
+                            <span class="officecli-plan-summary">${renderPlanSummary()}</span>
                         </summary>
                         ${renderPlan()}
                     </details>
@@ -1211,6 +1230,17 @@
                 ` : ''}
             </div>
         `;
+    }
+
+    function renderPlanSummary() {
+        if (!state.plan || !commandCount(state.plan)) return '等待计划';
+        const commands = Array.isArray(state.plan.commands) ? state.plan.commands : [];
+        const labels = commands
+            .slice(0, 3)
+            .map((command) => command.title || command.op || command.id || '步骤')
+            .join(' / ');
+        const suffix = commands.length > 3 ? ' ...' : '';
+        return `${commands.length} 步 · ${labels}${suffix}`;
     }
 
     function renderPlan() {
@@ -1844,6 +1874,16 @@
                 color: #475569;
                 font-size: 11px;
                 font-weight: 700;
+            }
+            .officecli-plan-summary {
+                min-width: 0;
+                margin-left: auto;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: #64748b;
+                font-size: 12px;
+                font-weight: 600;
             }
             .officecli-result-head {
                 display: flex;
