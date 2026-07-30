@@ -147,6 +147,17 @@ function runProcess(command, argv, cwd, timeoutMs) {
     });
 }
 
+function formatOfficeCliError(result, command) {
+    const raw = String(result.stderr || result.stdout || '').trim();
+    if (/ENOENT|not found|not recognized|找不到|无法将|不是内部或外部命令/i.test(raw)) {
+        return `未找到 OfficeCLI 命令：${command}。请安装 OfficeCLI，或在网页设置层填写完整的 officecli.exe / officecli.cmd 路径。`;
+    }
+    if (result.code === -1 && raw) {
+        return `OfficeCLI 启动失败：${raw}`;
+    }
+    return raw || `OfficeCLI 不可用。请安装 OfficeCLI，或在设置层填写完整命令路径。`;
+}
+
 function detectHtml(text) {
     const value = String(text || '').trim();
     if (/<!doctype html/i.test(value) || /<html[\s>]/i.test(value) || /<table[\s>]/i.test(value)) {
@@ -301,7 +312,7 @@ export class OfficeCliService {
             available: result.success,
             command: this.cliCommand,
             version: result.success ? (result.stdout || result.stderr || '').trim() : '',
-            error: result.success ? '' : (result.stderr || result.stdout || 'OfficeCLI is not available.').trim()
+            error: result.success ? '' : formatOfficeCliError(result, this.cliCommand)
         };
         return this.lastOfficeCliStatus;
     }
