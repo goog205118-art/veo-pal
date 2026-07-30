@@ -29,6 +29,19 @@ const ALLOWED_COMMANDS = new Set([
     'help'
 ]);
 
+function isUnsafeWorkspacePath(targetPath) {
+    const normalized = path.resolve(String(targetPath || '')).replace(/\//g, '\\').toLowerCase();
+    return /^[a-z]:\\windows(\\|$)/.test(normalized) || normalized.includes('\\windows\\system32');
+}
+
+function resolveWorkspaceDir(requested, fallback = DEFAULT_WORKSPACE) {
+    const raw = String(requested || '').trim();
+    const safeFallback = path.resolve(fallback || DEFAULT_WORKSPACE);
+    if (!raw || !path.isAbsolute(raw)) return safeFallback;
+    const resolved = path.resolve(raw);
+    return isUnsafeWorkspacePath(resolved) ? path.resolve(DEFAULT_WORKSPACE) : resolved;
+}
+
 function sendJson(res, statusCode, data) {
     res.writeHead(statusCode, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -313,7 +326,7 @@ export class OfficeCliService {
         this.preferredPort = Number(options.port || process.env.OFFICECLI_BRIDGE_PORT || DEFAULT_PORT);
         this.port = this.preferredPort;
         this.cliCommand = options.cliCommand || process.env.OFFICECLI_BIN || 'officecli';
-        this.workspace = path.resolve(options.workspace || process.env.OFFICECLI_WORKSPACE || DEFAULT_WORKSPACE);
+        this.workspace = resolveWorkspaceDir(options.workspace || process.env.OFFICECLI_WORKSPACE);
         this.version = options.version || '0.1.0';
         this.appName = options.appName || 'Wally Office Assistant';
         this.server = null;
@@ -563,7 +576,7 @@ export class OfficeCliService {
         const options = payload.options || {};
         const plan = payload.plan || {};
         const commands = Array.isArray(plan.commands) ? plan.commands : [];
-        const workspace = path.resolve(options.workspaceDir || this.workspace);
+        const workspace = resolveWorkspaceDir(options.workspaceDir, this.workspace);
         const cliCommand = options.cliCommand || this.cliCommand;
         const timeoutMs = Number(options.timeoutMs || 120000);
         const logs = [];

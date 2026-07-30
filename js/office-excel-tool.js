@@ -118,14 +118,30 @@
         return byId('officecli-cli-command')?.value.trim() || settings.cliCommand || defaultSettings.cliCommand;
     }
 
+    function isUnsafeWorkspaceDir(value) {
+        const text = String(value || '').trim();
+        if (!text) return false;
+        const normalized = text.replace(/\//g, '\\').toLowerCase();
+        const isAbsolute = /^[a-z]:\\/.test(normalized) || normalized.startsWith('\\\\');
+        if (!isAbsolute) return true;
+        return /^[a-z]:\\windows(\\|$)/.test(normalized) || normalized.includes('\\windows\\system32');
+    }
+
+    function cleanWorkspaceDir(value) {
+        const text = String(value || '').trim();
+        return isUnsafeWorkspaceDir(text) ? '' : text;
+    }
+
     function loadSettings() {
         const stored = safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {});
         const shouldRefreshPrompt = !stored.systemPrompt || /--format|--html|get range|set range|__SHEET_NAME__|__TRANSLATED_VALUES__/i.test(stored.systemPrompt);
         const shouldMigrateTrustedWriteDefault = Number(stored.schemaVersion || 0) < SETTINGS_SCHEMA_VERSION;
+        const workspaceDir = cleanWorkspaceDir(stored.workspaceDir);
         settings = {
             ...defaultSettings,
             ...stored,
             schemaVersion: SETTINGS_SCHEMA_VERSION,
+            workspaceDir,
             requireConfirmation: shouldMigrateTrustedWriteDefault ? false : Boolean(stored.requireConfirmation),
             systemPrompt: shouldRefreshPrompt ? DEFAULT_SYSTEM_PROMPT : stored.systemPrompt
         };
@@ -133,7 +149,9 @@
         if (lastPlan && Array.isArray(lastPlan.commands)) {
             state.plan = normalizePlan(lastPlan);
         }
-        if (shouldRefreshPrompt || shouldMigrateTrustedWriteDefault) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        if (shouldRefreshPrompt || shouldMigrateTrustedWriteDefault || workspaceDir !== stored.workspaceDir) {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        }
     }
 
     function saveSettingsFromForm() {
@@ -144,7 +162,7 @@
             bridgeUrl: byId('officecli-bridge-url').value.trim() || defaultSettings.bridgeUrl,
             assistantProtocol: byId('officecli-assistant-protocol')?.value.trim() || settings.assistantProtocol || defaultSettings.assistantProtocol,
             cliCommand: byId('officecli-cli-command').value.trim() || defaultSettings.cliCommand,
-            workspaceDir: byId('officecli-workspace-dir').value.trim() || defaultSettings.workspaceDir,
+            workspaceDir: cleanWorkspaceDir(byId('officecli-workspace-dir').value) || defaultSettings.workspaceDir,
             dryRun: byId('officecli-dry-run').checked,
             requireConfirmation: byId('officecli-require-confirm').checked,
             requestTimeoutMs: Number(byId('officecli-timeout-ms').value) || defaultSettings.requestTimeoutMs,
@@ -689,7 +707,7 @@
                     confirmedAt,
                     frontendVersion: FRONTEND_VERSION,
                     cliCommand: settings.cliCommand,
-                    workspaceDir: settings.workspaceDir || undefined,
+                    workspaceDir: cleanWorkspaceDir(settings.workspaceDir) || undefined,
                     returnHtml: true,
                     validate: true
                 }
@@ -990,7 +1008,7 @@
                     <div class="officecli-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">description</span>
-                            <b>1. 琛ㄦ牸鏂囦欢</b>
+                            <b>1. 选择表格文件</b>
                         </div>
                         <div class="officecli-upload-row">
                             <button class="officecli-primary officecli-file-button" id="officecli-pick-file" ${state.busy ? 'disabled' : ''}>
@@ -1009,7 +1027,7 @@
                     <div class="officecli-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">psychology</span>
-                            <b>2. 鑷劧璇█浠诲姟</b>
+                            <b>2. 输入操作任务</b>
                         </div>
                         <textarea id="officecli-instruction" class="officecli-task-input" placeholder="例如：把 US 站点价格上调 8%，输出新文件，并生成修改前后差异预览。">${escapeHtml(state.instruction)}</textarea>
                         <div class="officecli-example-grid">
