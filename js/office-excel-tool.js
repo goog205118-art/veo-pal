@@ -4,6 +4,7 @@
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
     const FRONTEND_VERSION = '0.1.2';
+    const SETTINGS_SCHEMA_VERSION = 2;
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -39,9 +40,10 @@
         cliCommand: 'officecli',
         workspaceDir: '',
         dryRun: true,
-        requireConfirmation: true,
+        requireConfirmation: false,
         requestTimeoutMs: 120000,
-        systemPrompt: DEFAULT_SYSTEM_PROMPT
+        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        schemaVersion: SETTINGS_SCHEMA_VERSION
     };
 
     const examples = [
@@ -119,16 +121,19 @@
     function loadSettings() {
         const stored = safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {});
         const shouldRefreshPrompt = !stored.systemPrompt || /--format|--html|get range|set range|__SHEET_NAME__|__TRANSLATED_VALUES__/i.test(stored.systemPrompt);
+        const shouldMigrateConfirmationDefault = Number(stored.schemaVersion || 0) < SETTINGS_SCHEMA_VERSION;
         settings = {
             ...defaultSettings,
             ...stored,
+            schemaVersion: SETTINGS_SCHEMA_VERSION,
+            requireConfirmation: shouldMigrateConfirmationDefault ? false : Boolean(stored.requireConfirmation),
             systemPrompt: shouldRefreshPrompt ? DEFAULT_SYSTEM_PROMPT : stored.systemPrompt
         };
         const lastPlan = safeJsonParse(localStorage.getItem(LAST_PLAN_KEY) || 'null', null);
         if (lastPlan && Array.isArray(lastPlan.commands)) {
             state.plan = normalizePlan(lastPlan);
         }
-        if (shouldRefreshPrompt) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        if (shouldRefreshPrompt || shouldMigrateConfirmationDefault) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     }
 
     function saveSettingsFromForm() {
@@ -143,7 +148,8 @@
             dryRun: byId('officecli-dry-run').checked,
             requireConfirmation: byId('officecli-require-confirm').checked,
             requestTimeoutMs: Number(byId('officecli-timeout-ms').value) || defaultSettings.requestTimeoutMs,
-            systemPrompt: byId('officecli-system-prompt').value.trim() || DEFAULT_SYSTEM_PROMPT
+            systemPrompt: byId('officecli-system-prompt').value.trim() || DEFAULT_SYSTEM_PROMPT,
+            schemaVersion: SETTINGS_SCHEMA_VERSION
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         toast('OfficeCLI 设置已保存');
@@ -990,8 +996,9 @@
                         </label>
                         <div class="officecli-switches">
                             <label><input id="officecli-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}> 默认 Dry Run</label>
-                            <label><input id="officecli-require-confirm" type="checkbox" ${settings.requireConfirmation ? 'checked' : ''}> 写入前二次确认</label>
+                            <label><input id="officecli-require-confirm" type="checkbox" ${settings.requireConfirmation ? 'checked' : ''}> 写入前弹窗确认</label>
                         </div>
+                        <p class="officecli-help">默认信任本机 OfficeCLI 写入任务，不再重复弹出系统确认框。需要更谨慎时，可重新开启“写入前弹窗确认”。</p>
                         <label class="officecli-field">
                             <span>请求超时（毫秒）</span>
                             <input id="officecli-timeout-ms" type="number" min="10000" step="1000" value="${escapeHtml(settings.requestTimeoutMs)}">
