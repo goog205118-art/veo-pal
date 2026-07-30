@@ -501,6 +501,11 @@ export class OfficeCliService {
                 sendJson(res, 200, await this.openLocalPath(this.logFile));
                 return;
             }
+            if (req.method === 'POST' && url.pathname === '/control/open-path') {
+                const payload = safeJsonParse(await readBody(req), {});
+                sendJson(res, 200, await this.openLocalPath(payload.path || ''));
+                return;
+            }
             if (req.method === 'POST' && url.pathname === '/control/retry-task') {
                 const payload = JSON.parse(await readBody(req));
                 sendJson(res, 200, await this.retryTask(payload.taskId));

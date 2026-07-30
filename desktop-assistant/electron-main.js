@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage, shell, ipcMain, dialog } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { startOfficeCliService } from './bridge/officecli-service.js';
 
@@ -302,6 +303,34 @@ app.on('before-quit', async () => {
 ipcMain.handle('assistant:get-status', () => withRuntimeStatus(lastStatus || service?.getStatus() || null));
 ipcMain.handle('assistant:open-workspace', async () => service ? shell.openPath(service.workspace) : null);
 ipcMain.handle('assistant:open-log', async () => service ? shell.openPath(service.logFile) : null);
+ipcMain.handle('assistant:open-path', async (_event, targetPath) => shell.openPath(String(targetPath || '')));
+ipcMain.handle('assistant:pick-file', async (_event, options = {}) => {
+    const result = await dialog.showOpenDialog(createWindow(), {
+        title: options.title || '选择文件',
+        properties: ['openFile'],
+        filters: Array.isArray(options.filters) && options.filters.length ? options.filters : [
+            { name: 'Excel/CSV', extensions: ['xlsx', 'xls', 'csv', 'xlsm'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    const filePath = result.filePaths[0];
+    let size = 0;
+    try {
+        size = (await fs.stat(filePath)).size;
+    } catch (error) {
+        size = 0;
+    }
+    return { path: filePath, name: path.basename(filePath), size };
+});
+ipcMain.handle('assistant:pick-directory', async (_event, options = {}) => {
+    const result = await dialog.showOpenDialog(createWindow(), {
+        title: options.title || '选择文件夹',
+        properties: ['openDirectory', 'createDirectory']
+    });
+    if (result.canceled || !result.filePaths.length) return null;
+    return { path: result.filePaths[0] };
+});
 ipcMain.handle('assistant:restart-service', async () => {
     try {
         lastStatus = service ? await service.restart() : await startService();

@@ -187,6 +187,119 @@
         });
     }
 
+    function hasDesktopAssistant() {
+        return Boolean(window.wallyAssistant);
+    }
+
+    function getFileDisplayName(pathValue) {
+        const value = String(pathValue || '').trim();
+        if (!value) return '';
+        const parts = value.split(/[\\/]/);
+        return parts[parts.length - 1] || value;
+    }
+
+    function getParentDirectory(targetPath) {
+        const value = String(targetPath || '').trim();
+        if (!value) return '';
+        const normalized = value.replace(/[\\/]+$/, '');
+        const parts = normalized.split(/[\\/]/);
+        if (parts.length <= 1) return '';
+        parts.pop();
+        return parts.join('\\');
+    }
+
+    async function pickWorkbookFile() {
+        if (hasDesktopAssistant() && window.wallyAssistant.pickFile) {
+            const picked = await window.wallyAssistant.pickFile({
+                title: '选择 Excel / CSV 文件',
+                filters: [
+                    { name: 'Excel/CSV', extensions: ['xlsx', 'xls', 'csv', 'xlsm'] },
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+            if (!picked) return null;
+            return {
+                file: null,
+                fileMeta: {
+                    name: picked.name || getFileDisplayName(picked.path),
+                    size: picked.size || 0,
+                    type: ''
+                },
+                fileDataUrl: '',
+                filePath: picked.path || ''
+            };
+        }
+
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls,.csv,.xlsm';
+            input.onchange = async () => {
+                const file = input.files && input.files[0];
+                if (!file) {
+                    resolve(null);
+                    return;
+                }
+                resolve({
+                    file,
+                    fileMeta: { name: file.name, size: file.size, type: file.type },
+                    fileDataUrl: await readAsDataUrl(file),
+                    filePath: ''
+                });
+            };
+            input.click();
+        });
+    }
+
+    async function setSelectedWorkbook(selection) {
+        if (!selection) return;
+        state.file = selection.file || null;
+        state.fileMeta = selection.fileMeta || null;
+        state.fileDataUrl = selection.fileDataUrl || '';
+        state.filePath = selection.filePath || '';
+        if (state.fileMeta?.name || state.filePath) {
+            addLog(`已选择文件：${state.fileMeta?.name || getFileDisplayName(state.filePath)}`, 'success');
+        }
+        renderFileSummary();
+        render();
+    }
+
+    async function pickWorkspaceDirectory() {
+        if (hasDesktopAssistant() && window.wallyAssistant.pickDirectory) {
+            const picked = await window.wallyAssistant.pickDirectory({ title: '选择工作目录' });
+            return picked?.path || '';
+        }
+        const fallback = window.prompt('请输入工作目录路径', settings.workspaceDir || '');
+        if (fallback && String(fallback).trim()) {
+            return String(fallback).trim();
+        }
+        return '';
+    }
+
+    async function openTargetPath(targetPath) {
+        const resolved = String(targetPath || '').trim();
+        if (!resolved) return false;
+        if (hasDesktopAssistant() && window.wallyAssistant.openPath) {
+            const errorMessage = await window.wallyAssistant.openPath(resolved);
+            if (errorMessage) {
+                throw new Error(errorMessage);
+            }
+            return true;
+        }
+        const baseUrl = settings.bridgeUrl.replace(/\/officecli\/?$/, '');
+        if (!baseUrl) return false;
+        const response = await fetch(`${baseUrl}/control/open-path`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: resolved })
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || data?.success === false) {
+            throw new Error(data?.message || `无法打开路径：${resolved}`);
+        }
+        return true;
+    }
+
     function commandCount(plan) {
         return Array.isArray(plan?.commands) ? plan.commands.length : 0;
     }
@@ -449,46 +562,6 @@
             clearTimeout(timer);
         }
     }
-
-    async function generateFollowupPlan() {
-        if (state.busy) return;
-        const previousResult = state.result;
-        if (!previousResult || previousResult.success === false) {
-            toast('需要先成功执行读取计划');
-            return;
-        }
-        if (previousResult.dryRun) {
-            toast('Dry Run 没有读取真实表格内容，请先关闭演练并执行读取');
-            return;
-        }
-        state.instruction = byId('officecli-instruction')?.value.trim() || state.instruction;
-        if (!state.instruction) {
-            toast('请保留或填写原始表格任务');
-            return;
-        }
-        state.busy = true;
-        renderBusy('正在基于读取结果生成后续修改计划...');
-        addLog('读取结果已交回模型，开始生成后续修改计划', 'info');
-        try {
-            const plan = await callPlannerModel(buildFollowupPrompt(previousResult));
-            state.plan = plan;
-            state.result = null;
-            localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
-            addLog(`后续计划生成完成：${commandCount(plan)} 个步骤`, planWrites(plan) ? 'success' : 'info');
-            if (!planWrites(plan)) {
-                addLog('模型认为信息仍不足，生成了更充分的读取计划。请先执行它，再继续生成修改计划。', 'info');
-            }
-            render();
-        } catch (error) {
-            addLog(error.message, 'error');
-            toast(error.message);
-            render();
-        } finally {
-            state.busy = false;
-            render();
-        }
-    }
-
     function createLocalReadPlan() {
         return normalizePlan({
             goal: state.instruction || '读取工作簿结构',
@@ -526,7 +599,7 @@
         });
     }
 
-    async function generatePlan() {
+    async function generatePlan(autoExecute = false) {
         if (state.busy) return;
         state.instruction = byId('officecli-instruction').value.trim();
         if (!state.instruction) {
@@ -535,10 +608,12 @@
         }
         state.busy = true;
         state.result = null;
-        renderBusy('正在让模型生成 OfficeCLI 命令计划...');
+        let createdPlan = null;
+        renderBusy(autoExecute ? '正在生成并执行 OfficeCLI 任务...' : '正在让模型生成 OfficeCLI 命令计划...');
         addLog('开始规划 OfficeCLI 命令', 'info');
         try {
             const plan = settings.apiBaseUrl && settings.apiKey ? await callPlannerModel() : createLocalReadPlan();
+            createdPlan = plan;
             state.plan = plan;
             localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
             addLog(`命令计划生成完成：${commandCount(plan)} 个步骤`, 'success');
@@ -551,6 +626,9 @@
             state.busy = false;
             render();
         }
+        if (autoExecute && createdPlan) {
+            await executePlan();
+        }
     }
 
     async function executePlan() {
@@ -559,7 +637,6 @@
             toast('请先生成命令计划');
             return;
         }
-        state.filePath = byId('officecli-file-path')?.value.trim() || state.filePath;
         if (!state.file && !state.filePath) {
             toast('请上传文件或填写本地文件路径');
             return;
@@ -629,16 +706,6 @@
             render();
         }
     }
-
-    async function executeReadPlanForReal() {
-        if (state.busy) return;
-        settings.dryRun = false;
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        const checkbox = byId('officecli-work-dry-run');
-        if (checkbox) checkbox.checked = false;
-        await executePlan();
-    }
-
     async function postBridge(body) {
         if (!settings.bridgeUrl) {
             throw new Error('请先填写 OfficeCLI 本地桥地址');
@@ -779,30 +846,77 @@
     async function handleFileChange(event) {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
-        state.file = file;
-        state.fileMeta = { name: file.name, size: file.size, type: file.type };
-        state.fileDataUrl = await readAsDataUrl(file);
-        addLog(`已载入文件：${file.name}`, 'success');
-        renderFileSummary();
+        await setSelectedWorkbook({
+            file,
+            fileMeta: { name: file.name, size: file.size, type: file.type },
+            fileDataUrl: await readAsDataUrl(file),
+            filePath: file.path || ''
+        });
     }
 
-    function copyPlan() {
-        if (!state.plan) {
-            toast('当前没有命令计划');
+    async function handlePickFile() {
+        const selection = await pickWorkbookFile();
+        await setSelectedWorkbook(selection);
+    }
+
+    async function handleDropFiles(files) {
+        const file = files && files[0];
+        if (!file) return;
+        await setSelectedWorkbook({
+            file,
+            fileMeta: { name: file.name, size: file.size, type: file.type },
+            fileDataUrl: await readAsDataUrl(file),
+            filePath: file.path || ''
+        });
+    }
+
+    async function handleRunModify() {
+        settings.dryRun = false;
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        await generatePlan(true);
+    }
+
+    async function handlePickWorkspaceDirectory() {
+        const selected = await pickWorkspaceDirectory();
+        if (!selected) return;
+        const input = byId('officecli-workspace-dir');
+        if (input) input.value = selected;
+        settings.workspaceDir = selected;
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        toast('已选择工作目录');
+    }
+
+    async function handleOpenResultFile() {
+        const filePath = state.result?.filePath || state.filePath || '';
+        const artifact = Array.isArray(state.result?.artifacts)
+            ? state.result.artifacts.find((item) => typeof item === 'string' ? item : item?.path)
+            : null;
+        const target = filePath || (typeof artifact === 'string' ? artifact : artifact?.path || '');
+        if (!target) {
+            toast('没有可打开的文件');
             return;
         }
-        navigator.clipboard.writeText(JSON.stringify(state.plan, null, 2));
-        toast('命令计划已复制');
+        try {
+            await openTargetPath(target);
+        } catch (error) {
+            toast(error.message);
+        }
     }
 
-    function clearPlan() {
-        state.plan = null;
-        state.result = null;
-        localStorage.removeItem(LAST_PLAN_KEY);
-        addLog('已清空当前命令计划', 'info');
-        render();
+    async function handleOpenResultFolder() {
+        const filePath = state.result?.filePath || state.filePath || '';
+        const workspace = state.result?.workspace || settings.workspaceDir || '';
+        const target = workspace || getParentDirectory(filePath);
+        if (!target) {
+            toast('没有可打开的文件夹');
+            return;
+        }
+        try {
+            await openTargetPath(target);
+        } catch (error) {
+            toast(error.message);
+        }
     }
-
     function close() {
         const node = byId('officecli-modal');
         if (node) node.remove();
@@ -854,28 +968,28 @@
                     <div class="officecli-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">description</span>
-                            <b>1. 表格文件</b>
+                            <b>1. 琛ㄦ牸鏂囦欢</b>
                         </div>
                         <div class="officecli-upload-row">
-                            <label class="officecli-file-pick">
+                            <button class="officecli-primary officecli-file-button" id="officecli-pick-file" ${state.busy ? 'disabled' : ''}>
                                 <span class="material-symbols-outlined">upload_file</span>
-                                上传 Excel / CSV
-                                <input id="officecli-file" type="file" accept=".xlsx,.xls,.csv,.xlsm">
-                            </label>
-                            <div id="officecli-file-summary" class="officecli-file-summary"></div>
+                                选择文件
+                            </button>
+                            <div id="officecli-file-summary" class="officecli-file-summary" tabindex="0" role="button" aria-label="重新选择文件"></div>
                         </div>
-                        <label class="officecli-field">
-                            <span>或填写本地文件路径（本地桥可直接读取）</span>
-                            <input id="officecli-file-path" type="text" value="${escapeHtml(state.filePath)}" placeholder="D:\\work\\products.xlsx">
-                        </label>
+                        <div id="officecli-dropzone" class="officecli-dropzone" tabindex="0">
+                            <span class="material-symbols-outlined">cloud_upload</span>
+                            <b>拖拽 Excel / CSV 到这里</b>
+                            <p>也可以点上面的选择文件按钮</p>
+                        </div>
                     </div>
 
                     <div class="officecli-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">psychology</span>
-                            <b>2. 自然语言任务</b>
+                            <b>2. 鑷劧璇█浠诲姟</b>
                         </div>
-                        <textarea id="officecli-instruction" class="officecli-task-input" placeholder="例如：把 US 站点价格上调 8%，输出新文件，并生成修改前后差异预览。">${escapeHtml(state.instruction)}</textarea>
+                        <textarea id="officecli-instruction" class="officecli-task-input" placeholder="渚嬪锛氭妸 US 绔欑偣浠锋牸涓婅皟 8%锛岃緭鍑烘柊鏂囦欢锛屽苟鐢熸垚淇敼鍓嶅悗宸紓棰勮銆?>${escapeHtml(state.instruction)}</textarea>
                         <div class="officecli-example-grid">
                             ${examples.map((item, index) => `
                                 <button type="button" data-example="${index}">
@@ -885,26 +999,14 @@
                             `).join('')}
                         </div>
                         <div class="officecli-actions">
-                            <button class="officecli-primary" id="officecli-generate" ${state.busy ? 'disabled' : ''}>
+                            <button class="officecli-primary" id="officecli-run-modify" ${state.busy ? 'disabled' : ''}>
                                 <span class="material-symbols-outlined">auto_awesome</span>
-                                生成 OfficeCLI 计划
-                            </button>
-                            <button class="officecli-secondary" id="officecli-execute" ${state.busy ? 'disabled' : ''}>
-                                <span class="material-symbols-outlined">play_arrow</span>
-                                ${settings.dryRun ? '演练计划' : '真实执行'}
+                                一键修改
                             </button>
                             <label class="officecli-inline-check">
                                 <input id="officecli-work-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}>
                                 仅演练，不写文件
                             </label>
-                            <button class="officecli-secondary" id="officecli-copy-plan">
-                                <span class="material-symbols-outlined">content_copy</span>
-                                复制 JSON
-                            </button>
-                            <button class="officecli-ghost" id="officecli-clear-plan">
-                                <span class="material-symbols-outlined">delete</span>
-                                清空
-                            </button>
                         </div>
                         <div id="officecli-busy-text" class="officecli-busy">${state.busy ? '处理中...' : ''}</div>
                     </div>
@@ -925,13 +1027,6 @@
                             <b>${commandCount(state.plan)}</b>
                         </div>
                     </div>
-                    <div class="officecli-panel officecli-plan-panel">
-                        <div class="officecli-panel-title">
-                            <span class="material-symbols-outlined">account_tree</span>
-                            <b>命令计划</b>
-                        </div>
-                        ${renderPlan()}
-                    </div>
                     <div class="officecli-panel officecli-result-panel">
                         <div class="officecli-panel-title">
                             <span class="material-symbols-outlined">preview</span>
@@ -939,13 +1034,21 @@
                         </div>
                         ${renderResult()}
                     </div>
-                    <div class="officecli-panel officecli-log-panel">
-                        <div class="officecli-panel-title">
+                    <details class="officecli-panel officecli-plan-panel officecli-plan-details">
+                        <summary>
+                            <span class="material-symbols-outlined">account_tree</span>
+                            <b>命令计划</b>
+                        </summary>
+                        ${renderPlan()}
+                    </details>
+                    <details class="officecli-panel officecli-log-panel officecli-log-details">
+                        <summary>
                             <span class="material-symbols-outlined">receipt_long</span>
                             <b>运行日志</b>
-                        </div>
+                            <span id="officecli-log-summary" class="officecli-log-summary">收纳</span>
+                        </summary>
                         <div id="officecli-logs" class="officecli-logs"></div>
-                    </div>
+                    </details>
                 </div>
             </section>
         `;
@@ -992,7 +1095,13 @@
                         </label>
                         <label class="officecli-field">
                             <span>工作目录</span>
-                            <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="留空则由桌面助手自动管理">
+                            <div class="officecli-path-row">
+                                <input id="officecli-workspace-dir" type="text" value="${escapeHtml(settings.workspaceDir)}" placeholder="点击右侧选择目录" readonly>
+                                <button class="officecli-secondary" id="officecli-pick-workspace-dir" type="button">
+                                    <span class="material-symbols-outlined">folder_open</span>
+                                    选择目录
+                                </button>
+                            </div>
                         </label>
                         <div class="officecli-switches">
                             <label><input id="officecli-dry-run" type="checkbox" ${settings.dryRun ? 'checked' : ''}> 默认 Dry Run</label>
@@ -1148,65 +1257,72 @@
                 <div class="officecli-empty small">
                     <span class="material-symbols-outlined">web_asset</span>
                     <b>还没有执行结果</b>
-                    <p>执行后这里展示 OfficeCLI stdout、产物路径、校验结果或 HTML 预览。</p>
+                    <p>完成修改后，这里会优先显示 HTML 预览、导出文件与可回看日志。</p>
                 </div>
             `;
         }
         const html = state.result.html || state.result.previewHtml || '';
         const artifacts = Array.isArray(state.result.artifacts) ? state.result.artifacts : [];
         const logs = Array.isArray(state.result.logs) ? state.result.logs : [];
-        const canContinue = state.result.success !== false && isReadOnlyPlan(state.plan) && !state.result.dryRun;
-        const dryReadOnly = state.result.success !== false && isReadOnlyPlan(state.plan) && state.result.dryRun;
+        const filePath = state.result.filePath || state.filePath || '';
+        const workspace = state.result.workspace || settings.workspaceDir || '';
+        const resultFile = artifacts.find((item) => typeof item === 'string' ? item : item?.path);
+        const openFilePath = filePath || (typeof resultFile === 'string' ? resultFile : resultFile?.path || '');
+        const canOpenFile = Boolean(openFilePath);
+        const canOpenFolder = Boolean(workspace || openFilePath);
         return `
-            ${dryReadOnly ? `
-                <div class="officecli-followup-callout">
-                    <div>
-                        <b>当前只是 Dry Run，还没有读取真实表格内容</b>
-                        <p>要完成后续修改，需要先让本地桥真正执行读取计划，拿到 Sheet、表头、列号和行号。</p>
-                    </div>
-                    <button class="officecli-primary" id="officecli-execute-real-read" ${state.busy ? 'disabled' : ''}>
-                        <span class="material-symbols-outlined">play_circle</span>
-                        关闭演练并读取
-                    </button>
+            <div class="officecli-result-head">
+                <div class="officecli-result-summary">
+                    <b>${escapeHtml(state.result.success === false ? '执行失败' : '执行完成')}</b>
+                    <p>${escapeHtml(state.result.message || '')}</p>
                 </div>
-            ` : ''}
-            ${canContinue ? `
-                <div class="officecli-followup-callout">
-                    <div>
-                        <b>读取已完成，下一步生成真正的修改计划</b>
-                        <p>例如“将材质列全部替换为塑料”，需要把刚读到的 Sheet、表头、行号再交给模型，生成 set / batch 写入命令。</p>
-                    </div>
-                    <button class="officecli-primary" id="officecli-generate-followup" ${state.busy ? 'disabled' : ''}>
-                        <span class="material-symbols-outlined">published_with_changes</span>
-                        基于读取结果生成修改计划
-                    </button>
+                <div class="officecli-result-actions">
+                    ${canOpenFile ? `
+                        <button class="officecli-secondary" id="officecli-open-result-file">
+                            <span class="material-symbols-outlined">open_in_new</span>
+                            打开文件
+                        </button>
+                    ` : ''}
+                    ${canOpenFolder ? `
+                        <button class="officecli-secondary" id="officecli-open-result-folder">
+                            <span class="material-symbols-outlined">folder_open</span>
+                            打开文件夹
+                        </button>
+                    ` : ''}
                 </div>
-            ` : ''}
-            ${state.result.dryRun ? `
-                <div class="officecli-artifacts dry-run">
-                    <b>Dry Run 演练完成</b>
-                    <p>本次只校验命令计划，没有写入或生成修改后文件。关闭“仅演练，不写文件”后才会真实调用 OfficeCLI。</p>
+            </div>
+            ${html ? `<iframe class="officecli-preview-frame" srcdoc="${escapeHtml(html)}"></iframe>` : `
+                <div class="officecli-empty small">
+                    <span class="material-symbols-outlined">preview_off</span>
+                    <b>暂无 HTML 预览</b>
+                    <p>这次执行没有返回可预览内容，但文件结果和日志仍然可用。</p>
                 </div>
-            ` : ''}
-            ${html ? `<iframe class="officecli-preview-frame" srcdoc="${escapeHtml(html)}"></iframe>` : ''}
-            ${artifacts.length ? `
-                <div class="officecli-artifacts">
-                    <b>输出文件</b>
-                    ${artifacts.map((item) => `<p>${escapeHtml(typeof item === 'string' ? item : item.path || item.name || JSON.stringify(item))}</p>`).join('')}
-                </div>
-            ` : ''}
-            <pre class="officecli-result-json">${escapeHtml(JSON.stringify({
-                success: state.result.success,
-                message: state.result.message,
-                logs: logs.slice(-8)
-            }, null, 2))}</pre>
+            `}
+            <details class="officecli-result-details">
+                <summary>
+                    <span class="material-symbols-outlined">data_object</span>
+                    <b>运行详情</b>
+                </summary>
+                <pre class="officecli-result-json">${escapeHtml(JSON.stringify({
+                    success: state.result.success,
+                    message: state.result.message,
+                    filePath,
+                    workspace,
+                    logs: logs.slice(-8)
+                }, null, 2))}</pre>
+            </details>
         `;
     }
 
     function renderLogs() {
         const node = byId('officecli-logs');
         if (!node) return;
-        node.innerHTML = state.logs.length ? state.logs.map((log) => `
+        const summary = byId('officecli-log-summary');
+        if (summary) {
+            summary.textContent = state.logs.length ? `${state.logs.length} 条` : '收纳';
+        }
+        const items = state.logs.slice(0, 6);
+        node.innerHTML = items.length ? items.map((log) => `
             <div class="${escapeHtml(log.type)}">
                 <span>${escapeHtml(log.stamp)}</span>
                 <p>${escapeHtml(log.message)}</p>
@@ -1254,23 +1370,44 @@
     }
 
     function bindWorkLayer() {
-        byId('officecli-file')?.addEventListener('change', handleFileChange);
-        byId('officecli-generate')?.addEventListener('click', generatePlan);
-        byId('officecli-generate-followup')?.addEventListener('click', generateFollowupPlan);
-        byId('officecli-execute-real-read')?.addEventListener('click', executeReadPlanForReal);
-        byId('officecli-execute')?.addEventListener('click', executePlan);
-        byId('officecli-work-dry-run')?.addEventListener('change', (event) => {
-            settings.dryRun = event.target.checked;
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-            render();
-        });
-        byId('officecli-copy-plan')?.addEventListener('click', copyPlan);
-        byId('officecli-clear-plan')?.addEventListener('click', clearPlan);
+        byId('officecli-pick-file')?.addEventListener('click', handlePickFile);
+        byId('officecli-run-modify')?.addEventListener('click', handleRunModify);
         byId('officecli-instruction')?.addEventListener('input', (event) => {
             state.instruction = event.target.value;
         });
-        byId('officecli-file-path')?.addEventListener('input', (event) => {
-            state.filePath = event.target.value.trim();
+        byId('officecli-open-result-file')?.addEventListener('click', handleOpenResultFile);
+        byId('officecli-open-result-folder')?.addEventListener('click', handleOpenResultFolder);
+        const dropzone = byId('officecli-dropzone');
+        if (dropzone) {
+            dropzone.addEventListener('click', handlePickFile);
+            dropzone.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handlePickFile();
+                }
+            });
+            dropzone.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                dropzone.classList.add('dragging');
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('dragging');
+            });
+            dropzone.addEventListener('drop', async (event) => {
+                event.preventDefault();
+                dropzone.classList.remove('dragging');
+                const files = event.dataTransfer?.files;
+                if (files && files.length) {
+                    await handleDropFiles(files);
+                }
+            });
+        }
+        byId('officecli-file-summary')?.addEventListener('click', handlePickFile);
+        byId('officecli-file-summary')?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handlePickFile();
+            }
         });
         document.querySelectorAll('[data-example]').forEach((button) => {
             button.addEventListener('click', () => insertExample(Number(button.dataset.example)));
@@ -1281,6 +1418,7 @@
         byId('officecli-save-settings')?.addEventListener('click', saveSettingsFromForm);
         byId('officecli-reset-settings')?.addEventListener('click', resetSettings);
         byId('officecli-launch-assistant')?.addEventListener('click', launchAssistant);
+        byId('officecli-pick-workspace-dir')?.addEventListener('click', handlePickWorkspaceDirectory);
         byId('officecli-check-assistant')?.addEventListener('click', () => {
             saveSettingsFromForm();
             checkBridge();
@@ -1459,12 +1597,55 @@
                 background: #f1f5f9;
                 color: #64748b;
                 font-size: 12px;
+                cursor: pointer;
             }
             .officecli-file-summary b {
                 overflow: hidden;
                 color: #0f172a;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+            .officecli-path-row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .officecli-path-row input {
+                flex: 1;
+                min-width: 0;
+            }
+            .officecli-dropzone {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                min-height: 108px;
+                margin-top: 12px;
+                border: 1px dashed #cbd5e1;
+                border-radius: 8px;
+                background: #f8fafc;
+                color: #475569;
+                text-align: center;
+                cursor: pointer;
+                transition: border-color .18s ease, background .18s ease, transform .18s ease;
+            }
+            .officecli-dropzone.dragging {
+                border-color: #2563eb;
+                background: #eff6ff;
+                transform: translateY(-1px);
+            }
+            .officecli-dropzone .material-symbols-outlined {
+                font-size: 24px;
+                color: #2563eb;
+            }
+            .officecli-dropzone b {
+                color: #0f172a;
+                font-size: 13px;
+            }
+            .officecli-dropzone p {
+                margin: 0;
+                font-size: 12px;
             }
             .officecli-field {
                 display: flex;
@@ -1625,23 +1806,86 @@
             .bridge-checking { color: #2563eb !important; }
             .officecli-plan-panel,
             .officecli-result-panel {
-                min-height: 260px;
+                min-height: 220px;
+            }
+            .officecli-plan-details {
+                padding-top: 8px;
+            }
+            .officecli-plan-details > summary,
+            .officecli-result-details > summary {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                list-style: none;
+                color: #0f172a;
+                font-weight: 600;
+                font-size: 13px;
+            }
+            .officecli-plan-details > summary::-webkit-details-marker,
+            .officecli-result-details > summary::-webkit-details-marker {
+                display: none;
+            }
+            .officecli-log-details > summary {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                list-style: none;
+                cursor: pointer;
+                color: #0f172a;
+                font-weight: 600;
+                font-size: 13px;
+            }
+            .officecli-log-summary {
+                margin-left: auto;
+                border-radius: 999px;
+                padding: 2px 8px;
+                background: #e2e8f0;
+                color: #475569;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            .officecli-result-head {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+            .officecli-result-summary b {
+                display: block;
+                color: #0f172a;
+                font-size: 14px;
+            }
+            .officecli-result-summary p {
+                margin: 5px 0 0;
+                color: #64748b;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .officecli-result-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                justify-content: flex-end;
             }
             .officecli-plan-head {
                 display: flex;
                 justify-content: space-between;
                 gap: 12px;
-                padding: 12px;
+                padding: 10px 11px;
                 border-radius: 8px;
                 background: #f8fafc;
             }
             .officecli-plan-head b {
                 color: #0f172a;
+                font-size: 13px;
             }
             .officecli-plan-head p {
-                margin: 6px 0 0;
+                margin: 5px 0 0;
                 color: #64748b;
                 font-size: 12px;
+                line-height: 1.4;
             }
             .officecli-plan-head span {
                 height: 26px;
@@ -1662,8 +1906,8 @@
             .officecli-command-list {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
-                margin-top: 10px;
+                gap: 7px;
+                margin-top: 8px;
             }
             .officecli-command {
                 display: grid;
@@ -1753,6 +1997,11 @@
                 border-radius: 8px;
                 background: #fff;
             }
+            .officecli-result-details {
+                margin-top: 10px;
+                padding-top: 10px;
+                border-top: 1px solid #e2e8f0;
+            }
             .officecli-followup-callout {
                 display: flex;
                 align-items: center;
@@ -1808,14 +2057,15 @@
                 line-height: 1.5;
             }
             .officecli-log-panel {
-                min-height: 170px;
+                min-height: auto;
             }
             .officecli-logs {
-                max-height: 180px;
+                max-height: 140px;
                 overflow: auto;
                 display: flex;
                 flex-direction: column;
                 gap: 7px;
+                margin-top: 10px;
             }
             .officecli-logs div {
                 display: grid;
