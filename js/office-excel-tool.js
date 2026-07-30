@@ -3,7 +3,7 @@
 
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
-    const FRONTEND_VERSION = '0.1.0';
+    const FRONTEND_VERSION = '0.1.1';
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -12,12 +12,22 @@
         '命令计划必须使用 argv 数组，不允许输出 shell 字符串。',
         'argv 不要包含 officecli 本体，只写 officecli 后面的参数。',
         '使用 $file 作为当前上传或选择的表格文件占位符。',
-        '建议流程：inspect / get / query 先理解文件，再 set / add / remove / batch 修改，最后 validate 和 view html 预览。',
-        '如果用户任务不明确，生成只读 inspect + get + validate 计划，并在 notes 里说明需要补充的信息。',
+        '$file 必须作为单独 argv 参数出现，禁止 translated_$file、updated_$file 或任何把 $file 拼进路径/文件名的写法。',
+        '严格使用 OfficeCLI v1 语法：',
+        '- 读取表格文本：["view","$file","text","--max-lines","20","--json"]',
+        '- 生成 HTML 预览：["view","$file","html"]',
+        '- 校验文件：["validate","$file"]',
+        '- 读取单元格/范围：["get","$file","/Sheet1/A1","--json"] 或 ["get","$file","/Sheet1/A1:C10","--json"]',
+        '- 查询行：["query","$file","Sheet1!row[SKU=ABC]","--json"]',
+        '- 修改单元格：["set","$file","/Sheet1/A1","--prop","value=新内容"]',
+        '- 批量修改：["batch","$file","--commands","[{\\"command\\":\\"set\\",\\"path\\":\\"/Sheet1/A1\\",\\"props\\":{\\"value\\":\\"Done\\"}}]","--json"]',
+        '禁止使用旧/不存在语法：--format、--html、get range、set range、--sheet、--values、__SHEET_NAME__、__TRANSLATED_VALUES__、--output。',
+        '建议流程：先用 view text --json / get / query 理解文件，再用 set / add / remove / batch 修改，最后 validate 和 view html 预览。',
+        '如果用户任务需要真实 sheet 名、表头或行号但当前信息不足，先生成只读读取计划，不要编造 sheet 名、列名、范围或占位符。',
         'JSON 结构：',
-        '{"goal":"","file":"$file","summary":"","commands":[{"id":"inspect","title":"读取工作簿结构","op":"workbook.inspect","argv":["view","$file","--format","json"],"mutates":false,"explain":""}],"safety":{"writesFile":false,"requiresConfirmation":true},"expectedOutputs":["htmlPreview","logs"],"notes":[]}',
-        '可用能力参考：create, view html, get workbook/sheet/range, query table, set cell/range/style, add row/column/sheet/chart, remove row/column/sheet, batch, validate, watch/view html。',
-        '如需写入文件，优先生成备份/输出文件参数，不要覆盖原文件，除非用户明确要求。'
+        '{"goal":"","file":"$file","summary":"","commands":[{"id":"inspect","title":"读取表格前 20 行","op":"workbook.viewText","argv":["view","$file","text","--max-lines","20","--json"],"mutates":false,"explain":""}],"safety":{"writesFile":false,"requiresConfirmation":true},"expectedOutputs":["htmlPreview","logs"],"notes":[]}',
+        '可用能力参考：create, view text/html/issues/stats, get <path>, query <selector>, set <path> --prop key=value, add/remove/move/swap, batch, validate, watch。',
+        '注意：OfficeCLI 默认直接修改传入文件；本地桥传入的是工作区副本，不会直接覆盖用户原文件。'
     ].join('\n');
 
     const defaultSettings = {
@@ -106,14 +116,18 @@
     }
 
     function loadSettings() {
+        const stored = safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {});
+        const shouldRefreshPrompt = !stored.systemPrompt || /--format|--html|get range|set range|__SHEET_NAME__|__TRANSLATED_VALUES__/i.test(stored.systemPrompt);
         settings = {
             ...defaultSettings,
-            ...safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {})
+            ...stored,
+            systemPrompt: shouldRefreshPrompt ? DEFAULT_SYSTEM_PROMPT : stored.systemPrompt
         };
         const lastPlan = safeJsonParse(localStorage.getItem(LAST_PLAN_KEY) || 'null', null);
         if (lastPlan && Array.isArray(lastPlan.commands)) {
-            state.plan = lastPlan;
+            state.plan = normalizePlan(lastPlan);
         }
+        if (shouldRefreshPrompt) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     }
 
     function saveSettingsFromForm() {
@@ -176,10 +190,57 @@
         return (plan.commands || []).some((command) => command.mutates === true);
     }
 
+    function normalizeOfficeCliArgv(argv) {
+        const args = Array.isArray(argv) ? argv.map((item) => String(item)) : [];
+        if (!args.length) return args;
+        if (args[0] === 'view') {
+            const htmlFlagIndex = args.indexOf('--html');
+            if (htmlFlagIndex >= 0) {
+                return ['view', args[1], 'html', ...args.slice(2).filter((arg) => arg !== '--html')].filter(Boolean);
+            }
+            const formatIndex = args.indexOf('--format');
+            if (formatIndex >= 0) {
+                const mode = String(args[formatIndex + 1] || '').toLowerCase();
+                const rest = args.filter((_, index) => index !== formatIndex && index !== formatIndex + 1);
+                if (mode === 'json') {
+                    return ['view', rest[1] || '$file', 'text', '--max-lines', '20', '--json'];
+                }
+                if (mode === 'html') {
+                    return ['view', rest[1] || '$file', 'html'];
+                }
+                if (['text', 'outline', 'stats', 'issues', 'annotated'].includes(mode)) {
+                    return ['view', rest[1] || '$file', mode, ...rest.slice(2)];
+                }
+            }
+        }
+        return args;
+    }
+
+    function findPlanIssue(plan) {
+        const commands = Array.isArray(plan?.commands) ? plan.commands : [];
+        const invalidFlags = new Set(['--format', '--html', '--sheet', '--values', '--output']);
+        for (const command of commands) {
+            const argv = Array.isArray(command.argv) ? command.argv.map((arg) => String(arg)) : [];
+            if (!argv.length) continue;
+            const badPlaceholder = argv.find((arg) => (arg.includes('$file') && arg !== '$file') || /__[^_\s]+(?:_[^_\s]+)*__/i.test(arg));
+            if (badPlaceholder) {
+                return `命令“${command.title || command.id || argv[0]}”包含未解析占位符：${badPlaceholder}。请先生成读取计划，拿到真实 sheet / 表头后再生成写入计划。`;
+            }
+            if ((argv[0] === 'get' || argv[0] === 'set') && ['range', 'sheet', 'workbook'].includes(String(argv[1] || '').toLowerCase())) {
+                return `命令“${command.title || command.id || argv[0]}”使用了 OfficeCLI 不支持的旧语法：${argv.slice(0, 3).join(' ')}。正确格式应为 ${argv[0]} $file /Sheet1/A1 --json 或 set $file /Sheet1/A1 --prop value=...。`;
+            }
+            const badFlag = argv.find((arg) => invalidFlags.has(arg));
+            if (badFlag) {
+                return `命令“${command.title || command.id || argv[0]}”包含 OfficeCLI 不支持的参数：${badFlag}。请重新生成计划。`;
+            }
+        }
+        return '';
+    }
+
     function normalizePlan(rawPlan) {
         const plan = rawPlan && typeof rawPlan === 'object' ? rawPlan : {};
         const commands = Array.isArray(plan.commands) ? plan.commands : [];
-        return {
+        const normalized = {
             goal: String(plan.goal || state.instruction || 'OfficeCLI Excel 任务'),
             file: plan.file || '$file',
             summary: String(plan.summary || '已生成 OfficeCLI 命令计划。'),
@@ -187,7 +248,7 @@
                 id: String(command.id || `cmd_${index + 1}`),
                 title: String(command.title || command.op || `步骤 ${index + 1}`),
                 op: String(command.op || 'officecli.command'),
-                argv: Array.isArray(command.argv) ? command.argv.map((item) => String(item)) : [],
+                argv: normalizeOfficeCliArgv(command.argv),
                 mutates: Boolean(command.mutates),
                 explain: String(command.explain || '')
             })).filter((command) => command.argv.length),
@@ -198,6 +259,9 @@
             expectedOutputs: Array.isArray(plan.expectedOutputs) ? plan.expectedOutputs : ['logs', 'htmlPreview'],
             notes: Array.isArray(plan.notes) ? plan.notes.map((item) => String(item)) : []
         };
+        const issue = findPlanIssue(normalized);
+        if (issue && !normalized.notes.includes(issue)) normalized.notes.unshift(issue);
+        return normalized;
     }
 
     function extractJson(text) {
@@ -321,9 +385,9 @@
             commands: [
                 {
                     id: 'view_json',
-                    title: '读取工作簿结构',
+                    title: '读取表格前 20 行',
                     op: 'workbook.view',
-                    argv: ['view', '$file', '--format', 'json'],
+                    argv: ['view', '$file', 'text', '--max-lines', '20', '--json'],
                     mutates: false,
                     explain: '查看 sheet、表头和基础结构，帮助模型理解表格。'
                 },
@@ -339,7 +403,7 @@
                     id: 'html_preview',
                     title: '生成 HTML 预览',
                     op: 'workbook.viewHtml',
-                    argv: ['view', '$file', '--format', 'html'],
+                    argv: ['view', '$file', 'html'],
                     mutates: false,
                     explain: '返回浏览器可展示的表格预览。'
                 }
@@ -385,6 +449,12 @@
         }
         if (!state.file && !byId('officecli-file-path').value.trim()) {
             toast('请上传文件或填写本地文件路径');
+            return;
+        }
+        const planIssue = findPlanIssue(state.plan);
+        if (planIssue) {
+            toast('命令计划需要重新生成');
+            addLog(planIssue, 'error');
             return;
         }
         if (!settings.dryRun) {

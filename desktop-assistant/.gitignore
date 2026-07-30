@@ -1,4 +1,5 @@
 node_modules/
 dist/
 .electron-builder-cache/
+officecli-workspace/
 *.log
