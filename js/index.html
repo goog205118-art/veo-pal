@@ -70,14 +70,10 @@
         </div>
         <div class="top-action-shell">
             <div class="top-actions top-actions-primary">
-                <button class="top-btn top-btn-primary" onclick="createImageGenNode()" data-tip="新建 AI 生图节点">
-                    <span class="material-symbols-outlined">brush</span>
-                    新建生图
-                </button>
-                <button class="top-btn" onclick="alignSelectedCards()" data-tip="将选中的卡片(或全盘)网格化自动对齐">
-                    <span class="material-symbols-outlined">grid_on</span>
-                    排版
-                </button>
+                <div class="top-hint-pill" data-tip="生图卡片入口已统一：双击画布空白处创建">
+                    <span class="material-symbols-outlined">touch_app</span>
+                    生图卡片：双击画布创建
+                </div>
                 <button class="top-btn" onclick="openSocialMediaTool()" data-tip="打开社媒内容制作引擎">
                     <span class="material-symbols-outlined">campaign</span>
                     社媒
@@ -127,7 +123,7 @@
         <div class="img-gen-stage-list" id="img-gen-stage-list"></div>
     </aside>
 
-    <div class="canvas-viewport" id="canvas-viewport" data-tip="双击空白处：快速新建 AI 生图节点">
+    <div class="canvas-viewport" id="canvas-viewport" data-tip="双击画布空白处：创建 AI 生图卡片（唯一入口）">
         <div class="canvas-board" id="canvas-board"></div>
         <div id="selection-marquee" class="selection-marquee"></div>
     </div>
