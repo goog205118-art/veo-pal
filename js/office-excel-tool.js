@@ -1011,7 +1011,7 @@
                             <span class="material-symbols-outlined">psychology</span>
                             <b>2. 鑷劧璇█浠诲姟</b>
                         </div>
-                        <textarea id="officecli-instruction" class="officecli-task-input" placeholder="渚嬪锛氭妸 US 绔欑偣浠锋牸涓婅皟 8%锛岃緭鍑烘柊鏂囦欢锛屽苟鐢熸垚淇敼鍓嶅悗宸紓棰勮銆?>${escapeHtml(state.instruction)}</textarea>
+                        <textarea id="officecli-instruction" class="officecli-task-input" placeholder="例如：把 US 站点价格上调 8%，输出新文件，并生成修改前后差异预览。">${escapeHtml(state.instruction)}</textarea>
                         <div class="officecli-example-grid">
                             ${examples.map((item, index) => `
                                 <button type="button" data-example="${index}">
