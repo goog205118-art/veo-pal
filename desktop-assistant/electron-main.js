@@ -18,6 +18,44 @@ let updateStatus = {
     message: '自动更新仅在正式安装包环境启用'
 };
 
+function createBaseStatus(message = '桌面助手启动中') {
+    return {
+        success: false,
+        service: 'wally-office-assistant',
+        appName: 'Wally Office Assistant',
+        version: app.getVersion(),
+        bridgeUrl: '',
+        healthUrl: '',
+        host: '127.0.0.1',
+        port: null,
+        preferredPort: 8765,
+        portChanged: false,
+        workspace: '',
+        logFile: '',
+        historyFile: '',
+        cliCommand: 'officecli',
+        officeCli: {
+            available: false,
+            command: 'officecli',
+            version: '',
+            error: message
+        },
+        startedAt: null,
+        protocol: 'wally-office://start',
+        protocolVersion: '1.0.0',
+        minFrontendVersion: '0.1.0',
+        productization: {
+            installerReady: true,
+            autoStartSupported: true,
+            historySupported: true,
+            retrySupported: true,
+            confirmationSupported: true,
+            compatibilityCheckSupported: true
+        },
+        message
+    };
+}
+
 function getAutoStartStatus() {
     const settings = app.getLoginItemSettings();
     return {
@@ -125,18 +163,24 @@ function buildTrayMenu() {
         { label: '打开工作目录', click: () => service && shell.openPath(service.workspace) },
         { label: '查看日志', click: () => service && shell.openPath(service.logFile) },
         { label: '重新检测 OfficeCLI', click: async () => {
-            if (service) {
+            if (!service) {
+                await startService().catch((error) => {
+                    lastStatus = createBaseStatus(`本地服务启动失败：${error.message}`);
+                });
+            } else {
                 lastStatus.officeCli = await service.refreshOfficeCliStatus();
-                broadcastStatus();
-                updateTray();
             }
+            broadcastStatus();
+            updateTray();
         } },
         { label: '重启本地服务', click: async () => {
-            if (service) {
-                lastStatus = await service.restart();
-                broadcastStatus();
-                updateTray();
+            try {
+                lastStatus = service ? await service.restart() : await startService();
+            } catch (error) {
+                lastStatus = createBaseStatus(`本地服务启动失败：${error.message}`);
             }
+            broadcastStatus();
+            updateTray();
         } },
         { type: 'separator' },
         { label: '退出助手', click: () => {
@@ -170,19 +214,8 @@ function ensureSingleInstance() {
     return true;
 }
 
-async function boot() {
-    if (!ensureSingleInstance()) return;
-    app.setName('Wally Office Assistant');
-    if (process.defaultApp && process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient('wally-office', process.execPath, [path.resolve(process.argv[1])]);
-    } else {
-        app.setAsDefaultProtocolClient('wally-office');
-    }
-    if (app.isPackaged && !app.getLoginItemSettings().openAtLogin) {
-        setAutoStart(true);
-    }
-
-    service = await startOfficeCliService({
+function getServiceOptions() {
+    return {
         appName: 'Wally Office Assistant',
         version: app.getVersion(),
         openPath: (targetPath) => shell.openPath(targetPath),
@@ -210,11 +243,40 @@ async function boot() {
             broadcastStatus();
             updateTray();
         }
-    });
+    };
+}
+
+async function startService() {
+    service = await startOfficeCliService(getServiceOptions());
     lastStatus = service.getStatus();
+    broadcastStatus();
+    updateTray();
+    return lastStatus;
+}
+
+async function boot() {
+    if (!ensureSingleInstance()) return;
+    app.setName('Wally Office Assistant');
+    if (process.defaultApp && process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('wally-office', process.execPath, [path.resolve(process.argv[1])]);
+    } else {
+        app.setAsDefaultProtocolClient('wally-office');
+    }
+    if (app.isPackaged && !app.getLoginItemSettings().openAtLogin) {
+        setAutoStart(true);
+    }
+
+    lastStatus = createBaseStatus();
     createTray();
     createWindow();
-    setupAutoUpdater();
+    try {
+        await startService();
+        setupAutoUpdater();
+    } catch (error) {
+        lastStatus = createBaseStatus(`本地服务启动失败：${error.message}`);
+        broadcastStatus();
+        updateTray();
+    }
 }
 
 app.whenReady().then(boot);
@@ -241,18 +303,28 @@ ipcMain.handle('assistant:get-status', () => withRuntimeStatus(lastStatus || ser
 ipcMain.handle('assistant:open-workspace', async () => service ? shell.openPath(service.workspace) : null);
 ipcMain.handle('assistant:open-log', async () => service ? shell.openPath(service.logFile) : null);
 ipcMain.handle('assistant:restart-service', async () => {
-    if (!service) return null;
-    lastStatus = await service.restart();
+    try {
+        lastStatus = service ? await service.restart() : await startService();
+    } catch (error) {
+        lastStatus = createBaseStatus(`本地服务启动失败：${error.message}`);
+    }
     updateTray();
     return withRuntimeStatus(lastStatus);
 });
 ipcMain.handle('assistant:recheck-officecli', async () => {
-    if (!service) return null;
-    lastStatus.officeCli = await service.refreshOfficeCliStatus();
+    try {
+        if (!service) {
+            await startService();
+        } else {
+            lastStatus.officeCli = await service.refreshOfficeCliStatus();
+        }
+    } catch (error) {
+        lastStatus = createBaseStatus(`本地服务启动失败：${error.message}`);
+    }
     updateTray();
     return withRuntimeStatus(lastStatus);
 });
 ipcMain.handle('assistant:set-auto-start', async (_event, enabled) => {
     const autoStart = setAutoStart(enabled);
-    return { ...withRuntimeStatus(lastStatus), autoStart };
+    return { ...withRuntimeStatus(lastStatus || createBaseStatus()), autoStart };
 });
