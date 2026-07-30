@@ -4,7 +4,7 @@
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
     const FRONTEND_VERSION = '0.1.2';
-    const SETTINGS_SCHEMA_VERSION = 2;
+    const SETTINGS_SCHEMA_VERSION = 3;
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -121,19 +121,19 @@
     function loadSettings() {
         const stored = safeJsonParse(localStorage.getItem(SETTINGS_KEY) || '{}', {});
         const shouldRefreshPrompt = !stored.systemPrompt || /--format|--html|get range|set range|__SHEET_NAME__|__TRANSLATED_VALUES__/i.test(stored.systemPrompt);
-        const shouldMigrateConfirmationDefault = Number(stored.schemaVersion || 0) < SETTINGS_SCHEMA_VERSION;
+        const shouldMigrateTrustedWriteDefault = Number(stored.schemaVersion || 0) < SETTINGS_SCHEMA_VERSION;
         settings = {
             ...defaultSettings,
             ...stored,
             schemaVersion: SETTINGS_SCHEMA_VERSION,
-            requireConfirmation: shouldMigrateConfirmationDefault ? false : Boolean(stored.requireConfirmation),
+            requireConfirmation: shouldMigrateTrustedWriteDefault ? false : Boolean(stored.requireConfirmation),
             systemPrompt: shouldRefreshPrompt ? DEFAULT_SYSTEM_PROMPT : stored.systemPrompt
         };
         const lastPlan = safeJsonParse(localStorage.getItem(LAST_PLAN_KEY) || 'null', null);
         if (lastPlan && Array.isArray(lastPlan.commands)) {
             state.plan = normalizePlan(lastPlan);
         }
-        if (shouldRefreshPrompt || shouldMigrateConfirmationDefault) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        if (shouldRefreshPrompt || shouldMigrateTrustedWriteDefault) localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     }
 
     function saveSettingsFromForm() {
