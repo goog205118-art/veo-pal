@@ -36,6 +36,7 @@ node tools/officecli-bridge.mjs
 - 先在本机确认 OfficeCLI 已安装。
 - 如果命令不是全局 `officecli`，在网页设置层的 `OfficeCLI 命令` 填完整路径，例如 `C:\tools\officecli.cmd`。
 - 点击 `重新检测`。
+- 新版本桌面助手会自动识别官方默认安装路径：`%LOCALAPPDATA%\OfficeCLI\officecli.exe`。
 
 如果生成计划报 `<!DOCTYPE` 或 `接口返回网页 HTML`：
 

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -55,6 +55,14 @@ function readBody(req) {
         req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
         req.on('error', reject);
     });
+}
+
+function safeJsonParse(value, fallback) {
+    try {
+        return JSON.parse(value || '{}');
+    } catch (error) {
+        return fallback;
+    }
 }
 
 function sanitizeName(name) {
@@ -156,6 +164,48 @@ function formatOfficeCliError(result, command) {
         return `OfficeCLI 启动失败：${raw}`;
     }
     return raw || `OfficeCLI 不可用。请安装 OfficeCLI，或在设置层填写完整命令路径。`;
+}
+
+async function pathExists(candidate) {
+    if (!candidate || candidate === 'officecli') return false;
+    try {
+        await access(candidate);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+function getOfficeCliCandidates(preferredCommand) {
+    return Array.from(new Set([
+        preferredCommand,
+        process.env.OFFICECLI_BIN,
+        path.join(os.homedir(), 'AppData', 'Local', 'OfficeCLI', 'officecli.exe'),
+        path.join(os.homedir(), '.local', 'bin', 'officecli'),
+        'officecli'
+    ].filter(Boolean)));
+}
+
+async function detectOfficeCliCommand(preferredCommand, workspace) {
+    let lastResult = null;
+    for (const candidate of getOfficeCliCandidates(preferredCommand)) {
+        if (candidate !== 'officecli' && !(await pathExists(candidate))) continue;
+        const result = await runProcess(candidate, ['--version'], workspace, 8000);
+        lastResult = { command: candidate, result };
+        if (result.success) {
+            return { command: candidate, result };
+        }
+    }
+    return lastResult || {
+        command: preferredCommand || 'officecli',
+        result: {
+            success: false,
+            code: -1,
+            stdout: '',
+            stderr: 'OfficeCLI is not available.',
+            durationMs: 0
+        }
+    };
 }
 
 function detectHtml(text) {
@@ -306,13 +356,17 @@ export class OfficeCliService {
         await this.writeHistory(tasks);
     }
 
-    async refreshOfficeCliStatus() {
-        const result = await runProcess(this.cliCommand, ['--version'], this.workspace, 8000);
+    async refreshOfficeCliStatus(cliCommand = '') {
+        const detection = await detectOfficeCliCommand(cliCommand || this.cliCommand, this.workspace);
+        const result = detection.result;
+        if (result.success) {
+            this.cliCommand = detection.command;
+        }
         this.lastOfficeCliStatus = {
             available: result.success,
-            command: this.cliCommand,
+            command: detection.command,
             version: result.success ? (result.stdout || result.stderr || '').trim() : '',
-            error: result.success ? '' : formatOfficeCliError(result, this.cliCommand)
+            error: result.success ? '' : formatOfficeCliError(result, detection.command)
         };
         return this.lastOfficeCliStatus;
     }
@@ -379,7 +433,9 @@ export class OfficeCliService {
                 return;
             }
             if (req.method === 'POST' && url.pathname === '/control/recheck-officecli') {
-                sendJson(res, 200, { success: true, officeCli: await this.refreshOfficeCliStatus() });
+                const payload = safeJsonParse(await readBody(req), {});
+                const officeCli = await this.refreshOfficeCliStatus(payload.cliCommand || '');
+                sendJson(res, 200, { success: true, officeCli, cliCommand: this.cliCommand });
                 return;
             }
             if (req.method === 'POST' && url.pathname === '/control/open-workspace') {

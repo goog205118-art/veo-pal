@@ -101,6 +101,10 @@
         return !minVersion || compareVersion(FRONTEND_VERSION, minVersion) >= 0;
     }
 
+    function getConfiguredCliCommand() {
+        return byId('officecli-cli-command')?.value.trim() || settings.cliCommand || defaultSettings.cliCommand;
+    }
+
     function loadSettings() {
         settings = {
             ...defaultSettings,
@@ -477,6 +481,16 @@
         renderAssistantStatus();
         try {
             const data = await findAssistantHealth();
+            if (data?.service === 'wally-office-assistant') {
+                const cliCommand = getConfiguredCliCommand();
+                if (cliCommand) {
+                    const recheck = await callAssistantControl('/control/recheck-officecli', { cliCommand }, data.bridgeUrl).catch(() => null);
+                    if (recheck?.officeCli) {
+                        data.officeCli = recheck.officeCli;
+                        data.cliCommand = recheck.cliCommand || cliCommand;
+                    }
+                }
+            }
             state.bridgeStatus = data ? 'online' : 'offline';
             state.assistant = data || null;
             if (data?.bridgeUrl && data.bridgeUrl !== settings.bridgeUrl) {
@@ -537,9 +551,13 @@
         }
     }
 
-    async function callAssistantControl(pathname) {
-        const baseUrl = settings.bridgeUrl.replace(/\/officecli\/?$/, '');
-        const response = await fetch(`${baseUrl}${pathname}`, { method: 'POST' });
+    async function callAssistantControl(pathname, body = null, bridgeUrl = '') {
+        const baseUrl = (bridgeUrl || settings.bridgeUrl).replace(/\/officecli\/?$/, '');
+        const response = await fetch(`${baseUrl}${pathname}`, {
+            method: 'POST',
+            headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            body: body ? JSON.stringify(body) : undefined
+        });
         if (!response.ok) throw new Error(`Assistant control failed: ${response.status}`);
         return response.json();
     }
@@ -1036,7 +1054,10 @@
         byId('officecli-save-settings')?.addEventListener('click', saveSettingsFromForm);
         byId('officecli-reset-settings')?.addEventListener('click', resetSettings);
         byId('officecli-launch-assistant')?.addEventListener('click', launchAssistant);
-        byId('officecli-check-assistant')?.addEventListener('click', checkBridge);
+        byId('officecli-check-assistant')?.addEventListener('click', () => {
+            saveSettingsFromForm();
+            checkBridge();
+        });
         byId('officecli-open-workspace')?.addEventListener('click', async () => {
             try {
                 const result = await callAssistantControl('/control/open-workspace');
