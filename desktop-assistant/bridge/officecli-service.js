@@ -77,7 +77,48 @@ function decodeDataUrl(dataUrl) {
 }
 
 function isSafeArg(arg) {
-    return !/[;&|`$<>]/.test(String(arg));
+    return !/[;&|`<>]/.test(String(arg));
+}
+
+function normalizeOfficeCliArgv(argv) {
+    const args = Array.isArray(argv) ? argv.map((item) => String(item)) : [];
+    if (!args.length) return args;
+    if (args[0] !== 'view') return args;
+
+    const htmlFlagIndex = args.indexOf('--html');
+    if (htmlFlagIndex >= 0) {
+        return ['view', args[1], 'html', ...args.slice(2).filter((arg) => arg !== '--html')].filter(Boolean);
+    }
+
+    const formatIndex = args.indexOf('--format');
+    if (formatIndex < 0) return args;
+
+    const mode = String(args[formatIndex + 1] || '').toLowerCase();
+    const rest = args.filter((_, index) => index !== formatIndex && index !== formatIndex + 1);
+    if (mode === 'json') {
+        return ['view', rest[1] || '$file', 'text', '--max-lines', '20', '--json'];
+    }
+    if (mode === 'html') {
+        return ['view', rest[1] || '$file', 'html'];
+    }
+    if (['text', 'outline', 'stats', 'issues', 'annotated'].includes(mode)) {
+        return ['view', rest[1] || '$file', mode, ...rest.slice(2)];
+    }
+    return args;
+}
+
+function resolveWorkbookArgv(argv, workbookPath) {
+    return normalizeOfficeCliArgv(argv).map((arg) => {
+        const value = String(arg);
+        if (value === '$file') return workbookPath;
+        if (value.includes('$file')) {
+            throw new Error(`文件占位符只能作为单独参数使用，不能拼接到路径或文件名中：${value}`);
+        }
+        if (/__[^_\s]+(?:_[^_\s]+)*__/i.test(value)) {
+            throw new Error(`命令计划包含未解析占位符：${value}。请先读取表格结构，拿到真实 sheet / 表头 / 单元格路径后再执行写入。`);
+        }
+        return value;
+    });
 }
 
 function validateArgv(argv) {
@@ -87,6 +128,13 @@ function validateArgv(argv) {
     const command = String(argv[0]);
     if (!ALLOWED_COMMANDS.has(command)) {
         throw new Error(`OfficeCLI command is not allowed: ${command}`);
+    }
+    if ((command === 'get' || command === 'set') && ['range', 'sheet', 'workbook'].includes(String(argv[1] || '').toLowerCase())) {
+        throw new Error(`OfficeCLI 语法不正确：${argv.slice(0, 3).join(' ')}。请使用 ${command} <file> <path>，例如 ${command} 表格.xlsx /Sheet1/A1。`);
+    }
+    const invalidFlag = argv.find((arg) => ['--format', '--html', '--sheet', '--values', '--output'].includes(arg));
+    if (invalidFlag) {
+        throw new Error(`OfficeCLI 参数不支持：${invalidFlag}。view 应使用 view <file> text/html/issues/stats，JSON 输出使用全局 --json。`);
     }
     argv.forEach((arg) => {
         if (!isSafeArg(arg)) {
@@ -227,6 +275,13 @@ async function maybeReadHtmlArtifact(stdout, workspace) {
     } catch (error) {
         return '';
     }
+}
+
+function commandFailureMessage(command, argv, commandResult) {
+    const detail = String(commandResult.stderr || commandResult.stdout || '').trim();
+    const prefix = `Command failed: ${command.title || command.id || argv[0]}`;
+    if (!detail) return prefix;
+    return `${prefix}。${detail.slice(0, 800)}`;
 }
 
 function commandMutates(command = {}) {
@@ -542,7 +597,7 @@ export class OfficeCliService {
             await this.log(`${options.dryRun ? 'Dry run' : 'Execute'} plan "${plan.goal || 'OfficeCLI task'}" with ${commands.length} command(s).`);
 
             for (const command of commands) {
-                const argv = (command.argv || []).map((arg) => String(arg).replaceAll('$file', workbookPath));
+                const argv = resolveWorkbookArgv(command.argv || [], workbookPath);
                 validateArgv(argv);
                 const commandLog = `[plan] ${command.title || command.id || command.op}: ${cliCommand} ${argv.join(' ')}`;
                 logs.push(commandLog);
@@ -569,10 +624,11 @@ export class OfficeCliService {
                 if (commandResult.stderr) logs.push(`[stderr] ${commandResult.stderr.trim()}`);
                 if (!html) html = await maybeReadHtmlArtifact(commandResult.stdout, workspace);
                 if (!commandResult.success) {
-                    await this.log(`Command failed: ${command.title || command.id || argv[0]}`, 'error');
+                    const message = commandFailureMessage(command, argv, commandResult);
+                    await this.log(message, 'error');
                     resultForHistory = {
                         success: false,
-                        message: `Command failed: ${command.title || command.id || argv[0]}`,
+                        message,
                         filePath: workbookPath,
                         workspace,
                         logFile: this.logFile,

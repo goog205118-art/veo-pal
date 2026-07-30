@@ -69,9 +69,9 @@ flowchart LR
   "commands": [
     {
       "id": "inspect",
-      "title": "读取工作簿结构",
+      "title": "读取表格前 20 行",
       "op": "workbook.view",
-      "argv": ["view", "$file", "--format", "json"],
+      "argv": ["view", "$file", "text", "--max-lines", "20", "--json"],
       "mutates": false,
       "explain": "先查看 sheet、表头和基础结构。"
     },
@@ -87,7 +87,7 @@ flowchart LR
       "id": "preview",
       "title": "生成 HTML 预览",
       "op": "workbook.viewHtml",
-      "argv": ["view", "$file", "--format", "html"],
+      "argv": ["view", "$file", "html"],
       "mutates": false,
       "explain": "返回可在前端展示的 HTML。"
     }
@@ -102,6 +102,16 @@ flowchart LR
 ```
 
 `argv` 里不能包含 `officecli` 本体，只写 `officecli` 后面的参数。当前文件统一用 `$file` 占位符，本地桥执行时会替换为真实路径。
+
+关键语法约束：
+
+- `view` 的格式是 `view <file> <mode>`，例如 `["view","$file","text","--max-lines","20","--json"]` 或 `["view","$file","html"]`。
+- `--json` 是全局 JSON 输出开关，不是 `--format json`。
+- HTML 预览使用 `view $file html`，不是 `view $file --html`。
+- 单元格读取使用 `get $file /Sheet1/A1 --json`，范围读取使用 `get $file /Sheet1/A1:C10 --json`。
+- 单元格修改使用 `set $file /Sheet1/A1 --prop value=新内容`。
+- 批量修改使用 `batch $file --commands '[{"command":"set","path":"/Sheet1/A1","props":{"value":"Done"}}]' --json`。
+- 禁止在计划里出现 `translated_$file`、`updated_$file`、`__SHEET_NAME__`、`__TRANSLATED_VALUES__` 这类未解析占位符。
 
 ## 本地桥
 
