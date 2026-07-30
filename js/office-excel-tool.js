@@ -117,8 +117,22 @@
         return !minVersion || compareVersion(FRONTEND_VERSION, minVersion) >= 0;
     }
 
+    function normalizeManualCliCommand(value) {
+        const text = String(value || '').trim();
+        return text && text !== defaultSettings.cliCommand ? text : '';
+    }
+
+    function getManualCliCommand() {
+        const input = byId('officecli-cli-command');
+        return normalizeManualCliCommand(input ? input.value : settings.cliCommand);
+    }
+
+    function getDetectedCliCommand() {
+        return state.assistant?.officeCli?.command || state.assistant?.cliCommand || '';
+    }
+
     function getConfiguredCliCommand() {
-        return byId('officecli-cli-command')?.value.trim() || settings.cliCommand || defaultSettings.cliCommand;
+        return getManualCliCommand();
     }
 
     function isUnsafeWorkspaceDir(value) {
@@ -157,14 +171,14 @@
         }
     }
 
-    function saveSettingsFromForm() {
+    function saveSettingsFromForm(showToast = true) {
         settings = {
             apiBaseUrl: byId('officecli-api-base').value.trim(),
             apiKey: byId('officecli-api-key').value.trim(),
             model: byId('officecli-model').value.trim() || defaultSettings.model,
             bridgeUrl: byId('officecli-bridge-url').value.trim() || defaultSettings.bridgeUrl,
             assistantProtocol: byId('officecli-assistant-protocol')?.value.trim() || settings.assistantProtocol || defaultSettings.assistantProtocol,
-            cliCommand: byId('officecli-cli-command').value.trim() || defaultSettings.cliCommand,
+            cliCommand: normalizeManualCliCommand(byId('officecli-cli-command')?.value),
             workspaceDir: cleanWorkspaceDir(byId('officecli-workspace-dir').value) || defaultSettings.workspaceDir,
             dryRun: byId('officecli-dry-run').checked,
             requireConfirmation: byId('officecli-require-confirm').checked,
@@ -173,7 +187,7 @@
             schemaVersion: SETTINGS_SCHEMA_VERSION
         };
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        toast('OfficeCLI 设置已保存');
+        if (showToast) toast('OfficeCLI 设置已保存');
     }
 
     function resetSettings() {
@@ -181,6 +195,16 @@
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
         render();
         toast('已恢复默认设置');
+    }
+
+    function useAutoCliDetection() {
+        const input = byId('officecli-cli-command');
+        if (input) input.value = '';
+        saveSettingsFromForm(false);
+        settings.cliCommand = '';
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        toast('已切换为自动检测 OfficeCLI');
+        checkBridge();
     }
 
     function addLog(message, type = 'info') {
@@ -675,7 +699,7 @@
         if (!settings.dryRun) {
             await checkBridge();
             if (!state.assistant?.officeCli?.available) {
-                const message = state.assistant?.officeCli?.error || '未检测到 OfficeCLI。请先安装 OfficeCLI，或在设置层填写完整命令路径。';
+                const message = state.assistant?.officeCli?.error || '未检测到 OfficeCLI。请先安装 OfficeCLI，点击重新检测；仍失败时再到设置层高级路径指定完整命令。';
                 toast(message);
                 addLog(message, 'error');
                 return;
@@ -710,7 +734,7 @@
                     requireConfirmation: settings.requireConfirmation,
                     confirmedAt,
                     frontendVersion: FRONTEND_VERSION,
-                    cliCommand: settings.cliCommand,
+                    cliCommand: normalizeManualCliCommand(settings.cliCommand),
                     workspaceDir: cleanWorkspaceDir(settings.workspaceDir) || undefined,
                     returnHtml: true,
                     validate: true
@@ -793,12 +817,10 @@
             const data = await findAssistantHealth();
             if (data?.service === 'wally-office-assistant') {
                 const cliCommand = getConfiguredCliCommand();
-                if (cliCommand) {
-                    const recheck = await callAssistantControl('/control/recheck-officecli', { cliCommand }, data.bridgeUrl).catch(() => null);
-                    if (recheck?.officeCli) {
-                        data.officeCli = recheck.officeCli;
-                        data.cliCommand = recheck.cliCommand || cliCommand;
-                    }
+                const recheck = await callAssistantControl('/control/recheck-officecli', cliCommand ? { cliCommand } : {}, data.bridgeUrl).catch(() => null);
+                if (recheck?.officeCli) {
+                    data.officeCli = recheck.officeCli;
+                    data.cliCommand = recheck.cliCommand || cliCommand || data.cliCommand;
                 }
             }
             state.bridgeStatus = data ? 'online' : 'offline';
@@ -1125,6 +1147,14 @@
     }
 
     function renderSettingsLayer() {
+        const manualCliCommand = normalizeManualCliCommand(settings.cliCommand);
+        const detectedCliCommand = getDetectedCliCommand();
+        const officeCli = state.assistant?.officeCli || {};
+        const capabilities = officeCli.capabilities || {};
+        const cliDetectLabel = officeCli.available
+            ? '已自动定位 OfficeCLI'
+            : (state.bridgeStatus === 'online' ? '等待重新检测或安装 OfficeCLI' : '先启动桌面助手后自动检测');
+        const cliDetectDetail = detectedCliCommand || (manualCliCommand ? `手动指定：${manualCliCommand}` : '无需填写路径，桌面助手会扫描常见安装位置、内置资源和系统 PATH');
         return `
             <section class="officecli-body officecli-settings">
                 ${renderAssistantPanel()}
@@ -1158,11 +1188,35 @@
                             <span>桥接地址</span>
                             <input id="officecli-bridge-url" type="text" value="${escapeHtml(settings.bridgeUrl)}">
                         </label>
-                        <label class="officecli-field">
-                            <span>OfficeCLI 命令</span>
-                            <input id="officecli-assistant-protocol" type="hidden" value="${escapeHtml(settings.assistantProtocol || defaultSettings.assistantProtocol)}">
-                            <input id="officecli-cli-command" type="text" value="${escapeHtml(settings.cliCommand)}" placeholder="officecli 或 C:\\path\\officecli.cmd">
-                        </label>
+                        <input id="officecli-assistant-protocol" type="hidden" value="${escapeHtml(settings.assistantProtocol || defaultSettings.assistantProtocol)}">
+                        <div class="officecli-field">
+                            <span>OfficeCLI 自动检测</span>
+                            <div class="officecli-cli-detect">
+                                <div>
+                                    <b class="${officeCli.available ? 'ok' : 'bad'}">${escapeHtml(cliDetectLabel)}</b>
+                                    <p>${escapeHtml(cliDetectDetail)}</p>
+                                    <small>表格读取：${capabilities.csvRead ? '已通过' : '未通过或等待检测'}</small>
+                                </div>
+                                <button class="officecli-secondary" id="officecli-auto-detect-cli" type="button">
+                                    <span class="material-symbols-outlined">manage_search</span>
+                                    自动检测
+                                </button>
+                            </div>
+                        </div>
+                        <details class="officecli-advanced-cli" ${manualCliCommand ? 'open' : ''}>
+                            <summary>高级：手动指定 OfficeCLI 路径</summary>
+                            <label class="officecli-field">
+                                <span>命令路径</span>
+                                <input id="officecli-cli-command" type="text" value="${escapeHtml(manualCliCommand)}" placeholder="仅自动检测失败时填写，例如 C:\\Program Files\\OfficeCLI\\officecli.exe">
+                            </label>
+                            <div class="officecli-path-row">
+                                <button class="officecli-ghost" id="officecli-clear-cli-command" type="button">
+                                    <span class="material-symbols-outlined">restart_alt</span>
+                                    清除手动路径
+                                </button>
+                            </div>
+                            <p class="officecli-help">普通用户通常不需要填写这里；留空时会自动查找 OfficeCLI 安装目录、桌面助手内置目录和系统 PATH。</p>
+                        </details>
                         <label class="officecli-field">
                             <span>工作目录</span>
                             <input id="officecli-workspace-dir" type="hidden" value="${escapeHtml(settings.workspaceDir)}">
@@ -1228,7 +1282,7 @@
         const compatible = isFrontendCompatible(assistant.minFrontendVersion);
         const officeCliHint = officeCli.available
             ? `可用 ${officeCli.version || ''}`.trim()
-            : `未检测到：${officeCli.error || '请安装 OfficeCLI 或填写完整命令路径'}`;
+            : `未检测到：${officeCli.error || '请先自动检测，必要时再填写高级路径'}`;
         const csvReadHint = capabilities.csvRead
             ? 'CSV / Excel 读取已通过'
             : (officeCli.checks ? 'CSV 读取未通过' : '等待检测');
@@ -1306,7 +1360,7 @@
                     <p class="officecli-help officecli-warning">未检测到桌面助手：先下载安装 Wally Office Assistant，保持助手运行，然后点击“重新检测”。</p>
                 ` : ''}
                 ${isOnline && !officeCli.available ? `
-                    <p class="officecli-help officecli-warning">本地桥已连接，但真正执行表格的 OfficeCLI 引擎没有检测到。请先安装 OfficeCLI，或在下方“OfficeCLI 命令”里填写完整 exe / cmd 路径。</p>
+                    <p class="officecli-help officecli-warning">本地桥已连接，但真正执行表格的 OfficeCLI 引擎没有检测到。先点击“重新检测”；仍失败时，再到设置层的高级路径里指定完整 exe / cmd。</p>
                 ` : ''}
             </div>
         `;
@@ -1348,7 +1402,7 @@
                         <div>
                             <h4>${escapeHtml(command.title)}</h4>
                             <p>${escapeHtml(command.explain || command.op)}</p>
-                            <code>${escapeHtml([settings.cliCommand || 'officecli', ...command.argv].join(' '))}</code>
+                            <code>${escapeHtml([getDetectedCliCommand() || getManualCliCommand() || 'officecli', ...command.argv].join(' '))}</code>
                         </div>
                     </article>
                 `).join('')}
@@ -1531,6 +1585,12 @@
         byId('officecli-launch-assistant')?.addEventListener('click', launchAssistant);
         byId('officecli-pick-workspace-dir')?.addEventListener('click', handlePickWorkspaceDirectory);
         byId('officecli-reset-workspace-dir')?.addEventListener('click', handleResetWorkspaceDirectory);
+        byId('officecli-auto-detect-cli')?.addEventListener('click', () => {
+            useAutoCliDetection();
+        });
+        byId('officecli-clear-cli-command')?.addEventListener('click', () => {
+            useAutoCliDetection();
+        });
         byId('officecli-check-assistant')?.addEventListener('click', () => {
             saveSettingsFromForm();
             checkBridge();
@@ -2292,6 +2352,48 @@
                 border-radius: 8px;
                 background: #fff7ed;
                 color: #c2410c;
+            }
+            .officecli-cli-detect {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 12px;
+                border: 1px solid #dbe4f0;
+                border-radius: 8px;
+                background: #f8fafc;
+            }
+            .officecli-cli-detect b {
+                display: block;
+                margin: 0 0 6px;
+                font-size: 13px;
+            }
+            .officecli-cli-detect p {
+                margin: 0 0 6px;
+                color: #475569;
+                font-size: 12px;
+                line-height: 1.45;
+                overflow-wrap: anywhere;
+            }
+            .officecli-cli-detect small {
+                color: #94a3b8;
+                font-size: 11px;
+            }
+            .officecli-advanced-cli {
+                margin-top: 10px;
+                border: 1px dashed #cbd5e1;
+                border-radius: 8px;
+                padding: 10px 12px;
+                background: #fff;
+            }
+            .officecli-advanced-cli > summary {
+                cursor: pointer;
+                color: #0f172a;
+                font-size: 12px;
+                font-weight: 800;
+            }
+            .officecli-advanced-cli[open] > summary {
+                margin-bottom: 10px;
             }
             .officecli-assistant-panel {
                 margin-bottom: 14px;
