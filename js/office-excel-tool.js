@@ -213,6 +213,43 @@
         }
     }
 
+    function buildChatCompletionsUrl(apiBaseUrl) {
+        const raw = String(apiBaseUrl || '').trim();
+        if (!raw) return '';
+        let url;
+        try {
+            url = new URL(raw);
+        } catch (error) {
+            throw new Error('API Base URL 格式不正确，请填写类似 https://yunwu.ai/v1 的地址');
+        }
+        url.hash = '';
+        url.search = '';
+        url.pathname = url.pathname.replace(/\/+$/, '');
+        if (/\/chat\/completions$/i.test(url.pathname)) {
+            return url.toString();
+        }
+        if (/\/v\d+$/i.test(url.pathname)) {
+            url.pathname += '/chat/completions';
+            return url.toString();
+        }
+        url.pathname += '/v1/chat/completions';
+        return url.toString();
+    }
+
+    async function readJsonResponse(response) {
+        const contentType = response.headers.get('content-type') || '';
+        const text = await response.text();
+        const preview = text.trim().slice(0, 180);
+        if (/text\/html/i.test(contentType) || /^<!doctype html/i.test(preview) || /^<html[\s>]/i.test(preview)) {
+            throw new Error('模型接口返回了网页 HTML，请把 API Base URL 改成 OpenAI 兼容地址，例如 https://yunwu.ai/v1');
+        }
+        try {
+            return JSON.parse(text);
+        } catch (error) {
+            throw new Error(`模型接口没有返回合法 JSON，请检查 API Base URL / 模型名称。返回片段：${preview || '空响应'}`);
+        }
+    }
+
     function buildUserPrompt() {
         const meta = state.fileMeta || {};
         return [
@@ -236,7 +273,7 @@
         if (!settings.apiBaseUrl || !settings.apiKey) {
             throw new Error('请先在设置层填写大模型 API Base URL 和 API Key');
         }
-        const url = settings.apiBaseUrl.replace(/\/+$/, '') + '/chat/completions';
+        const url = buildChatCompletionsUrl(settings.apiBaseUrl);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), settings.requestTimeoutMs);
         try {
@@ -258,9 +295,13 @@
             });
             if (!response.ok) {
                 const text = await response.text();
-                throw new Error(`模型规划失败：${response.status} ${text.slice(0, 160)}`);
+                const preview = text.trim().slice(0, 160);
+                if (/^<!doctype html/i.test(preview) || /^<html[\s>]/i.test(preview)) {
+                    throw new Error(`模型规划失败：接口返回网页 HTML。请把 API Base URL 改成 https://yunwu.ai/v1 后再试。`);
+                }
+                throw new Error(`模型规划失败：${response.status} ${preview}`);
             }
-            const data = await response.json();
+            const data = await readJsonResponse(response);
             const content = data?.choices?.[0]?.message?.content || '';
             return normalizePlan(extractJson(content));
         } finally {
@@ -706,7 +747,7 @@
                             <span>模型名称</span>
                             <input id="officecli-model" type="text" value="${escapeHtml(settings.model)}" placeholder="gpt-4.1-mini">
                         </label>
-                        <p class="officecli-help">这里的大模型只负责把任务翻译成 OfficeCLI 命令计划；表格文件读写由本地桥处理。</p>
+                        <p class="officecli-help">这里的大模型只负责把任务翻译成 OfficeCLI 命令计划；表格文件读写由本地桥处理。填写 https://yunwu.ai 这类根域名时，前端会自动调用 /v1/chat/completions。</p>
                     </div>
 
                     <div class="officecli-panel">
@@ -721,7 +762,7 @@
                         <label class="officecli-field">
                             <span>OfficeCLI 命令</span>
                             <input id="officecli-assistant-protocol" type="hidden" value="${escapeHtml(settings.assistantProtocol || defaultSettings.assistantProtocol)}">
-                            <input id="officecli-cli-command" type="text" value="${escapeHtml(settings.cliCommand)}" placeholder="officecli">
+                            <input id="officecli-cli-command" type="text" value="${escapeHtml(settings.cliCommand)}" placeholder="officecli 或 C:\\path\\officecli.cmd">
                         </label>
                         <label class="officecli-field">
                             <span>工作目录</span>
@@ -768,6 +809,9 @@
         const officeCli = assistant.officeCli || {};
         const isOnline = state.bridgeStatus === 'online';
         const compatible = isFrontendCompatible(assistant.minFrontendVersion);
+        const officeCliHint = officeCli.available
+            ? `可用 ${officeCli.version || ''}`.trim()
+            : `未检测到：${officeCli.error || '请安装 OfficeCLI 或填写完整命令路径'}`;
         return `
             <div class="officecli-panel officecli-assistant-panel">
                 <div class="officecli-assistant-main">
@@ -793,7 +837,7 @@
                     </div>
                     <div>
                         <span>OfficeCLI</span>
-                        <b class="${officeCli.available ? 'ok' : 'bad'}">${officeCli.available ? '可用' : '未检测到'}</b>
+                        <b class="${officeCli.available ? 'ok' : 'bad'}">${escapeHtml(officeCliHint)}</b>
                     </div>
                     <div>
                         <span>版本</span>
@@ -826,6 +870,9 @@
                         查看安装说明
                     </a>
                 </div>
+                ${isOnline && !officeCli.available ? `
+                    <p class="officecli-help officecli-warning">本地桥已连接，但真正执行表格的 OfficeCLI 引擎没有检测到。请先安装 OfficeCLI，或在下方“OfficeCLI 命令”里填写完整 exe / cmd 路径。</p>
+                ` : ''}
             </div>
         `;
     }
@@ -1482,6 +1529,13 @@
                 color: #64748b;
                 font-size: 12px;
                 line-height: 1.5;
+            }
+            .officecli-warning {
+                padding: 10px 12px;
+                border: 1px solid #fed7aa;
+                border-radius: 8px;
+                background: #fff7ed;
+                color: #c2410c;
             }
             .officecli-assistant-panel {
                 margin-bottom: 14px;

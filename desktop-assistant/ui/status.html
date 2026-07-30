@@ -225,11 +225,14 @@
         function render(status) {
             if (!status) return;
             currentStatus = status;
-            els.service.textContent = status.portChanged ? `已连接，端口切换到 ${status.port}` : '已连接';
-            els.service.className = status.portChanged ? 'value warn' : 'value ok';
+            const connected = Boolean(status.bridgeUrl);
+            els.service.textContent = connected
+                ? (status.portChanged ? `已连接，端口切换到 ${status.port}` : '已连接')
+                : (status.message || '启动中');
+            els.service.className = connected ? (status.portChanged ? 'value warn' : 'value ok') : 'value warn';
             els.officeCli.textContent = status.officeCli?.available
                 ? `可用 ${status.officeCli.version || ''}`
-                : `不可用：${status.officeCli?.error || '未检测到 officecli'}`;
+                : `不可用：${status.officeCli?.error || '未检测到 OfficeCLI，请安装或填写完整命令路径'}`;
             els.officeCli.className = status.officeCli?.available ? 'value ok' : 'value bad';
             els.bridgeUrl.textContent = status.bridgeUrl || '-';
             els.workspace.textContent = status.workspace || '-';
@@ -355,9 +358,12 @@
 
         async function refresh() {
             try {
-                const status = hasDesktopApi
+                let status = hasDesktopApi
                     ? await window.wallyAssistant.getStatus()
-                    : await findAssistantStatus();
+                    : null;
+                if (!status?.bridgeUrl) {
+                    status = await findAssistantStatus() || status;
+                }
                 if (status) {
                     render(status);
                 } else {

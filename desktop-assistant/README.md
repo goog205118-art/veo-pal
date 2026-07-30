@@ -18,11 +18,30 @@ node tools/officecli-bridge.mjs
 ## 用户流程
 
 1. 安装并打开 Wally Office Assistant。
-2. 打开网页项目，进入 `Office 表格 -> 设置层`。
-3. 页面显示 `已连接` 后，上传 Excel / CSV。
-4. 输入表格处理任务，让大模型生成 OfficeCLI 命令计划。
-5. 先执行 Dry Run，确认不会误改文件。
-6. 关闭 Dry Run，再执行真实写入。
+2. 确认本机已经安装 OfficeCLI，或能在命令行运行 `officecli --version`。
+3. 打开网页项目，进入 `Office 表格 -> 设置层`。
+4. 页面显示 `已连接` 且 `OfficeCLI 可用` 后，上传 Excel / CSV。
+5. 输入表格处理任务，让大模型生成 OfficeCLI 命令计划。
+6. 先执行 Dry Run，确认不会误改文件。
+7. 关闭 Dry Run，再执行真实写入。
+
+## 状态说明
+
+`本地桥已连接` 只代表网页已经连上桌面助手。
+
+`OfficeCLI 可用` 才代表本机已经具备真实读写表格文件的执行引擎。
+
+如果设置层显示 `OfficeCLI 未检测到`：
+
+- 先在本机确认 OfficeCLI 已安装。
+- 如果命令不是全局 `officecli`，在网页设置层的 `OfficeCLI 命令` 填完整路径，例如 `C:\tools\officecli.cmd`。
+- 点击 `重新检测`。
+
+如果生成计划报 `<!DOCTYPE` 或 `接口返回网页 HTML`：
+
+- 说明大模型接口地址返回了网页，不是 OpenAI-compatible JSON。
+- `API Base URL` 可填写 `https://yunwu.ai` 或更明确的 `https://yunwu.ai/v1`。
+- 前端会自动补全到 `/v1/chat/completions`。
 
 ## 已完成能力
 
