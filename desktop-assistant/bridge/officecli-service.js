@@ -1,10 +1,11 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { access, mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, appendFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 
 const MAX_BODY_BYTES = 80 * 1024 * 1024;
 const MAX_HISTORY_ITEMS = 100;
@@ -13,6 +14,8 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_WORKSPACE = path.join(os.homedir(), 'WallyOffice', 'workspace');
 const PROTOCOL_VERSION = '1.0.0';
 const MIN_FRONTEND_VERSION = '0.1.0';
+const SERVICE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ASSISTANT_DIR = path.resolve(SERVICE_DIR, '..');
 const ALLOWED_COMMANDS = new Set([
     'create',
     'view',
@@ -237,27 +240,115 @@ async function pathExists(candidate) {
     }
 }
 
+function isPathLikeCommand(command) {
+    const value = String(command || '');
+    return path.isAbsolute(value) || /[\\/]/.test(value);
+}
+
 function getOfficeCliCandidates(preferredCommand) {
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     return Array.from(new Set([
         preferredCommand,
         process.env.OFFICECLI_BIN,
-        path.join(os.homedir(), 'AppData', 'Local', 'OfficeCLI', 'officecli.exe'),
+        path.join(localAppData, 'OfficeCLI', 'officecli.exe'),
+        path.join(programFiles, 'OfficeCLI', 'officecli.exe'),
+        path.join(programFilesX86, 'OfficeCLI', 'officecli.exe'),
+        path.join(ASSISTANT_DIR, 'resources', 'officecli', 'officecli.exe'),
+        path.join(ASSISTANT_DIR, 'resources', 'officecli', 'officecli.cmd'),
+        path.join(process.resourcesPath || '', 'officecli', 'officecli.exe'),
+        path.join(process.resourcesPath || '', 'officecli', 'officecli.cmd'),
         path.join(os.homedir(), '.local', 'bin', 'officecli'),
         'officecli'
     ].filter(Boolean)));
 }
 
+function compactProbeMessage(result) {
+    return String(result.stdout || result.stderr || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 260);
+}
+
+function makeProbeCheck(name, result, success = result.success) {
+    return {
+        name,
+        success: Boolean(success),
+        message: compactProbeMessage(result) || (success ? 'OK' : `Exit code ${result.code}`),
+        durationMs: result.durationMs || 0
+    };
+}
+
+function looksLikeCsvViewOutput(result) {
+    const output = String(result.stdout || '').trim();
+    if (!result.success || !output) return false;
+    if (/officecli_detect|sku|price/i.test(output)) return true;
+    if ((output.startsWith('{') && output.endsWith('}')) || (output.startsWith('[') && output.endsWith(']'))) return true;
+    return output.length > 12;
+}
+
+async function runCsvReadProbe(command, workspace) {
+    await mkdir(workspace, { recursive: true });
+    const probeFile = path.join(workspace, `.officecli-detect-${crypto.randomUUID()}.csv`);
+    await writeFile(probeFile, 'sku,price,country\nofficecli_detect,1,US\n', 'utf8');
+    try {
+        const result = await runProcess(command, ['view', probeFile, 'text', '--max-lines', '5', '--json'], workspace, 10000);
+        return { result, readable: looksLikeCsvViewOutput(result) };
+    } finally {
+        await unlink(probeFile).catch(() => {});
+    }
+}
+
+async function probeOfficeCliCandidate(command, workspace) {
+    const checks = [];
+    const versionResult = await runProcess(command, ['--version'], workspace, 8000);
+    checks.push(makeProbeCheck('version', versionResult));
+
+    const helpResult = await runProcess(command, ['--help'], workspace, 8000);
+    checks.push(makeProbeCheck('help', helpResult));
+
+    const viewHelpResult = await runProcess(command, ['view', '--help'], workspace, 8000);
+    checks.push(makeProbeCheck('viewHelp', viewHelpResult));
+
+    const csvProbe = await runCsvReadProbe(command, workspace);
+    checks.push(makeProbeCheck('csvView', csvProbe.result, csvProbe.readable));
+
+    const capabilities = {
+        version: versionResult.success,
+        help: helpResult.success,
+        viewHelp: viewHelpResult.success,
+        csvRead: csvProbe.readable,
+        excelCsv: csvProbe.readable
+    };
+    const success = capabilities.csvRead && (capabilities.version || capabilities.help || capabilities.viewHelp);
+    const fallbackResult = csvProbe.result.success ? csvProbe.result : (versionResult.success ? versionResult : csvProbe.result);
+
+    return {
+        command,
+        result: {
+            ...fallbackResult,
+            success,
+            stdout: versionResult.stdout || helpResult.stdout || csvProbe.result.stdout,
+            stderr: success ? '' : (csvProbe.result.stderr || versionResult.stderr || helpResult.stderr || 'OfficeCLI capability check failed.')
+        },
+        checks,
+        capabilities,
+        version: String(versionResult.stdout || versionResult.stderr || '').trim()
+    };
+}
+
 async function detectOfficeCliCommand(preferredCommand, workspace) {
-    let lastResult = null;
+    let lastDetection = null;
     for (const candidate of getOfficeCliCandidates(preferredCommand)) {
-        if (candidate !== 'officecli' && !(await pathExists(candidate))) continue;
-        const result = await runProcess(candidate, ['--version'], workspace, 8000);
-        lastResult = { command: candidate, result };
-        if (result.success) {
-            return { command: candidate, result };
+        if (isPathLikeCommand(candidate) && !(await pathExists(candidate))) continue;
+        const detection = await probeOfficeCliCandidate(candidate, workspace);
+        lastDetection = detection;
+        if (detection.result.success) {
+            return detection;
         }
     }
-    return lastResult || {
+    return lastDetection || {
         command: preferredCommand || 'officecli',
         result: {
             success: false,
@@ -265,7 +356,16 @@ async function detectOfficeCliCommand(preferredCommand, workspace) {
             stdout: '',
             stderr: 'OfficeCLI is not available.',
             durationMs: 0
-        }
+        },
+        checks: [],
+        capabilities: {
+            version: false,
+            help: false,
+            viewHelp: false,
+            csvRead: false,
+            excelCsv: false
+        },
+        version: ''
     };
 }
 
@@ -433,8 +533,17 @@ export class OfficeCliService {
         this.lastOfficeCliStatus = {
             available: result.success,
             command: detection.command,
-            version: result.success ? (result.stdout || result.stderr || '').trim() : '',
-            error: result.success ? '' : formatOfficeCliError(result, detection.command)
+            version: result.success ? (detection.version || result.stdout || result.stderr || '').trim() : '',
+            error: result.success ? '' : formatOfficeCliError(result, detection.command),
+            checks: detection.checks || [],
+            capabilities: detection.capabilities || {
+                version: false,
+                help: false,
+                viewHelp: false,
+                csvRead: false,
+                excelCsv: false
+            },
+            testedAt: new Date().toISOString()
         };
         return this.lastOfficeCliStatus;
     }

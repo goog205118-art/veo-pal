@@ -5,6 +5,8 @@
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
     const FRONTEND_VERSION = '0.1.2';
     const SETTINGS_SCHEMA_VERSION = 3;
+    const ASSISTANT_RELEASE_URL = 'https://github.com/goog205118-art/veo-pal/releases/latest';
+    const ASSISTANT_SETUP_URL = 'https://github.com/goog205118-art/veo-pal/releases/latest/download/WallyOfficeAssistantSetup-0.1.0.exe';
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -1221,11 +1223,15 @@
     function renderAssistantPanel() {
         const assistant = state.assistant || {};
         const officeCli = assistant.officeCli || {};
+        const capabilities = officeCli.capabilities || {};
         const isOnline = state.bridgeStatus === 'online';
         const compatible = isFrontendCompatible(assistant.minFrontendVersion);
         const officeCliHint = officeCli.available
             ? `可用 ${officeCli.version || ''}`.trim()
             : `未检测到：${officeCli.error || '请安装 OfficeCLI 或填写完整命令路径'}`;
+        const csvReadHint = capabilities.csvRead
+            ? 'CSV / Excel 读取已通过'
+            : (officeCli.checks ? 'CSV 读取未通过' : '等待检测');
         return `
             <div class="officecli-panel officecli-assistant-panel">
                 <div class="officecli-assistant-main">
@@ -1254,6 +1260,10 @@
                         <b class="${officeCli.available ? 'ok' : 'bad'}">${escapeHtml(officeCliHint)}</b>
                     </div>
                     <div>
+                        <span>表格读取</span>
+                        <b class="${capabilities.csvRead ? 'ok' : 'bad'}">${escapeHtml(csvReadHint)}</b>
+                    </div>
+                    <div>
                         <span>版本</span>
                         <b>${escapeHtml(assistant.version || '-')}</b>
                     </div>
@@ -1279,11 +1289,22 @@
                         <span class="material-symbols-outlined">article</span>
                         日志
                     </button>
-                    <a class="officecli-download-link" href="desktop-assistant/README.md" target="_blank" rel="noreferrer">
+                    <a class="officecli-download-link primary" href="${ASSISTANT_SETUP_URL}" target="_blank" rel="noreferrer">
                         <span class="material-symbols-outlined">download</span>
+                        下载桌面助手
+                    </a>
+                    <a class="officecli-download-link" href="desktop-assistant/README.md" target="_blank" rel="noreferrer">
+                        <span class="material-symbols-outlined">description</span>
                         查看安装说明
                     </a>
+                    <a class="officecli-download-link" href="${ASSISTANT_RELEASE_URL}" target="_blank" rel="noreferrer">
+                        <span class="material-symbols-outlined">open_in_new</span>
+                        Release 页面
+                    </a>
                 </div>
+                ${!isOnline ? `
+                    <p class="officecli-help officecli-warning">未检测到桌面助手：先下载安装 Wally Office Assistant，保持助手运行，然后点击“重新检测”。</p>
+                ` : ''}
                 ${isOnline && !officeCli.available ? `
                     <p class="officecli-help officecli-warning">本地桥已连接，但真正执行表格的 OfficeCLI 引擎没有检测到。请先安装 OfficeCLI，或在下方“OfficeCLI 命令”里填写完整 exe / cmd 路径。</p>
                 ` : ''}
@@ -2343,6 +2364,11 @@
                 color: #1e293b;
                 text-decoration: none;
                 font-weight: 700;
+            }
+            .officecli-download-link.primary {
+                border-color: #16a34a;
+                background: #16a34a;
+                color: #fff;
             }
             .officecli-switches {
                 display: grid;
