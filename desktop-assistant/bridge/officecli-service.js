@@ -137,6 +137,29 @@ function resolveWorkbookArgv(argv, workbookPath) {
     });
 }
 
+function hasFileInput(file = {}) {
+    return Boolean(file.path || file.dataUrl);
+}
+
+function isCreateWorkbookCommand(command = {}) {
+    const argv = normalizeOfficeCliArgv(command.argv || []);
+    return String(argv[0] || '').toLowerCase() === 'create';
+}
+
+function makeGeneratedWorkbookPath(workspace, plan = {}) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const goalName = String(plan.goal || 'generated-workbook').trim() || 'generated-workbook';
+    const base = sanitizeName(`${goalName}-${stamp}.xlsx`).replace(/\.(xls|xlsx|xlsm|csv)$/i, '.xlsx');
+    return path.join(workspace, base);
+}
+
+function resolveCreateWorkbookPath(command = {}, workspace, fallbackPath) {
+    const argv = normalizeOfficeCliArgv(command.argv || []);
+    const requested = String(argv[1] || '').trim();
+    if (!requested || requested === '$file') return fallbackPath;
+    return path.join(workspace, sanitizeName(path.basename(requested)));
+}
+
 function validateArgv(argv) {
     if (!Array.isArray(argv) || !argv.length) {
         throw new Error('OfficeCLI argv is empty.');
@@ -720,7 +743,14 @@ export class OfficeCliService {
                 }
             }
 
-            workbookPath = await this.prepareFile(payload.file || {}, workspace);
+            if (hasFileInput(payload.file || {})) {
+                workbookPath = await this.prepareFile(payload.file || {}, workspace);
+            } else if (commands.some(isCreateWorkbookCommand)) {
+                const createCommand = commands.find(isCreateWorkbookCommand);
+                workbookPath = resolveCreateWorkbookPath(createCommand, workspace, makeGeneratedWorkbookPath(workspace, plan));
+            } else {
+                throw new Error('No executable spreadsheet file was received. Upload a file, provide a local file path, or start the plan with create $file.');
+            }
             await this.log(`${options.dryRun ? 'Dry run' : 'Execute'} plan "${plan.goal || 'OfficeCLI task'}" with ${commands.length} command(s).`);
 
             for (const command of commands) {
