@@ -1730,6 +1730,7 @@
         const html = state.result.html || state.result.previewHtml || '';
         const artifacts = Array.isArray(state.result.artifacts) ? state.result.artifacts : [];
         const logs = Array.isArray(state.result.logs) ? state.result.logs : [];
+        const warnings = Array.isArray(state.result.warnings) ? state.result.warnings : [];
         const filePath = state.result.filePath || state.filePath || '';
         const workspace = state.result.workspace || settings.workspaceDir || '';
         const resultFile = artifacts.find((item) => typeof item === 'string' ? item : item?.path);
@@ -1757,6 +1758,11 @@
                     ` : ''}
                 </div>
             </div>
+            ${warnings.length ? `
+                <div class="officecli-notes warning">
+                    ${warnings.slice(0, 3).map((warning) => `<p>${escapeHtml(warning)}</p>`).join('')}
+                </div>
+            ` : ''}
             ${html ? `<iframe class="officecli-preview-frame" srcdoc="${escapeHtml(html)}"></iframe>` : `
                 <div class="officecli-empty small">
                     <span class="material-symbols-outlined">preview_off</span>
@@ -1774,6 +1780,7 @@
                     message: state.result.message,
                     filePath,
                     workspace,
+                    warnings,
                     logs: logs.slice(-8)
                 }, null, 2))}</pre>
             </details>

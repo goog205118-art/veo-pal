@@ -438,6 +438,10 @@ function commandFailureMessage(command, argv, commandResult) {
     return `${prefix}。${detail.slice(0, 800)}`;
 }
 
+function isValidationCommand(command = {}, argv = []) {
+    return String(argv[0] || command.argv?.[0] || command.op || '').toLowerCase() === 'validate';
+}
+
 function commandMutates(command = {}) {
     const argv = Array.isArray(command.argv) ? command.argv : [];
     const op = String(command.op || argv[0] || '').toLowerCase();
@@ -733,6 +737,7 @@ export class OfficeCliService {
         const timeoutMs = Number(options.timeoutMs || 120000);
         const logs = [];
         const commandResults = [];
+        const warnings = [];
         let workbookPath = '';
         let html = '';
         let resultForHistory = null;
@@ -802,6 +807,13 @@ export class OfficeCliService {
                 if (!html) html = await maybeReadHtmlArtifact(commandResult.stdout, workspace);
                 if (!commandResult.success) {
                     const message = commandFailureMessage(command, argv, commandResult);
+                    if (isValidationCommand(command, argv)) {
+                        const warning = `Validation warning: ${message}`;
+                        warnings.push(warning);
+                        logs.push(`[warning] ${warning}`);
+                        await this.log(warning, 'warn');
+                        continue;
+                    }
                     await this.log(message, 'error');
                     resultForHistory = {
                         success: false,
@@ -809,6 +821,7 @@ export class OfficeCliService {
                         filePath: workbookPath,
                         workspace,
                         logFile: this.logFile,
+                        warnings,
                         logs,
                         commands: commandResults,
                         html
@@ -817,14 +830,37 @@ export class OfficeCliService {
                 }
             }
 
+            if (!options.dryRun && options.returnHtml && !html) {
+                const previewArgv = ['view', workbookPath, 'html'];
+                const previewResult = await runProcess(cliCommand, previewArgv, workspace, timeoutMs);
+                commandResults.push({
+                    id: '__html_preview',
+                    title: '生成 HTML 预览',
+                    argv: previewArgv,
+                    ...previewResult
+                });
+                if (previewResult.stdout) logs.push(previewResult.stdout.trim());
+                if (previewResult.stderr) logs.push(`[stderr] ${previewResult.stderr.trim()}`);
+                html = await maybeReadHtmlArtifact(previewResult.stdout, workspace);
+                if (!previewResult.success) {
+                    const warning = commandFailureMessage({ title: '生成 HTML 预览' }, previewArgv, previewResult);
+                    warnings.push(warning);
+                    logs.push(`[warning] ${warning}`);
+                    await this.log(warning, 'warn');
+                }
+            }
+
             resultForHistory = {
                 success: true,
-                message: options.dryRun ? 'Dry Run completed. No file was changed.' : 'OfficeCLI execution completed.',
+                message: warnings.length
+                    ? 'OfficeCLI execution completed with validation warnings.'
+                    : (options.dryRun ? 'Dry Run completed. No file was changed.' : 'OfficeCLI execution completed.'),
                 filePath: workbookPath,
                 workspace,
                 logFile: this.logFile,
                 artifacts: options.dryRun ? [] : [workbookPath],
                 dryRun: Boolean(options.dryRun),
+                warnings,
                 logs,
                 commands: commandResults,
                 html
@@ -838,6 +874,7 @@ export class OfficeCliService {
                 filePath: workbookPath,
                 workspace,
                 logFile: this.logFile,
+                warnings,
                 logs,
                 commands: commandResults,
                 html
