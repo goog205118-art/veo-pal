@@ -93,7 +93,7 @@ function decodeDataUrl(dataUrl) {
 }
 
 function isSafeArg(arg) {
-    return !/[;&|`<>]/.test(String(arg));
+    return !/[\x00-\x1F`]/.test(String(arg));
 }
 
 function normalizeOfficeCliArgv(argv) {

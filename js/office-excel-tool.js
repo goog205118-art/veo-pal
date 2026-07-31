@@ -493,9 +493,28 @@
         return lines;
     }
 
+    function escapeBatchCommandsForLegacyBridge(value) {
+        try {
+            const normalized = JSON.stringify(JSON.parse(String(value || '')));
+            return normalized.replace(/[;&|<>]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+        } catch (error) {
+            return value;
+        }
+    }
+
+    function normalizeBatchCommandsArgv(args) {
+        if (String(args[0] || '').toLowerCase() !== 'batch') return args;
+        const commandsIndex = args.indexOf('--commands');
+        if (commandsIndex < 0 || !args[commandsIndex + 1]) return args;
+        const next = [...args];
+        next[commandsIndex + 1] = escapeBatchCommandsForLegacyBridge(next[commandsIndex + 1]);
+        return next;
+    }
+
     function normalizeOfficeCliArgv(argv) {
         const args = Array.isArray(argv) ? argv.map((item) => String(item)) : [];
         if (!args.length) return args;
+        if (String(args[0] || '').toLowerCase() === 'batch') return normalizeBatchCommandsArgv(args);
         if (args[0] === 'view') {
             const htmlFlagIndex = args.indexOf('--html');
             if (htmlFlagIndex >= 0) {
