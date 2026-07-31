@@ -1417,6 +1417,7 @@
         const detectedCliCommand = getDetectedCliCommand();
         const officeCli = state.assistant?.officeCli || {};
         const capabilities = officeCli.capabilities || {};
+        const spreadsheetReadable = Boolean(capabilities.spreadsheetRead || capabilities.xlsxRead || capabilities.csvRead);
         const cliDetectLabel = officeCli.available
             ? '已自动定位 OfficeCLI'
             : (state.bridgeStatus === 'online' ? '等待重新检测或安装 OfficeCLI' : '先启动桌面助手后自动检测');
@@ -1465,7 +1466,7 @@
                                 <div>
                                     <b class="${officeCli.available ? 'ok' : 'bad'}">${escapeHtml(cliDetectLabel)}</b>
                                     <p>${escapeHtml(cliDetectDetail)}</p>
-                                    <small>表格读取：${capabilities.csvRead ? '已通过' : '未通过或等待检测'}</small>
+                                    <small>Excel 表格能力：${spreadsheetReadable ? '已通过' : '未通过或等待检测'}</small>
                                 </div>
                                 <button class="officecli-secondary" id="officecli-auto-detect-cli" type="button">
                                     <span class="material-symbols-outlined">manage_search</span>
@@ -1548,14 +1549,15 @@
         const assistant = state.assistant || {};
         const officeCli = assistant.officeCli || {};
         const capabilities = officeCli.capabilities || {};
+        const spreadsheetReadable = Boolean(capabilities.spreadsheetRead || capabilities.xlsxRead || capabilities.csvRead);
         const isOnline = state.bridgeStatus === 'online';
         const compatible = isFrontendCompatible(assistant.minFrontendVersion);
         const officeCliHint = officeCli.available
             ? `可用 ${officeCli.version || ''}`.trim()
             : `未检测到：${officeCli.error || '请先自动检测，必要时再填写高级路径'}`;
-        const csvReadHint = capabilities.csvRead
-            ? 'CSV / Excel 读取已通过'
-            : (officeCli.checks ? 'CSV 读取未通过' : '等待检测');
+        const spreadsheetReadHint = spreadsheetReadable
+            ? 'Excel 表格能力已通过'
+            : (officeCli.checks ? 'Excel 表格能力未通过' : '等待检测');
         return `
             <div class="officecli-panel officecli-assistant-panel">
                 <div class="officecli-assistant-main">
@@ -1584,8 +1586,8 @@
                         <b class="${officeCli.available ? 'ok' : 'bad'}">${escapeHtml(officeCliHint)}</b>
                     </div>
                     <div>
-                        <span>表格读取</span>
-                        <b class="${capabilities.csvRead ? 'ok' : 'bad'}">${escapeHtml(csvReadHint)}</b>
+                        <span>表格能力</span>
+                        <b class="${spreadsheetReadable ? 'ok' : 'bad'}">${escapeHtml(spreadsheetReadHint)}</b>
                     </div>
                     <div>
                         <span>版本</span>

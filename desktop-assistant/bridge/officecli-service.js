@@ -303,21 +303,32 @@ function makeProbeCheck(name, result, success = result.success) {
     };
 }
 
-function looksLikeCsvViewOutput(result) {
+function looksLikeSpreadsheetViewOutput(result) {
     const output = String(result.stdout || '').trim();
     if (!result.success || !output) return false;
     if (/officecli_detect|sku|price/i.test(output)) return true;
+    if (/"sheets"\s*:|Sheet1|rows/i.test(output)) return true;
     if ((output.startsWith('{') && output.endsWith('}')) || (output.startsWith('[') && output.endsWith(']'))) return true;
     return output.length > 12;
 }
 
-async function runCsvReadProbe(command, workspace) {
+async function runSpreadsheetProbe(command, workspace) {
     await mkdir(workspace, { recursive: true });
-    const probeFile = path.join(workspace, `.officecli-detect-${crypto.randomUUID()}.csv`);
-    await writeFile(probeFile, 'sku,price,country\nofficecli_detect,1,US\n', 'utf8');
+    const probeFile = path.join(workspace, `.officecli-detect-${crypto.randomUUID()}.xlsx`);
+    let createResult = null;
+    let viewResult = null;
     try {
-        const result = await runProcess(command, ['view', probeFile, 'text', '--max-lines', '5', '--json'], workspace, 10000);
-        return { result, readable: looksLikeCsvViewOutput(result) };
+        createResult = await runProcess(command, ['create', probeFile], workspace, 15000);
+        if (!createResult.success) {
+            return { result: createResult, readable: false, created: false };
+        }
+        viewResult = await runProcess(command, ['view', probeFile, 'text', '--max-lines', '5', '--json'], workspace, 15000);
+        return {
+            result: viewResult,
+            createResult,
+            readable: looksLikeSpreadsheetViewOutput(viewResult),
+            created: true
+        };
     } finally {
         await unlink(probeFile).catch(() => {});
     }
@@ -334,26 +345,31 @@ async function probeOfficeCliCandidate(command, workspace) {
     const viewHelpResult = await runProcess(command, ['view', '--help'], workspace, 8000);
     checks.push(makeProbeCheck('viewHelp', viewHelpResult));
 
-    const csvProbe = await runCsvReadProbe(command, workspace);
-    checks.push(makeProbeCheck('csvView', csvProbe.result, csvProbe.readable));
+    const spreadsheetProbe = await runSpreadsheetProbe(command, workspace);
+    if (spreadsheetProbe.createResult) {
+        checks.push(makeProbeCheck('xlsxCreate', spreadsheetProbe.createResult));
+    }
+    checks.push(makeProbeCheck('xlsxView', spreadsheetProbe.result, spreadsheetProbe.readable));
 
     const capabilities = {
         version: versionResult.success,
         help: helpResult.success,
         viewHelp: viewHelpResult.success,
-        csvRead: csvProbe.readable,
-        excelCsv: csvProbe.readable
+        spreadsheetRead: spreadsheetProbe.readable,
+        xlsxRead: spreadsheetProbe.readable,
+        csvRead: spreadsheetProbe.readable,
+        excelCsv: spreadsheetProbe.readable
     };
-    const success = capabilities.csvRead && (capabilities.version || capabilities.help || capabilities.viewHelp);
-    const fallbackResult = csvProbe.result.success ? csvProbe.result : (versionResult.success ? versionResult : csvProbe.result);
+    const success = capabilities.spreadsheetRead && (capabilities.version || capabilities.help || capabilities.viewHelp);
+    const fallbackResult = spreadsheetProbe.result.success ? spreadsheetProbe.result : (versionResult.success ? versionResult : spreadsheetProbe.result);
 
     return {
         command,
         result: {
             ...fallbackResult,
             success,
-            stdout: versionResult.stdout || helpResult.stdout || csvProbe.result.stdout,
-            stderr: success ? '' : (csvProbe.result.stderr || versionResult.stderr || helpResult.stderr || 'OfficeCLI capability check failed.')
+            stdout: versionResult.stdout || helpResult.stdout || spreadsheetProbe.result.stdout,
+            stderr: success ? '' : (spreadsheetProbe.result.stderr || versionResult.stderr || helpResult.stderr || 'OfficeCLI spreadsheet capability check failed.')
         },
         checks,
         capabilities,
@@ -385,6 +401,8 @@ async function detectOfficeCliCommand(preferredCommand, workspace) {
             version: false,
             help: false,
             viewHelp: false,
+            spreadsheetRead: false,
+            xlsxRead: false,
             csvRead: false,
             excelCsv: false
         },
@@ -563,6 +581,8 @@ export class OfficeCliService {
                 version: false,
                 help: false,
                 viewHelp: false,
+                spreadsheetRead: false,
+                xlsxRead: false,
                 csvRead: false,
                 excelCsv: false
             },
