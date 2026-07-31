@@ -3,10 +3,12 @@
 
     const SETTINGS_KEY = 'veoOfficeCliExcelToolSettings';
     const LAST_PLAN_KEY = 'veoOfficeCliExcelLastPlan';
-    const FRONTEND_VERSION = '0.1.2';
-    const SETTINGS_SCHEMA_VERSION = 3;
+    const FRONTEND_VERSION = '0.1.3';
+    const SETTINGS_SCHEMA_VERSION = 4;
     const ASSISTANT_RELEASE_URL = 'https://github.com/goog205118-art/veo-pal/releases/latest';
     const ASSISTANT_SETUP_URL = 'https://github.com/goog205118-art/veo-pal/releases/latest/download/WallyOfficeAssistantSetup-0.1.0.exe';
+    const MATERIAL_MAX_FILES = 8;
+    const MATERIAL_TEXT_LIMIT = 6000;
 
     const DEFAULT_SYSTEM_PROMPT = [
         '你是 OfficeCLI Excel 操作规划器。',
@@ -43,6 +45,7 @@
         workspaceDir: '',
         dryRun: true,
         requireConfirmation: false,
+        enableMultimodalMaterials: false,
         requestTimeoutMs: 120000,
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
         schemaVersion: SETTINGS_SCHEMA_VERSION
@@ -74,6 +77,7 @@
         fileDataUrl: '',
         fileMeta: null,
         filePath: '',
+        materials: [],
         instruction: '',
         plan: null,
         result: null,
@@ -160,6 +164,7 @@
             schemaVersion: SETTINGS_SCHEMA_VERSION,
             workspaceDir,
             requireConfirmation: shouldMigrateTrustedWriteDefault ? false : Boolean(stored.requireConfirmation),
+            enableMultimodalMaterials: Boolean(stored.enableMultimodalMaterials),
             systemPrompt: shouldRefreshPrompt ? DEFAULT_SYSTEM_PROMPT : stored.systemPrompt
         };
         const lastPlan = safeJsonParse(localStorage.getItem(LAST_PLAN_KEY) || 'null', null);
@@ -182,6 +187,7 @@
             workspaceDir: cleanWorkspaceDir(byId('officecli-workspace-dir').value) || defaultSettings.workspaceDir,
             dryRun: byId('officecli-dry-run').checked,
             requireConfirmation: byId('officecli-require-confirm').checked,
+            enableMultimodalMaterials: Boolean(byId('officecli-enable-materials')?.checked),
             requestTimeoutMs: Number(byId('officecli-timeout-ms').value) || defaultSettings.requestTimeoutMs,
             systemPrompt: byId('officecli-system-prompt').value.trim() || DEFAULT_SYSTEM_PROMPT,
             schemaVersion: SETTINGS_SCHEMA_VERSION
@@ -230,6 +236,70 @@
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
+    }
+
+    function makeId(prefix = 'id') {
+        if (window.crypto?.randomUUID) return `${prefix}_${window.crypto.randomUUID()}`;
+        return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    }
+
+    function isTextLikeMaterial(file) {
+        const name = String(file?.name || '').toLowerCase();
+        const type = String(file?.type || '').toLowerCase();
+        return type.startsWith('text/')
+            || /(\.txt|\.md|\.csv|\.json|\.html|\.htm|\.xml|\.log)$/i.test(name)
+            || ['application/json', 'application/xml'].includes(type);
+    }
+
+    async function readMaterialFile(file) {
+        const isImage = String(file.type || '').startsWith('image/');
+        const isText = isTextLikeMaterial(file);
+        const material = {
+            id: makeId('material'),
+            name: file.name || 'material',
+            size: file.size || 0,
+            type: file.type || '',
+            kind: isImage ? 'image' : (isText ? 'text' : 'file'),
+            dataUrl: '',
+            text: ''
+        };
+        if (isImage) {
+            material.dataUrl = await readAsDataUrl(file);
+        } else if (isText) {
+            material.text = compactText(await file.text(), MATERIAL_TEXT_LIMIT);
+        }
+        return material;
+    }
+
+    async function addMaterialFiles(files) {
+        const list = Array.from(files || []);
+        if (!list.length) return;
+        const remaining = Math.max(0, MATERIAL_MAX_FILES - state.materials.length);
+        if (!remaining) {
+            toast(`最多上传 ${MATERIAL_MAX_FILES} 个补充材料`);
+            return;
+        }
+        const selected = list.slice(0, remaining);
+        const materials = await Promise.all(selected.map(readMaterialFile));
+        state.materials = [...state.materials, ...materials];
+        if (list.length > remaining) {
+            toast(`已添加 ${remaining} 个材料，最多支持 ${MATERIAL_MAX_FILES} 个`);
+        } else {
+            toast(`已添加 ${materials.length} 个材料`);
+        }
+        addLog(`已添加模型补充材料：${materials.map((item) => item.name).join('、')}`, 'success');
+        render();
+    }
+
+    function removeMaterial(id) {
+        state.materials = state.materials.filter((item) => item.id !== id);
+        render();
+    }
+
+    function clearMaterials() {
+        state.materials = [];
+        render();
+        toast('已清空补充材料');
     }
 
     function hasDesktopAssistant() {
@@ -309,6 +379,17 @@
         render();
     }
 
+    async function pickMaterialFiles() {
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.accept = 'image/*,.txt,.md,.csv,.json,.html,.htm,.xml,.log';
+            input.onchange = () => resolve(input.files || []);
+            input.click();
+        });
+    }
+
     async function pickWorkspaceDirectory() {
         if (hasDesktopAssistant() && window.wallyAssistant.pickDirectory) {
             const picked = await window.wallyAssistant.pickDirectory({ title: '选择工作目录' });
@@ -360,6 +441,31 @@
         const text = String(value == null ? '' : value).trim();
         if (text.length <= maxLength) return text;
         return `${text.slice(0, maxLength)}\n...内容过长，已截断...`;
+    }
+
+    function getActiveMaterials() {
+        return settings.enableMultimodalMaterials ? state.materials : [];
+    }
+
+    function buildMaterialPromptLines() {
+        const materials = getActiveMaterials();
+        if (!materials.length) return [];
+        const lines = [
+            '',
+            '补充材料：',
+            '这些材料只用于模型识别文字、理解商品/票据/截图内容，并把识别结果映射到表格任务；真正改表仍必须通过 OfficeCLI 命令计划完成。'
+        ];
+        materials.forEach((material, index) => {
+            const label = `材料 ${index + 1}：${material.name || '未命名材料'}，类型 ${material.type || material.kind || 'unknown'}，大小 ${material.size ? `${Math.round(material.size / 1024)} KB` : 'unknown'}`;
+            if (material.kind === 'image') {
+                lines.push(`${label}。此材料已作为图片随请求发送，请识别其中的文字、版式、商品信息和关键字段。`);
+            } else if (material.kind === 'text') {
+                lines.push(`${label}。文本内容：\n${compactText(material.text, MATERIAL_TEXT_LIMIT) || '空文本'}`);
+            } else {
+                lines.push(`${label}。该类型当前只提供文件信息；如果任务需要正文内容，请改用图片截图或文本文件。`);
+            }
+        });
+        return lines;
     }
 
     function normalizeOfficeCliArgv(argv) {
@@ -499,13 +605,16 @@
             `当前文件：${meta.name || '$file'}`,
             `文件类型：${meta.type || 'unknown'}`,
             `文件大小：${meta.size ? `${Math.round(meta.size / 1024)} KB` : 'unknown'}`,
+            ...buildMaterialPromptLines(),
             '',
             '要求：',
             '1. 只输出 JSON。',
             '2. commands[].argv 必须是参数数组，不要写 shell 字符串。',
             '3. 对当前文件统一使用 $file 占位符。',
             '4. 如果需要写入，尽量生成新文件或输出副本。',
-            '5. 计划中必须包含解释性 title / explain，方便前端展示给用户确认。'
+            '5. 如果补充材料里有图片或文字内容，请优先提取其中的 SKU、价格、国家、条款、商品参数、地址、数量等可落表字段。',
+            '6. 如果还不知道表格真实 sheet 名、列名或行号，先生成读取计划，不要编造写入位置。',
+            '7. 计划中必须包含解释性 title / explain，方便前端展示给用户确认。'
         ].join('\n');
     }
 
@@ -546,6 +655,7 @@
             `用户原始任务：${state.instruction || '根据读取结果继续完成表格任务。'}`,
             `当前文件：${meta.name || previousResult?.filePath || '$file'}`,
             `文件类型：${meta.type || 'unknown'}`,
+            ...buildMaterialPromptLines(),
             '',
             '上一阶段命令计划：',
             compactText(previousPlan, 6000),
@@ -569,6 +679,19 @@
         if (!settings.apiBaseUrl || !settings.apiKey) {
             throw new Error('请先在设置层填写大模型 API Base URL 和 API Key');
         }
+        const imageMaterials = getActiveMaterials().filter((material) => material.kind === 'image' && material.dataUrl);
+        const userContent = imageMaterials.length
+            ? [
+                { type: 'text', text: userPrompt },
+                ...imageMaterials.map((material) => ({
+                    type: 'image_url',
+                    image_url: {
+                        url: material.dataUrl,
+                        detail: 'high'
+                    }
+                }))
+            ]
+            : userPrompt;
         const url = buildChatCompletionsUrl(settings.apiBaseUrl);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), settings.requestTimeoutMs);
@@ -584,7 +707,7 @@
                     temperature: 0.1,
                     messages: [
                         { role: 'system', content: settings.systemPrompt || DEFAULT_SYSTEM_PROMPT },
-                        { role: 'user', content: userPrompt }
+                        { role: 'user', content: userContent }
                     ]
                 }),
                 signal: controller.signal
@@ -1103,6 +1226,7 @@
                                 </button>
                             `).join('')}
                         </div>
+                        ${settings.enableMultimodalMaterials ? renderMaterialPanel() : ''}
                         <div class="officecli-actions">
                             <button class="officecli-primary" id="officecli-run-modify" ${state.busy ? 'disabled' : ''}>
                                 <span class="material-symbols-outlined">auto_awesome</span>
@@ -1176,6 +1300,10 @@
                             <span>模型名称</span>
                             <input id="officecli-model" type="text" value="${escapeHtml(settings.model)}" placeholder="gpt-4.1-mini">
                         </label>
+                        <div class="officecli-switches single">
+                            <label><input id="officecli-enable-materials" type="checkbox" ${settings.enableMultimodalMaterials ? 'checked' : ''}> 启用图片 / 材料理解</label>
+                        </div>
+                        <p class="officecli-help">仅在当前模型支持图片理解时开启。开启后，使用层可上传产品图、截图或文本材料，模型会先提取内容再生成 OfficeCLI 命令计划。</p>
                         <p class="officecli-help">这里的大模型只负责把任务翻译成 OfficeCLI 命令计划；表格文件读写由本地桥处理。填写 https://yunwu.ai 这类根域名时，前端会自动调用 /v1/chat/completions。</p>
                     </div>
 
@@ -1366,6 +1494,54 @@
         `;
     }
 
+    function renderMaterialPanel() {
+        const materials = state.materials || [];
+        return `
+            <div class="officecli-material-panel">
+                <div class="officecli-material-head">
+                    <div>
+                        <b>图片 / 材料</b>
+                        <span>${materials.length ? `${materials.length}/${MATERIAL_MAX_FILES}` : '未添加'}</span>
+                    </div>
+                    <div class="officecli-path-row">
+                        <button class="officecli-secondary" id="officecli-pick-materials" type="button" ${state.busy ? 'disabled' : ''}>
+                            <span class="material-symbols-outlined">add_photo_alternate</span>
+                            添加
+                        </button>
+                        <button class="officecli-ghost" id="officecli-clear-materials" type="button" ${!materials.length || state.busy ? 'disabled' : ''}>
+                            <span class="material-symbols-outlined">delete_sweep</span>
+                            清空
+                        </button>
+                    </div>
+                </div>
+                <div id="officecli-material-dropzone" class="officecli-material-dropzone" tabindex="0">
+                    <span class="material-symbols-outlined">upload</span>
+                    <b>拖入产品图、截图或文本材料</b>
+                </div>
+                ${materials.length ? `
+                    <div class="officecli-material-list">
+                        ${materials.map((material) => `
+                            <article class="officecli-material-item">
+                                ${material.kind === 'image' && material.dataUrl ? `
+                                    <img src="${escapeHtml(material.dataUrl)}" alt="">
+                                ` : `
+                                    <span class="material-symbols-outlined">${material.kind === 'text' ? 'article' : 'draft'}</span>
+                                `}
+                                <div>
+                                    <b>${escapeHtml(material.name)}</b>
+                                    <small>${escapeHtml(material.kind === 'image' ? '图片理解' : (material.kind === 'text' ? '文本提取' : '仅文件信息'))} · ${Math.max(1, Math.round((material.size || 0) / 1024))} KB</small>
+                                </div>
+                                <button class="officecli-icon-btn small" type="button" data-remove-material="${escapeHtml(material.id)}" aria-label="移除材料" ${state.busy ? 'disabled' : ''}>
+                                    <span class="material-symbols-outlined">close</span>
+                                </button>
+                            </article>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
     function renderPlanSummary() {
         if (!state.plan || !commandCount(state.plan)) return '等待计划';
         const commands = Array.isArray(state.plan.commands) ? state.plan.commands : [];
@@ -1540,6 +1716,40 @@
         byId('officecli-instruction')?.addEventListener('input', (event) => {
             state.instruction = event.target.value;
         });
+        byId('officecli-pick-materials')?.addEventListener('click', async () => {
+            const files = await pickMaterialFiles();
+            await addMaterialFiles(files);
+        });
+        byId('officecli-clear-materials')?.addEventListener('click', clearMaterials);
+        document.querySelectorAll('[data-remove-material]').forEach((button) => {
+            button.addEventListener('click', () => removeMaterial(button.dataset.removeMaterial));
+        });
+        const materialDropzone = byId('officecli-material-dropzone');
+        if (materialDropzone) {
+            materialDropzone.addEventListener('click', async () => {
+                const files = await pickMaterialFiles();
+                await addMaterialFiles(files);
+            });
+            materialDropzone.addEventListener('keydown', async (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    const files = await pickMaterialFiles();
+                    await addMaterialFiles(files);
+                }
+            });
+            materialDropzone.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                materialDropzone.classList.add('dragging');
+            });
+            materialDropzone.addEventListener('dragleave', () => {
+                materialDropzone.classList.remove('dragging');
+            });
+            materialDropzone.addEventListener('drop', async (event) => {
+                event.preventDefault();
+                materialDropzone.classList.remove('dragging');
+                await addMaterialFiles(event.dataTransfer?.files);
+            });
+        }
         byId('officecli-open-result-file')?.addEventListener('click', handleOpenResultFile);
         byId('officecli-open-result-folder')?.addEventListener('click', handleOpenResultFolder);
         const dropzone = byId('officecli-dropzone');
@@ -1845,6 +2055,110 @@
             .officecli-dropzone p {
                 margin: 0;
                 font-size: 12px;
+            }
+            .officecli-material-panel {
+                margin-top: 12px;
+                padding: 12px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #f8fafc;
+            }
+            .officecli-material-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 10px;
+            }
+            .officecli-material-head b,
+            .officecli-material-head span {
+                display: block;
+            }
+            .officecli-material-head b {
+                color: #0f172a;
+                font-size: 13px;
+            }
+            .officecli-material-head span {
+                margin-top: 3px;
+                color: #64748b;
+                font-size: 12px;
+            }
+            .officecli-material-dropzone {
+                min-height: 70px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                border: 1px dashed #cbd5e1;
+                border-radius: 8px;
+                background: #fff;
+                color: #475569;
+                cursor: pointer;
+                text-align: center;
+            }
+            .officecli-material-dropzone.dragging {
+                border-color: #2563eb;
+                background: #eff6ff;
+            }
+            .officecli-material-dropzone .material-symbols-outlined {
+                color: #2563eb;
+            }
+            .officecli-material-dropzone b {
+                font-size: 12px;
+            }
+            .officecli-material-list {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                margin-top: 10px;
+            }
+            .officecli-material-item {
+                display: grid;
+                grid-template-columns: 44px minmax(0, 1fr) 30px;
+                gap: 10px;
+                align-items: center;
+                min-height: 56px;
+                padding: 8px;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background: #fff;
+            }
+            .officecli-material-item img,
+            .officecli-material-item > .material-symbols-outlined {
+                width: 44px;
+                height: 44px;
+                border-radius: 8px;
+                background: #eef2ff;
+                color: #4f46e5;
+            }
+            .officecli-material-item img {
+                object-fit: cover;
+            }
+            .officecli-material-item > .material-symbols-outlined {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .officecli-material-item b,
+            .officecli-material-item small {
+                display: block;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .officecli-material-item b {
+                color: #0f172a;
+                font-size: 12px;
+            }
+            .officecli-material-item small {
+                margin-top: 4px;
+                color: #64748b;
+                font-size: 11px;
+            }
+            .officecli-icon-btn.small {
+                width: 30px;
+                height: 30px;
+                color: #64748b;
             }
             .officecli-field {
                 display: flex;
@@ -2477,6 +2791,9 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 8px;
                 margin-top: 12px;
+            }
+            .officecli-switches.single {
+                grid-template-columns: 1fr;
             }
             .officecli-switches label {
                 display: flex;
