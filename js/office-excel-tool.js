@@ -62,6 +62,7 @@
         filePath: '',
         materials: [],
         instruction: '',
+        generatedWorkbookName: '',
         plan: null,
         result: null,
         logs: [],
@@ -88,6 +89,13 @@
         } catch (error) {
             return fallback;
         }
+    }
+
+    function makeGeneratedWorkbookName() {
+        if (state.generatedWorkbookName) return state.generatedWorkbookName;
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        state.generatedWorkbookName = `office-generated-${stamp}.xlsx`;
+        return state.generatedWorkbookName;
     }
 
     function compareVersion(left = '0.0.0', right = '0.0.0') {
@@ -388,6 +396,7 @@
         state.fileMeta = selection.fileMeta || null;
         state.fileDataUrl = selection.fileDataUrl || '';
         state.filePath = selection.filePath || '';
+        state.generatedWorkbookName = '';
         if (state.fileMeta?.name || state.filePath) {
             addLog(`已选择文件：${state.fileMeta?.name || getFileDisplayName(state.filePath)}`, 'success');
         }
@@ -558,21 +567,82 @@
         return normalized;
     }
 
+    function hasWorkbookInput() {
+        return Boolean(state.file || state.filePath);
+    }
+
+    function isCreateCommand(command) {
+        const argv = normalizeOfficeCliArgv(command?.argv || []);
+        return String(argv[0] || '').toLowerCase() === 'create';
+    }
+
+    function ensureCreatePlanForNoWorkbook(plan) {
+        const normalized = normalizePlan(plan);
+        if (hasWorkbookInput() || normalized.commands.some(isCreateCommand)) return normalized;
+        makeGeneratedWorkbookName();
+        normalized.commands.unshift({
+            id: 'create_workbook',
+            title: 'Create Excel workbook',
+            op: 'workbook.create',
+            argv: ['create', '$file'],
+            mutates: true,
+            explain: 'Create a new xlsx workbook before writing extracted material data.'
+        });
+        normalized.safety = {
+            ...(normalized.safety || {}),
+            writesFile: true,
+            requiresConfirmation: normalized.safety?.requiresConfirmation !== false
+        };
+        normalized.expectedOutputs = Array.from(new Set([...(normalized.expectedOutputs || []), 'logs', 'htmlPreview']));
+        normalized.notes = Array.isArray(normalized.notes) ? normalized.notes : [];
+        if (!normalized.notes.includes('No workbook was uploaded, so create $file was inserted as the first step.')) {
+            normalized.notes.unshift('No workbook was uploaded, so create $file was inserted as the first step.');
+        }
+        return normalized;
+    }
+
     function extractJson(text) {
         const raw = String(text || '').trim();
         if (!raw) throw new Error('模型返回为空');
         const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
         const source = fenced ? fenced[1].trim() : raw;
+        const parseSource = (value) => JSON.parse(String(value).replace(/,\s*([}\]])/g, '$1'));
         try {
-            return JSON.parse(source);
+            return parseSource(source);
         } catch (firstError) {
             const first = source.indexOf('{');
             const last = source.lastIndexOf('}');
             if (first >= 0 && last > first) {
-                return JSON.parse(source.slice(first, last + 1));
+                return parseSource(source.slice(first, last + 1));
             }
             throw firstError;
         }
+    }
+
+    async function repairPlannerJsonContent(content, userPrompt, signal) {
+        const url = buildChatCompletionsUrl(settings.apiBaseUrl);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${settings.apiKey}`
+            },
+            body: JSON.stringify({
+                model: settings.model,
+                temperature: 0,
+                messages: [
+                    { role: 'system', content: 'Rewrite invalid OfficeCLI plan output into one strict JSON object only. Do not add Markdown. Keep argv as JSON arrays of strings.' },
+                    { role: 'user', content: `User task:\n${userPrompt}\n\nInvalid output:\n${String(content || '').slice(0, 24000)}` }
+                ]
+            }),
+            signal
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Planner JSON repair failed: ${response.status} ${text.trim().slice(0, 160)}`);
+        }
+        const data = await readJsonResponse(response);
+        return data?.choices?.[0]?.message?.content || '';
     }
 
     function buildChatCompletionsUrl(apiBaseUrl) {
@@ -742,7 +812,13 @@
             }
             const data = await readJsonResponse(response);
             const content = data?.choices?.[0]?.message?.content || '';
-            return normalizePlan(extractJson(content));
+            try {
+                return normalizePlan(extractJson(content));
+            } catch (parseError) {
+                addLog(`模型返回的计划 JSON 不合法，正在自动修复：${parseError.message}`, 'info');
+                const repaired = await repairPlannerJsonContent(content, userPrompt, controller.signal);
+                return normalizePlan(extractJson(repaired));
+            }
         } finally {
             clearTimeout(timer);
         }
@@ -826,7 +902,7 @@
         renderBusy(autoExecute ? '正在生成并执行 OfficeCLI 任务...' : '正在让模型生成 OfficeCLI 命令计划...');
         addLog('开始规划 OfficeCLI 命令', 'info');
         try {
-            const plan = settings.apiBaseUrl && settings.apiKey ? await callPlannerModel() : createLocalReadPlan();
+            const plan = ensureCreatePlanForNoWorkbook(settings.apiBaseUrl && settings.apiKey ? await callPlannerModel() : createLocalReadPlan());
             createdPlan = plan;
             state.plan = plan;
             localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(plan));
@@ -856,6 +932,8 @@
             toast('请先生成命令计划');
             return;
         }
+        state.plan = ensureCreatePlanForNoWorkbook(state.plan);
+        localStorage.setItem(LAST_PLAN_KEY, JSON.stringify(state.plan));
         const hasWorkbookInput = Boolean(state.file || state.filePath);
         const canCreateWorkbook = state.plan.commands.some((command) => String(command.argv?.[0] || '').toLowerCase() === 'create');
         if (!hasWorkbookInput && !canCreateWorkbook) {
@@ -890,16 +968,17 @@
         renderBusy(settings.dryRun ? '正在执行 Dry Run...' : '正在交给本地 OfficeCLI 执行...');
         addLog(settings.dryRun ? 'Dry Run：仅检查命令，不写入文件' : '发送到 OfficeCLI 本地桥', 'info');
         try {
+            const generatedWorkbookPath = !hasWorkbookInput && canCreateWorkbook ? makeGeneratedWorkbookName() : '';
             const body = {
                 tool: 'officecli',
                 kind: 'excel',
                 action: 'execute',
                 file: {
-                    name: state.fileMeta?.name || '',
-                    type: state.fileMeta?.type || '',
+                    name: state.fileMeta?.name || generatedWorkbookPath,
+                    type: state.fileMeta?.type || (generatedWorkbookPath ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : ''),
                     size: state.fileMeta?.size || 0,
                     dataUrl: state.fileDataUrl || '',
-                    path: state.filePath
+                    path: state.filePath || generatedWorkbookPath
                 },
                 plan: state.plan,
                 options: {
