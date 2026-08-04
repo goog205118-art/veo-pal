@@ -66,6 +66,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         textModelName: 'gemini-1.5-pro',
         textApiKey: '',
         imageRoute: 'stable_channel_1',
+        microCropEnabled: true,
         systemPrompt: '你是一位资深的欧美社媒营销专家。请根据用户提供的商品图片、描述以及使用场景/节日，撰写极具吸引力的社媒贴文（如 Instagram, Facebook 风格）。贴文需包含引人入胜的标题、正文、行动呼吁（CTA），语言为符合欧美本土习惯的英语。同时生成3-5个高流量的 Hashtag，并提炼一个简短英文视觉主题 theme。不要生成完整生图提示词，生图提示词由前端模板系统负责。',
         promptTemplates: DEFAULT_PROMPT_TEMPLATES.map((item) => ({ ...item }))
     };
@@ -439,6 +440,109 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         };
     }
 
+    function shouldApplyMicroCrop() {
+        return settings.microCropEnabled !== false;
+    }
+
+    async function createDrawableImageSource(url) {
+        const value = String(url || '').trim();
+        if (!/^https?:\/\//i.test(value)) {
+            return { url: value, revoke: null, crossOrigin: false };
+        }
+        try {
+            const response = await fetch(value, { mode: 'cors', credentials: 'omit' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            return {
+                url: objectUrl,
+                revoke: () => URL.revokeObjectURL(objectUrl),
+                crossOrigin: false
+            };
+        } catch (error) {
+            return { url: value, revoke: null, crossOrigin: true };
+        }
+    }
+
+    function loadCanvasImage(source) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            if (source.crossOrigin) img.crossOrigin = 'anonymous';
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('图片读取失败或远程地址不允许前端处理'));
+            img.src = source.url;
+        });
+    }
+
+    async function microCropImageUrl(url, index = 0) {
+        if (!url || !window.HTMLCanvasElement) return url;
+        const source = await createDrawableImageSource(url);
+        try {
+            const img = await loadCanvasImage(source);
+            const width = img.naturalWidth || img.width;
+            const height = img.naturalHeight || img.height;
+            if (!width || !height || width < 64 || height < 64) return url;
+
+            const variance = Math.random() * 0.003;
+            const horizontalRatio = 0.0025 + variance + ((index % 3) * 0.00035);
+            const verticalRatio = 0.0025 + (Math.random() * 0.0025) + ((index % 2) * 0.0003);
+            const cropX = Math.max(1, Math.min(Math.floor(width * horizontalRatio), Math.floor((width - 2) / 2)));
+            const cropY = Math.max(1, Math.min(Math.floor(height * verticalRatio), Math.floor((height - 2) / 2)));
+            if (cropX <= 0 || cropY <= 0 || width - cropX * 2 <= 0 || height - cropY * 2 <= 0) return url;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return url;
+            ctx.drawImage(img, cropX, cropY, width - cropX * 2, height - cropY * 2, 0, 0, width, height);
+            return canvas.toDataURL('image/png');
+        } finally {
+            if (source.revoke) source.revoke();
+        }
+    }
+
+    async function postProcessGeneratedImage(rawUrl, index, workspaceId) {
+        if (!shouldApplyMicroCrop()) {
+            return { url: rawUrl, originalUrl: '', postProcessed: false };
+        }
+        try {
+            const processedUrl = await microCropImageUrl(rawUrl, index);
+            const postProcessed = Boolean(processedUrl && processedUrl !== rawUrl);
+            if (postProcessed) {
+                logDebug(`第 ${index + 1} 张图片已完成静默微裁切。`, workspaceId);
+            }
+            return {
+                url: processedUrl || rawUrl,
+                originalUrl: postProcessed ? rawUrl : '',
+                postProcessed
+            };
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error || '未知错误');
+            logDebug(`第 ${index + 1} 张图片微裁切跳过: ${escapeHtml(message)}`, workspaceId);
+            return { url: rawUrl, originalUrl: '', postProcessed: false };
+        }
+    }
+
+    function bindGeneratedImageDrag(img, result, index) {
+        if (!img || !result || !result.url) return;
+        img.addEventListener('dragstart', (event) => {
+            if (!event.dataTransfer) return;
+            const filename = `social-image-${String(index + 1).padStart(2, '0')}.png`;
+            event.dataTransfer.effectAllowed = 'copy';
+            event.dataTransfer.setData('text/plain', result.url);
+            event.dataTransfer.setData('text/uri-list', result.url);
+            event.dataTransfer.setData('DownloadURL', `image/png:${filename}:${result.url}`);
+            event.dataTransfer.setData('application/json', JSON.stringify({
+                type: 'social_image',
+                index,
+                url: result.url,
+                originalUrl: result.originalUrl || '',
+                postProcessed: Boolean(result.postProcessed)
+            }));
+        });
+    }
+
     function ensureStyles() {
         if (byId('social-media-tool-styles')) return;
         const style = document.createElement('style');
@@ -468,6 +572,9 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-field label { color: var(--text-sub); font-size: 12px; font-weight: 600; }
 .social-tool-input, .social-tool-textarea, .social-tool-select { width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--input-muted-bg); color: var(--text-main); outline: none; font-size: 13px; padding: 10px 12px; user-select: text; }
 .social-tool-textarea { min-height: 88px; resize: vertical; line-height: 1.5; }
+.social-tool-check-row { min-height: 40px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; background: var(--input-muted-bg); color: var(--text-main); font-size: 13px; cursor: pointer; }
+.social-tool-check-row input { width: 16px; height: 16px; accent-color: var(--accent); flex: 0 0 auto; }
+.social-tool-check-row span { min-width: 0; }
 .social-tool-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .social-tool-template-slots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 14px; }
 .social-tool-template-slot { display: grid; grid-template-columns: 42px minmax(150px, 1.1fr) minmax(150px, .9fr); gap: 8px; align-items: center; }
@@ -723,6 +830,14 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                                         <option value="stable_channel_2">稳定版 Channel 2</option>
                                         <option value="pro">专业版 GPT Image 2</option>
                                     </select>
+                                </div>
+                                <div class="social-tool-field">
+                                    <label for="social-tool-micro-crop">图片后处理</label>
+                                    <label class="social-tool-check-row" for="social-tool-micro-crop">
+                                        <input id="social-tool-micro-crop" type="checkbox">
+                                        <span>生成后静默微裁切边缘，导出与拖出使用处理后图片</span>
+                                    </label>
+                                    <p class="social-tool-muted">用于社媒平台边缘适配和去除极轻微边缘瑕疵，幅度很小。</p>
                                 </div>
                             </div>
                         </section>
@@ -1002,6 +1117,8 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             const el = byId(id);
             if (el) el.value = value || '';
         });
+        const microCrop = byId('social-tool-micro-crop');
+        if (microCrop) microCrop.checked = settings.microCropEnabled !== false;
         renderTemplateManager();
     }
 
@@ -1010,6 +1127,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         settings.textModelName = byId('social-tool-text-model').value.trim() || defaultSettings.textModelName;
         settings.textApiKey = byId('social-tool-text-key').value.trim();
         settings.imageRoute = byId('social-tool-image-route').value || defaultSettings.imageRoute;
+        settings.microCropEnabled = byId('social-tool-micro-crop') ? byId('social-tool-micro-crop').checked : defaultSettings.microCropEnabled;
         settings.systemPrompt = byId('social-tool-system-prompt').value.trim() || defaultSettings.systemPrompt;
         settings.promptTemplates = normalizePromptTemplates(settings.promptTemplates);
         try {
@@ -1247,9 +1365,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                 let completedImages = 0;
                 const results = await Promise.allSettled(imagePlans.map((plan, index) => (
                     generateImage(plan.prompt, index, workspaceId)
-                        .then((url) => {
-                            workspace.imageResults[index] = { ...plan, index, status: 'success', url, error: '', ratio: plan.ratio, size: plan.size };
-                            return url;
+                        .then(async (url) => {
+                            const processed = await postProcessGeneratedImage(url, index, workspaceId);
+                            workspace.imageResults[index] = { ...plan, index, status: 'success', url: processed.url, originalUrl: processed.originalUrl, postProcessed: processed.postProcessed, error: '', ratio: plan.ratio, size: plan.size };
+                            return processed;
                         })
                         .catch((error) => {
                             const message = error && error.message ? error.message : String(error || 'Unknown image error');
@@ -1266,7 +1385,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                 )));
                 results.forEach((result, index) => {
                     if (result.status === 'fulfilled' && result.value) {
-                        workspace.imageResults[index] = { ...imagePlans[index], index, status: 'success', url: result.value, error: '', ratio: imagePlans[index].ratio, size: imagePlans[index].size };
+                        const processed = typeof result.value === 'string'
+                            ? { url: result.value, originalUrl: '', postProcessed: false }
+                            : result.value;
+                        workspace.imageResults[index] = { ...imagePlans[index], index, status: 'success', url: processed.url, originalUrl: processed.originalUrl || '', postProcessed: Boolean(processed.postProcessed), error: '', ratio: imagePlans[index].ratio, size: imagePlans[index].size };
                     }
                 });
                 setWorkspaceProgress(workspaceId, 100, '生成完成');
@@ -1636,6 +1758,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         img.src = url;
         img.alt = `生成配图 ${index + 1}`;
         img.draggable = true;
+        bindGeneratedImageDrag(img, { url }, index);
         const link = document.createElement('a');
         link.href = url;
         link.target = '_blank';
@@ -1664,6 +1787,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                 img.src = result.url;
                 img.alt = `生成配图 ${index + 1}`;
                 img.draggable = true;
+                bindGeneratedImageDrag(img, result, index);
                 const badge = document.createElement('span');
                 badge.className = 'social-tool-image-badge';
                 badge.textContent = `${getTemplateTypeLabel(result.templateType)} · ${result.templateName || `图 ${index + 1}`}`;
@@ -1749,8 +1873,9 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             setLoadingState(true);
         }
         try {
-            const url = await generateImage(prompt, index, workspace.id);
-            workspace.imageResults[index] = { ...previousResult, ...latestPlan, index, prompt, status: 'success', url, error: '', ratio: selectedRatio, size: selectedSize };
+            const rawUrl = await generateImage(prompt, index, workspace.id);
+            const processed = await postProcessGeneratedImage(rawUrl, index, workspace.id);
+            workspace.imageResults[index] = { ...previousResult, ...latestPlan, index, prompt, status: 'success', url: processed.url, originalUrl: processed.originalUrl, postProcessed: processed.postProcessed, error: '', ratio: selectedRatio, size: selectedSize };
             setWorkspaceProgress(workspace.id, 100, '单图生成完成');
             if (window.VeoBilling && typeof window.VeoBilling.refreshBalanceAfterUsage === 'function') {
                 window.VeoBilling.refreshBalanceAfterUsage();
