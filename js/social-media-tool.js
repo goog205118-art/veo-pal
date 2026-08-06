@@ -609,8 +609,9 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
 .social-tool-post-engage .material-symbols-outlined { font-size: 16px; }
 .social-tool-muted { color: var(--text-sub); font-size: 12px; line-height: 1.5; }
 .social-tool-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.social-tool-upload { aspect-ratio: 1; border: 1px dashed var(--border); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-sub); cursor: pointer; background: rgba(255,255,255,0.04); }
-.social-tool-upload:hover, .social-tool-upload.is-drag { color: var(--accent); border-color: var(--accent); }
+.social-tool-upload { aspect-ratio: 1; border: 1px dashed var(--border); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-sub); cursor: pointer; background: rgba(255,255,255,0.04); outline: none; text-align: center; }
+.social-tool-upload small { font-size: 11px; color: currentColor; opacity: .76; }
+.social-tool-upload:hover, .social-tool-upload:focus-visible, .social-tool-upload.is-drag, .social-tool-upload.is-paste-target { color: var(--accent); border-color: var(--accent); background: rgba(94,156,255,0.1); }
 .social-tool-upload input { display: none; }
 .social-tool-preview { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: rgba(255,255,255,0.05); }
 .social-tool-preview img, .social-tool-image-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -735,9 +736,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
                         <div class="social-tool-panel">
                             <h3><span class="material-symbols-outlined">image</span> 产品图片</h3>
                             <div class="social-tool-gallery" id="social-tool-gallery">
-                                <label class="social-tool-upload" id="social-tool-upload">
+                                <label class="social-tool-upload" id="social-tool-upload" tabindex="0" title="点击上传、拖入图片，或鼠标悬停后 Ctrl+V 粘贴剪切板图片">
                                     <span class="material-symbols-outlined">add_photo_alternate</span>
                                     <span>添加图片</span>
+                                    <small>支持 Ctrl+V 粘贴</small>
                                     <input id="social-tool-image-input" type="file" accept="image/*" multiple>
                                 </label>
                             </div>
@@ -974,6 +976,20 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         });
 
         const upload = byId('social-tool-upload');
+        const isUploadPasteTarget = () => {
+            const active = document.activeElement;
+            const uploadVisible = upload && upload.offsetParent !== null;
+            return Boolean(uploadVisible && (
+                upload.classList.contains('is-paste-target') ||
+                active === upload ||
+                upload.contains(active)
+            ));
+        };
+        upload.addEventListener('mouseenter', () => upload.classList.add('is-paste-target'));
+        upload.addEventListener('mouseleave', () => upload.classList.remove('is-paste-target'));
+        upload.addEventListener('focus', () => upload.classList.add('is-paste-target'));
+        upload.addEventListener('blur', () => upload.classList.remove('is-paste-target'));
+        upload.addEventListener('paste', handleUploadPaste);
         upload.addEventListener('dragover', (event) => {
             event.preventDefault();
             upload.classList.add('is-drag');
@@ -983,6 +999,10 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             event.preventDefault();
             upload.classList.remove('is-drag');
             if (event.dataTransfer && event.dataTransfer.files) processFiles(event.dataTransfer.files);
+        });
+        document.addEventListener('paste', (event) => {
+            if (event.defaultPrevented || !isUploadPasteTarget()) return;
+            handleUploadPaste(event);
         });
     }
 
@@ -1142,15 +1162,50 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
         event.target.value = '';
     }
 
+    function extractClipboardImageFiles(clipboardData) {
+        if (!clipboardData) return [];
+        const files = [];
+        if (clipboardData.items && clipboardData.items.length) {
+            Array.from(clipboardData.items).forEach((item) => {
+                if (!item || item.kind !== 'file' || !item.type || !item.type.startsWith('image/')) return;
+                const file = item.getAsFile();
+                if (file) files.push(file);
+            });
+        }
+        if (files.length === 0 && clipboardData.files && clipboardData.files.length) {
+            Array.from(clipboardData.files).forEach((file) => {
+                if (file && file.type && file.type.startsWith('image/')) files.push(file);
+            });
+        }
+        return files;
+    }
+
+    function handleUploadPaste(event) {
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        const files = extractClipboardImageFiles(event.clipboardData);
+        if (!files.length) {
+            showToast('剪切板里没有可粘贴的图片', true);
+            return false;
+        }
+        event.preventDefault();
+        const added = processFiles(files);
+        if (added > 0) {
+            showToast(`已从剪切板粘贴 ${added} 张图片`);
+        }
+        return true;
+    }
+
     function processFiles(files) {
         const workspace = getActiveWorkspace();
         const availableSlots = MAX_IMAGES - workspace.uploadedImages.length;
         if (availableSlots <= 0) {
             showToast('最多只能上传5张图片', true);
-            return;
+            return 0;
         }
-        Array.from(files).slice(0, availableSlots).forEach((file) => {
-            if (!file || !file.type || !file.type.startsWith('image/')) return;
+        const acceptedFiles = Array.from(files)
+            .filter((file) => file && file.type && file.type.startsWith('image/'))
+            .slice(0, availableSlots);
+        acceptedFiles.forEach((file) => {
             const reader = new FileReader();
             reader.onload = (event) => {
                 workspace.uploadedImages.push({
@@ -1161,6 +1216,7 @@ Do NOT generate image prompts. The frontend will combine 'theme' with user-selec
             };
             reader.readAsDataURL(file);
         });
+        return acceptedFiles.length;
     }
 
     function removeImage(index) {
