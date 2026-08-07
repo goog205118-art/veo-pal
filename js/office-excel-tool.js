@@ -233,6 +233,37 @@
         });
     }
 
+    function getClipboardImageFiles(event) {
+        const clipboardData = event?.clipboardData;
+        if (!clipboardData) return [];
+
+        const files = [];
+        const seen = new Set();
+        const pushImageFile = (file, index) => {
+            if (!file || !String(file.type || '').startsWith('image/')) return;
+            const signature = `${file.name || ''}:${file.size || 0}:${file.type || ''}:${file.lastModified || 0}`;
+            if (seen.has(signature)) return;
+            seen.add(signature);
+
+            if (file.name) {
+                files.push(file);
+                return;
+            }
+
+            const suffix = String(file.type || 'image/png').split('/')[1] || 'png';
+            const name = `clipboard-image-${Date.now()}-${index + 1}.${suffix}`;
+            files.push(new File([file], name, { type: file.type || 'image/png', lastModified: Date.now() }));
+        };
+
+        Array.from(clipboardData.files || []).forEach(pushImageFile);
+        Array.from(clipboardData.items || []).forEach((item, index) => {
+            if (item?.kind !== 'file' || !String(item.type || '').startsWith('image/')) return;
+            pushImageFile(item.getAsFile(), index);
+        });
+
+        return files;
+    }
+
     function makeId(prefix = 'id') {
         if (window.crypto?.randomUUID) return `${prefix}_${window.crypto.randomUUID()}`;
         return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -291,6 +322,19 @@
         }
         addLog(`已添加模型补充材料：${materials.map((item) => item.name).join('、')}`, 'success');
         render();
+    }
+
+    async function handleComposerPaste(event) {
+        const imageFiles = getClipboardImageFiles(event);
+        if (!imageFiles.length) return;
+
+        event.preventDefault();
+        if (!settings.enableMultimodalMaterials) {
+            toast('请先在设置层开启“图片 / 材料理解”后再粘贴图片');
+            return;
+        }
+
+        await addMaterialFiles(imageFiles);
     }
 
     function removeMaterial(id) {
@@ -1664,7 +1708,7 @@
                         清空材料
                     </button>
                 </div>
-            ` : '<p class="officecli-composer-hint">可拖入产品图、截图、文本材料；拖入 Excel / CSV 会自动作为表格文件。</p>'}
+            ` : '<p class="officecli-composer-hint">可拖入产品图、截图、文本材料，也可 Ctrl+V 粘贴截图；拖入 Excel / CSV 会自动作为表格文件。</p>'}
         `;
     }
 
@@ -1851,6 +1895,7 @@
         });
         const composer = byId('officecli-composer');
         if (composer) {
+            composer.addEventListener('paste', handleComposerPaste);
             composer.addEventListener('dragover', (event) => {
                 event.preventDefault();
                 composer.classList.add('dragging');
